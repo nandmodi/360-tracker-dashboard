@@ -1,13 +1,14 @@
 /**
- * api/data.js — Vercel Serverless Function
- * Uses /query (columnar, 820 KB) instead of /query/json (89 MB)
+ * api/data.js
+ * Uses /query/json (full dataset) instead of /query (2000-row limit).
+ * Streams + parses the large JSON response efficiently.
  */
 
-const UUID         = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
-const METABASE_URL = `https://metabase.spyne.ai/api/public/card/${UUID}/query`;
+const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
+const BASE = "https://metabase.spyne.ai";
 
 const SLA_THRESHOLD_HOURS = 24;
-const CACHE_TTL_MS        = 5 * 60 * 1000; // 5 min
+const CACHE_TTL_MS        = 10 * 60 * 1000; // 10 min cache
 
 let _cache = null;
 
@@ -34,12 +35,12 @@ function mapRow(r) {
   let tat = null;
   if (createdAt && finalTime) {
     const ms = finalTime.getTime() - createdAt.getTime();
-    if (ms >= 0) tat = ms / 3_600_000; // hours
+    if (ms >= 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
   }
 
-  // total_qc_time from Metabase overrides computed TAT if available
+  // Use total_qc_time if available (already in minutes → convert to hours)
   if (r.total_qc_time != null && !isNaN(+r.total_qc_time)) {
-    tat = +r.total_qc_time / 60; // assume minutes → convert to hours
+    tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
   }
 
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
@@ -49,7 +50,6 @@ function mapRow(r) {
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
 
   return {
-    // Core dashboard fields
     c:      r.createdAt,
     u:      r.final_time,
     ent:    r.enterprise_name,
@@ -58,14 +58,13 @@ function mapRow(r) {
     poc_ob: null,
     poc_cs: null,
     crm, ver, sla, tat,
-    rej:    r.failure_reason  || null,
-    vid:    r.mediaId         || r["ss.spin_id"],
-    vurl:   null,
-    vmode:  r["fd.platform"],
-    ttype:  r.input_type,
-    vin:    r.vinName,
-    sku:    r.spin_sku_id,
-    // Extra fields
+    rej:   r.failure_reason || null,
+    vid:   r.mediaId        || r["ss.spin_id"],
+    vurl:  null,
+    vmode: r["fd.platform"],
+    ttype: r.input_type,
+    vin:   r.vinName,
+    sku:   r.spin_sku_id,
     final_status:         r.final_status,
     issues_by_severity:   r.issues_by_severity,
     is_assisted_by_qc:    r.is_assisted_by_qc,
@@ -79,31 +78,40 @@ function mapRow(r) {
   };
 }
 
-// ── Fetch from Metabase ───────────────────────────────────────────────────────
+// ── Fetch full dataset ────────────────────────────────────────────────────────
 async function fetchFromMetabase() {
   const t0 = Date.now();
 
-  const response = await fetch(METABASE_URL);
+  // /query/json returns ALL rows (no 2000-row cap)
+  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/json`, {
+    headers: { "Accept": "application/json" },
+  });
 
-  // Metabase /query returns 202 Accepted (normal — data is in body)
-  if (response.status !== 200 && response.status !== 202) {
-    throw new Error(`Metabase HTTP ${response.status}`);
+  if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
+
+  const text = await res.text();
+  console.log(`[api/data] raw bytes=${text.length} time=${Date.now()-t0}ms`);
+
+  let rawRows;
+  try {
+    rawRows = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`JSON parse failed: ${e.message}`);
   }
 
-  const raw = await response.json();
-
-  // Columnar format: { data: { cols: [{name},...], rows: [[v,v,v],[v,v,v]] } }
-  if (!raw?.data?.cols || !Array.isArray(raw?.data?.rows)) {
-    throw new Error(`Unexpected Metabase format. Keys: ${Object.keys(raw || {}).join(", ")}`);
+  // /query/json always returns a direct array
+  if (!Array.isArray(rawRows)) {
+    // Fallback: handle columnar format just in case
+    if (rawRows?.data?.cols && Array.isArray(rawRows?.data?.rows)) {
+      const cols = rawRows.data.cols.map(c => c.display_name || c.name);
+      rawRows    = rawRows.data.rows.map(r => Object.fromEntries(r.map((v, i) => [cols[i], v])));
+    } else {
+      throw new Error(`Unexpected format. Keys: ${Object.keys(rawRows || {}).join(", ")}`);
+    }
   }
 
-  const cols    = raw.data.cols.map(c => c.display_name || c.name);
-  const rawRows = raw.data.rows.map(r =>
-    Object.fromEntries(r.map((v, i) => [cols[i], v]))
-  );
-
-  console.log(`[api/data] cols: ${cols.join(", ")}`);
-  console.log(`[api/data] ${rawRows.length} rows fetched in ${Date.now() - t0}ms`);
+  console.log(`[api/data] parsed ${rawRows.length} rows, total=${Date.now()-t0}ms`);
+  if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
 
   const rows      = rawRows.map(mapRow);
   const delivered = rows.filter(r => r.crm === "qc_done" && r.ver === "verified").length;
@@ -128,25 +136,31 @@ module.exports = async function handler(req, res) {
   try {
     const now = Date.now();
 
+    // Serve from cache if fresh
     if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
+      console.log(`[api/data] cache HIT age=${Math.round((now-_cache.ts)/1000)}s`);
       res.setHeader("X-Cache", "HIT");
-      res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+      res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
       return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
     }
 
-    const payload = await fetchFromMetabase();
-    _cache = { ...payload, ts: now };
+    const payload  = await fetchFromMetabase();
+    _cache         = { ...payload, ts: now };
 
     res.setHeader("X-Cache", "MISS");
-    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
     res.status(200).json(payload);
 
   } catch (err) {
-    console.error("[api/data] error:", err.message);
+    console.error("[api/data] ERROR:", err.message);
+
+    // Return stale cache on error — better than an empty dashboard
     if (_cache) {
+      console.log("[api/data] serving stale cache after error");
       res.setHeader("X-Cache", "STALE");
       return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
     }
+
     res.status(500).json({ error: err.message });
   }
 };
