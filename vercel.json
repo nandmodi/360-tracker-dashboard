@@ -2,7 +2,7 @@
   "regions": ["bom1"],
   "functions": {
     "api/data.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   }
 }
