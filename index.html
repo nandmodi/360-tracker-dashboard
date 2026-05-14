@@ -1210,29 +1210,31 @@ function buildFilterScopes(){
 }
 
 function aggregate(rows){
-  // ── Step 1: Deduplicate by spin_sku_id ───────────────────────
-  // Metabase SQL uses spin_ranked (partition by sku_id order by created_on desc)
-  // meaning each unique spin_sku_id appears once with its latest status.
-  // We replicate the same dedup here.
-  const skuMap = {};   // spin_sku_id → latest row
-  const noSkuRows = [];
+  // ── Step 1: Deduplicate matching Metabase SQL (spin_ranked) ──
+  // Priority of dedup key:
+  //   1. spin_sku_id  (matches SQL: partition by sku_id)
+  //   2. mediaId      (fallback when no SKU)
+  //   3. eid|tid|vin  (last resort)
+  // Keep LATEST row per key (matches SQL: order by created_on desc, rnk=1)
+  const dedupMap = {};
   for (const r of rows){
-    const sku = (r.sku || '').trim();
-    if (!sku){
-      noSkuRows.push(r);
-      continue;
-    }
-    const existing = skuMap[sku];
+    const key = (r.sku  && r.sku.trim())
+              ? r.sku.trim()
+              : (r.vid  && r.vid.trim())
+              ? `mid:${r.vid.trim()}`
+              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.team||'')}|${(r.vin||'')}`;
+
+    const existing = dedupMap[key];
     if (!existing){
-      skuMap[sku] = r;
+      dedupMap[key] = r;
     } else {
-      // Keep latest by createdAt (matches SQL: order by created_on desc, rnk=1)
       const tNew = r._created ? r._created.getTime() : 0;
       const tOld = existing._created ? existing._created.getTime() : 0;
-      if (tNew > tOld) skuMap[sku] = r;
+      if (tNew > tOld) dedupMap[key] = r;
     }
   }
-  const deduped = [...Object.values(skuMap), ...noSkuRows];
+  const deduped = Object.values(dedupMap);
+  console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.final_status==='Under Review').length}`);
 
   // ── Step 2: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
