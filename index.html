@@ -1141,7 +1141,7 @@ function presetRange(p){
 // ─────────────────────────────────────────────────────────────
 // FILTERING & AGGREGATION  (client-side, instant)
 // ─────────────────────────────────────────────────────────────
-const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure'];
+const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
 function isDelivered(r){ return r.final_status === 'Delivered'; }
 function isRejected(r){  return r.final_status === 'QC Failed' || r.final_status === 'Validation Failed'; }
 function isValidationFailed(r){ return r.final_status === 'Validation Failed'; }
@@ -1161,7 +1161,7 @@ function passesFilters(r){
   if (F.user     && !F.user.has(r.qc))                  return false;
   if (F.pocOb    && !F.pocOb.has(r.poc_ob||''))         return false;
   if (F.pocCs    && !F.pocCs.has(r.poc_cs||''))         return false;
-  if (F.verified && !F.verified.has(r.ver))             return false;
+  if (F.verified && !F.verified.has(r.final_status||'')) return false;
   if (F.tempType && !F.tempType.has(r.ttype||''))       return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
@@ -1173,7 +1173,6 @@ function passesFilters(r){
     if (!ok) return false;
   }
   if (F.rejReason){
-    // Only rejected rows can satisfy a reason filter; their reason must match (case/space normalized).
     if (!isRejected(r)) return false;
     if (normReason(r.rej) !== F.rejReason) return false;
   }
@@ -1196,7 +1195,7 @@ function buildFilterScopes(){
     if (r.ent) ent.add(r.ent);
     if (r.team) team.add(r.team);
     if (r.qc) user.add(r.qc);
-    if (r.ver) ver.add(r.ver);
+    if (r.final_status) ver.add(r.final_status);  // show actual final_status values
     if (r.poc_ob) pocOb.add(r.poc_ob);
     if (r.poc_cs) pocCs.add(r.poc_cs);
     if (r.ttype) tt.add(r.ttype);
@@ -1216,7 +1215,15 @@ function aggregate(rows){
   // Unique counts for received/enterprises/teams
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
-  let withinSla=0,outOfSla=0;
+  // ── SLA on all rows basis ─────────────────────────────────────
+  // Count all completed rows, check if TAT ≤ 6h
+  let withinSla=0, outOfSla=0, totalCompletedVins=0;
+  for (const r of rows) {
+    if (!isCompleted(r)) continue;
+    totalCompletedVins++;
+    if      (r.sla === 1) withinSla++;
+    else if (r.sla === 0) outOfSla++;
+  }
   let tatSum=0,tatCount=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={},teamCount={},qcCount={};
@@ -1243,10 +1250,8 @@ function aggregate(rows){
     let kind='pending';
     if (isDelivered(r)){
       totalDelivered++; kind='delivered';
-      // SLA & TAT for ALL completed records
+      // TAT for completed records
       if (isCompleted(r)){
-        if (r.sla === 1) withinSla++;
-        else if (r.sla === 0) outOfSla++;
         if (typeof r.tat === 'number' && isFinite(r.tat)){ tatSum+=r.tat; tatCount++; }
       }
     } else if (isRejected(r)){
@@ -1321,7 +1326,7 @@ function aggregate(rows){
   return {
     totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed, totalPending,
     withinSla, outOfSla,
-    slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
+    slaCompliance: totalCompletedVins ? +((withinSla/totalCompletedVins)*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
     avgTat: tatCount ? +(tatSum/tatCount).toFixed(2) : null,
@@ -1779,7 +1784,7 @@ function paint(){
     if (F.user     && !F.user.has(r.qc))           return false;
     if (F.pocOb    && !F.pocOb.has(r.poc_ob||'')) return false;
     if (F.pocCs    && !F.pocCs.has(r.poc_cs||'')) return false;
-    if (F.verified && !F.verified.has(r.ver))      return false;
+    if (F.verified && !F.verified.has(r.final_status||'')) return false;
     if (F.tempType && !F.tempType.has(r.ttype||'')) return false;
     if (F.sla){
       if (F.sla.size === 0) return false;
@@ -1818,9 +1823,10 @@ function paint(){
     ? `<tr><td colspan="17" class="empty">No records match these filters.</td></tr>`
     : recent.map(r=>{
         const isD=isDelivered(r), isR=isRejected(r);
-        const pill = isD?'<span class="pill delivered">Delivered</span>'
-                   :isR?'<span class="pill rejected">Rejected</span>'
-                       :'<span class="pill pending">Pending</span>';
+        const statusLabel = r.final_status || '—';
+        const pill = isD ? `<span class="pill delivered">${esc(statusLabel)}</span>`
+                   : isR ? `<span class="pill rejected">${esc(statusLabel)}</span>`
+                         : `<span class="pill pending">${esc(statusLabel)}</span>`;
         const slaPill = r.sla===1?'<span class="pill sla-in">In</span>'
                        :r.sla===0?'<span class="pill sla-out">Out</span>'
                                  :'<span class="pill">—</span>';
@@ -2292,6 +2298,19 @@ function activeFilterChips(){
 }
 
 function drillSubset(rows, view){
+  switch(view){
+    case 'delivered':     return rows.filter(isDelivered);
+    case 'rejected':      return rows.filter(isRejected);
+    case 'pending':       return rows.filter(isPending);
+    case 'not_delivered': return rows.filter(r => !isDelivered(r));
+    case 'within_sla':    return rows.filter(r => isCompleted(r) && r.sla===1);
+    case 'out_of_sla':    return rows.filter(r => isCompleted(r) && r.sla===0);
+    case 'tt_dare':       return rows.filter(r => (r.ttype||'').trim().toLowerCase()==='dare');
+    case 'tt_turbo':      return rows.filter(r => (r.ttype||'').trim().toLowerCase()==='turbo');
+    case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
+    default:              return rows;
+  }
+}
   switch(view){
     case 'delivered':     return rows.filter(isDelivered);
     case 'rejected':      return rows.filter(isRejected);
