@@ -4,22 +4,25 @@ const BASE = "https://metabase.spyne.ai";
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
+  // Try all possible Metabase endpoint formats
   const endpoints = [
     `${BASE}/api/public/card/${UUID}/query/json`,
     `${BASE}/api/public/card/${UUID}/query`,
+    `${BASE}/api/public/card/${UUID}/query/csv`,
   ];
 
   const results = {};
 
   for (const url of endpoints) {
     try {
-      const r    = await fetch(url);
+      const r = await fetch(url);
       const text = await r.text();
       results[url] = {
-        status:      r.status,
+        status: r.status,
         contentType: r.headers.get("content-type"),
-        preview:     text.slice(0, 800),
-        length:      text.length,
+        // Show first 500 chars of response
+        preview: text.slice(0, 500),
+        length: text.length,
       };
     } catch (e) {
       results[url] = { error: e.message };
