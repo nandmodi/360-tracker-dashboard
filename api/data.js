@@ -43,10 +43,10 @@ function mapRow(r) {
     tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
   }
 
-  const COMPLETED = ['Delivered','QC Failed','Validation Failed','Tech Failure'];
+  const COMPLETED = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
 
-  // SLA & TAT only for completed records (Delivered, QC Failed, Validation Failed, Tech Failure)
+  // SLA & TAT only for completed records (Delivered, QC Failed, Validation Failed, Tech Failure, AI Failed)
   let sla = null;
   if (tat !== null && COMPLETED.includes(r.final_status))
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
