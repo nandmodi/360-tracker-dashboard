@@ -1359,86 +1359,6 @@ function bucketTrend(rows, range){
   const buckets = [];
 
   if (range === '15days'){
-
-  for (const r of rows){
-    // Unique counts
-    if (r.sku) skuSet.add(r.sku);
-    if (r.eid) entIdSet.add(r.eid); else if (r.ent) entIdSet.add(r.ent);
-    if (r.tid) teamIdSet.add(r.tid); else if (r.team) teamIdSet.add(r.team);
-
-    let kind='pending';
-    if (isDelivered(r)){
-      totalDelivered++; kind='delivered';
-      // TAT for completed records
-      if (isCompleted(r)){
-        if (typeof r.tat === 'number' && isFinite(r.tat)){ tatSum+=r.tat; tatCount++; }
-      }
-    } else if (isRejected(r)){
-      totalRejected++; kind='rejected';
-      if (isValidationFailed(r)) totalValidationFailed++;
-      if (isQcFailed(r))         totalQcFailed++;
-      const k = normReason(r.rej);
-      if (k){
-        reasonsCount[k] = (reasonsCount[k]||0)+1;
-        if (!reasonDisplay[k]) reasonDisplay[k] = r.rej.trim();
-      } else {
-        reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
-        reasonDisplay['(unspecified)'] = '(no reason recorded)';
-      }
-    } else if (isPending(r)){
-      totalPending++;
-    }
-
-    // Tally Temp Type. Match case-insensitively but bucket into the canonical labels.
-    const tt = (r.ttype||'').trim();
-    if (!tt)                            ttBlankCount++;
-    else if (tt.toLowerCase() === 'dare')  dareCount++;
-    else if (tt.toLowerCase() === 'turbo') turboCount++;
-    else                                   ttOtherCount++;
-
-    if (r.ent)  entCount[r.ent]   = (entCount[r.ent]||0)+1;
-    if (r.team) teamCount[r.team] = (teamCount[r.team]||0)+1;
-    if (r.qc)   qcCount[r.qc]     = (qcCount[r.qc]||0)+1;
-
-    if (r.ent){
-      bump(entBreak, r.ent, kind);
-      if (kind === 'delivered' && r.sla === 1) entBreak[r.ent].withinSla++;
-      else if (kind === 'delivered' && r.sla === 0) entBreak[r.ent].outOfSla++;
-      if (!entPoc[r.ent]) entPoc[r.ent] = { ob:r.poc_ob||'', cs:r.poc_cs||'' };
-      else {
-        if (!entPoc[r.ent].ob && r.poc_ob) entPoc[r.ent].ob = r.poc_ob;
-        if (!entPoc[r.ent].cs && r.poc_cs) entPoc[r.ent].cs = r.poc_cs;
-      }
-    }
-    if (r.team){
-      bump(teamBreak, r.team, kind);
-      if (kind === 'delivered' && r.sla === 1) teamBreak[r.team].withinSla++;
-      else if (kind === 'delivered' && r.sla === 0) teamBreak[r.team].outOfSla++;
-      if (!teamPoc[r.team]) teamPoc[r.team] = { ob:r.poc_ob||'', cs:r.poc_cs||'', ent:r.ent||'' };
-      else {
-        if (!teamPoc[r.team].ob  && r.poc_ob) teamPoc[r.team].ob  = r.poc_ob;
-        if (!teamPoc[r.team].cs  && r.poc_cs) teamPoc[r.team].cs  = r.poc_cs;
-        if (!teamPoc[r.team].ent && r.ent)    teamPoc[r.team].ent = r.ent;
-      }
-    }
-  }
-
-  const sortDesc = obj => Object.fromEntries(Object.entries(obj).sort((a,b)=>b[1]-a[1]));
-  const slice = (obj, n) => Object.fromEntries(Object.entries(obj).slice(0, n));
-
-  // Build display-keyed rejection reasons (top 10) for the chart.
-  // Keep a parallel array of normalized keys so click→filter works even when
-  // long reasons were truncated for display.
-  const reasonsDisplay = {};
-  const reasonsKeys = {};   // displayLabel → normalized key
-  for (const [k,v] of Object.entries(reasonsCount).sort((a,b)=>b[1]-a[1])){
-    const disp = reasonDisplay[k] || k;
-    const label = disp.length > 60 ? disp.slice(0,57)+'…' : disp;
-    reasonsDisplay[label] = v;
-    reasonsKeys[label] = k;
-  }
-  const topReasons = slice(reasonsDisplay, 10);
-  if (range === '15days'){
     // Last 15 days, ending today, one bucket per day
     for (let i = 14; i >= 0; i--){
       const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -1957,7 +1877,10 @@ async function syncFromServer({silent=false, force=false}={}){
     // Diagnostic — open browser console to debug date filter
     const nullDates = RAW.filter(r=>!r._created).length;
     const filtered  = RAW.filter(passesFilters).length;
+    const urRaw     = RAW.filter(r=>r.final_status==='Under Review').length;
+    const urFiltered= RAW.filter(r=>passesFilters(r)&&r.final_status==='Under Review').length;
     console.log('[debug] RAW='+RAW.length+' nullDates='+nullDates+' filtered='+filtered);
+    console.log('[debug] Under Review in RAW='+urRaw+' | after date filter='+urFiltered);
     console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
     if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
     lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
@@ -1974,7 +1897,7 @@ async function syncFromServer({silent=false, force=false}={}){
         buckets[k].recv++;
         if (isDelivered(r)) { buckets[k].deliv++; if (r.sla===1) buckets[k].inSla++; else if (r.sla===0) buckets[k].outSla++; }
         else if (isRejected(r)) buckets[k].rej++;
-        else buckets[k].pend++;
+        else if (isPending(r)) buckets[k].pend++;
       }
       console.log('[monthly counts — should match CSV]');
       console.table(buckets);
