@@ -7,7 +7,7 @@
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
-const SLA_THRESHOLD_HOURS = 24;
+const SLA_THRESHOLD_HOURS = 6;   // within 6h = Within SLA
 const CACHE_TTL_MS        = 10 * 60 * 1000; // 10 min cache
 
 let _cache = null;
@@ -43,17 +43,21 @@ function mapRow(r) {
     tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
   }
 
+  const COMPLETED = ['Delivered','QC Failed','Validation Failed','Tech Failure'];
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
 
+  // SLA & TAT only for completed records (Delivered, QC Failed, Validation Failed, Tech Failure)
   let sla = null;
-  if (tat !== null && (ver === "verified" || ver === "rejected"))
+  if (tat !== null && COMPLETED.includes(r.final_status))
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
 
   return {
     c:      r.createdAt,
     u:      r.final_time,
     ent:    r.enterprise_name,
+    eid:    r.enterpriseId,          // raw ID for unique enterprise count
     team:   r.team_name,
+    tid:    r.teamId,                // raw ID for unique team count
     qc:     r.qc_user,
     poc_ob: null,
     poc_cs: null,
