@@ -2311,19 +2311,6 @@ function drillSubset(rows, view){
     default:              return rows;
   }
 }
-  switch(view){
-    case 'delivered':     return rows.filter(isDelivered);
-    case 'rejected':      return rows.filter(isRejected);
-    case 'pending':       return rows.filter(isPending);
-    case 'not_delivered': return rows.filter(r => !isDelivered(r));
-    case 'within_sla':    return rows.filter(r => isDelivered(r) && r.sla===1);
-    case 'out_of_sla':    return rows.filter(r => isDelivered(r) && r.sla===0);
-    case 'tt_dare':       return rows.filter(r => (r.ttype||'').trim().toLowerCase()==='dare');
-    case 'tt_turbo':      return rows.filter(r => (r.ttype||'').trim().toLowerCase()==='turbo');
-    case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
-    default:              return rows;
-  }
-}
 
 // Holds the current drill-down context so we can re-render on sort changes
 let _modalCtx = null;
