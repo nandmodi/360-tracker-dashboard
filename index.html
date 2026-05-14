@@ -1141,9 +1141,13 @@ function presetRange(p){
 // ─────────────────────────────────────────────────────────────
 // FILTERING & AGGREGATION  (client-side, instant)
 // ─────────────────────────────────────────────────────────────
-function isDelivered(r){ return r.crm==='qc_done' && r.ver==='verified'; }
-function isRejected(r){  return r.crm==='qc_done' && (r.ver==='rejected' || !r.ver || r.ver==='none'); }
-function isPending(r){   return r.crm!=='qc_done'; }
+const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure'];
+function isDelivered(r){ return r.final_status === 'Delivered'; }
+function isRejected(r){  return r.final_status === 'QC Failed' || r.final_status === 'Validation Failed'; }
+function isValidationFailed(r){ return r.final_status === 'Validation Failed'; }
+function isQcFailed(r){         return r.final_status === 'QC Failed'; }
+function isPending(r){   return r.final_status === 'Under Review'; }
+function isCompleted(r){ return COMPLETED_STATUSES.includes(r.final_status); }
 
 // Helper: normalize a rejection reason for comparison (lowercase, collapsed whitespace)
 function normReason(s){
@@ -1209,7 +1213,9 @@ function buildFilterScopes(){
 }
 
 function aggregate(rows){
-  let totalReceived=0,totalDelivered=0,totalRejected=0,totalPending=0;
+  // Unique counts for received/enterprises/teams
+  const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
+  let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
   let withinSla=0,outOfSla=0;
   let tatSum=0,tatCount=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
@@ -1229,14 +1235,24 @@ function aggregate(rows){
   const reasonDisplay = {}; // norm → first-seen display string
 
   for (const r of rows){
-    totalReceived++;
+    // Unique counts
+    if (r.sku) skuSet.add(r.sku);
+    if (r.eid) entIdSet.add(r.eid); else if (r.ent) entIdSet.add(r.ent);
+    if (r.tid) teamIdSet.add(r.tid); else if (r.team) teamIdSet.add(r.team);
+
     let kind='pending';
     if (isDelivered(r)){
       totalDelivered++; kind='delivered';
-      if (r.sla === 1) withinSla++;
-      else if (r.sla === 0) outOfSla++;
+      // SLA & TAT for ALL completed records
+      if (isCompleted(r)){
+        if (r.sla === 1) withinSla++;
+        else if (r.sla === 0) outOfSla++;
+        if (typeof r.tat === 'number' && isFinite(r.tat)){ tatSum+=r.tat; tatCount++; }
+      }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
+      if (isValidationFailed(r)) totalValidationFailed++;
+      if (isQcFailed(r))         totalQcFailed++;
       const k = normReason(r.rej);
       if (k){
         reasonsCount[k] = (reasonsCount[k]||0)+1;
@@ -1248,8 +1264,6 @@ function aggregate(rows){
     } else {
       totalPending++;
     }
-
-    if (typeof r.tat === 'number' && isFinite(r.tat)) { tatSum += r.tat; tatCount++; }
 
     // Tally Temp Type. Match case-insensitively but bucket into the canonical labels.
     const tt = (r.ttype||'').trim();
@@ -1303,16 +1317,17 @@ function aggregate(rows){
   const topReasonsKeys = {};
   Object.keys(topReasons).forEach(label => { topReasonsKeys[label] = reasonsKeys[label]; });
 
+  const totalReceived = skuSet.size;
   return {
-    totalReceived, totalDelivered, totalRejected, totalPending,
+    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed, totalPending,
     withinSla, outOfSla,
-    slaCompliance: totalDelivered ? +((withinSla/totalDelivered)*100).toFixed(2) : null,
+    slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
     avgTat: tatCount ? +(tatSum/tatCount).toFixed(2) : null,
     tatRecordCount: tatCount,
-    enterpriseCount: Object.keys(entCount).length,
-    teamCount:       Object.keys(teamCount).length,
+    enterpriseCount: entIdSet.size,
+    teamCount:       teamIdSet.size,
     topEnt:  slice(sortDesc(entCount),  12),
     topTeam: slice(sortDesc(teamCount), 12),
     topQc:   slice(sortDesc(qcCount),   15),
@@ -1395,14 +1410,14 @@ function bucketTrend(rows, range){
 // KPI CARDS
 // ─────────────────────────────────────────────────────────────
 const KPIS = [
-  { id:'ent',       label:'Total Enterprises', sub:'distinct in view',  color:'',       kind:'breakdown', dim:'ent'  },
-  { id:'team',      label:'Total Teams',       sub:'distinct in view',  color:'purple', kind:'breakdown', dim:'team' },
-  { id:'received',  label:'Total Received',    sub:'all records',       color:'',       kind:'records',   view:'all'        },
-  { id:'delivered', label:'Delivered',         sub:'qc_done & verified',color:'green',  kind:'records',   view:'delivered'  },
-  { id:'rejected',  label:'Rejected',          sub:'qc_done & rejected',color:'red',    kind:'records',   view:'rejected'   },
-  { id:'pending',   label:'Pending',           sub:'crm_status ≠ qc_done',color:'amber',kind:'records',   view:'pending'    },
-  { id:'sla',       label:'SLA Compliance',    sub:'within / delivered',color:'green',  kind:'records',   view:'within_sla' },
-  { id:'tat',       label:'Avg TAT',           sub:'turnaround time',   color:'blue',   kind:'records',   view:'tat'        },
+  { id:'ent',       label:'Total Enterprises', sub:'unique enterprise IDs',  color:'',       kind:'breakdown', dim:'ent'  },
+  { id:'team',      label:'Total Teams',       sub:'unique team IDs',        color:'purple', kind:'breakdown', dim:'team' },
+  { id:'received',  label:'Total Received',    sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
+  { id:'delivered', label:'Delivered',         sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
+  { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
+  { id:'pending',   label:'Pending',           sub:'Under Review',           color:'amber',  kind:'records',   view:'pending'    },
+  { id:'sla',       label:'SLA Compliance',    sub:'completed within 6h',    color:'green',  kind:'records',   view:'within_sla' },
+  { id:'tat',       label:'Avg TAT',           sub:'completed records',      color:'blue',   kind:'records',   view:'tat'        },
 ];
 
 function renderKpiCards(){
@@ -1411,6 +1426,7 @@ function renderKpiCards(){
       <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
       <div class="kpi-label">${esc(k.label)}</div>
       <div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>
+      ${k.id==='rejected' ? `<div class="kpi-pct" id="kv-rejected-sub" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>` : ''}
     </div>
   `).join('');
   $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
@@ -1717,6 +1733,8 @@ function paint(){
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
   $('kv-rejected').textContent  = num(k.totalRejected);
+  const rejSub = $('kv-rejected-sub');
+  if (rejSub) rejSub.textContent = `QC Failed: ${num(k.totalQcFailed)} · Validation Failed: ${num(k.totalValidationFailed)}`;
   $('kv-pending').textContent   = num(k.totalPending);
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
