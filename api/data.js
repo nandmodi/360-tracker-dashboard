@@ -32,15 +32,12 @@ function mapRow(r) {
   const createdAt = parseDate(r.createdAt);
   const finalTime = parseDate(r.final_time);
 
+  // TAT = final_time - createdAt (in hours)
+  // total_qc_time is QC processing time only — NOT the same as delivery TAT
   let tat = null;
   if (createdAt && finalTime) {
     const ms = finalTime.getTime() - createdAt.getTime();
     if (ms >= 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
-  }
-
-  // Use total_qc_time if available (already in minutes → convert to hours)
-  if (r.total_qc_time != null && !isNaN(+r.total_qc_time)) {
-    tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
   }
 
   const COMPLETED = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
