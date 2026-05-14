@@ -1177,9 +1177,8 @@ function passesFilters(r){
     if (normReason(r.rej) !== F.rejReason) return false;
   }
   if (F.from || F.to){
-    // Use _created if available, otherwise try _updated
     const ts = r._created || r._updated;
-    if (!ts) return true; // no date → include (don't filter out dateless records)
+    if (!ts) return false; // no date → exclude when date filter is active
     const t = ts.getTime();
     if (F.from && t < F.from.getTime()) return false;
     if (F.to   && t >= F.to.getTime() + 86400000) return false;
@@ -1211,31 +1210,29 @@ function buildFilterScopes(){
 }
 
 function aggregate(rows){
-  // ── Step 1: Deduplicate by enterpriseId + teamId + vinName ───
-  // Same vinName across different enterprises/teams = different record
-  // Only exact match on all 3 = duplicate → keep latest row
-  const vinMap = {}; // "eid|tid|vin" → latest row
-  const noVinRows = [];
+  // ── Step 1: Deduplicate by spin_sku_id ───────────────────────
+  // Metabase SQL uses spin_ranked (partition by sku_id order by created_on desc)
+  // meaning each unique spin_sku_id appears once with its latest status.
+  // We replicate the same dedup here.
+  const skuMap = {};   // spin_sku_id → latest row
+  const noSkuRows = [];
   for (const r of rows){
-    const vin = (r.vin || '').trim();
-    const eid = (r.eid || r.ent || '').trim();
-    const tid = (r.tid || r.team || '').trim();
-    if (!vin){
-      noVinRows.push(r);
+    const sku = (r.sku || '').trim();
+    if (!sku){
+      noSkuRows.push(r);
       continue;
     }
-    const key = `${eid}|${tid}|${vin}`;
-    const existing = vinMap[key];
+    const existing = skuMap[sku];
     if (!existing){
-      vinMap[key] = r;
+      skuMap[sku] = r;
     } else {
-      // Keep latest by createdAt
+      // Keep latest by createdAt (matches SQL: order by created_on desc, rnk=1)
       const tNew = r._created ? r._created.getTime() : 0;
       const tOld = existing._created ? existing._created.getTime() : 0;
-      if (tNew > tOld) vinMap[key] = r;
+      if (tNew > tOld) skuMap[sku] = r;
     }
   }
-  const deduped = [...Object.values(vinMap), ...noVinRows];
+  const deduped = [...Object.values(skuMap), ...noSkuRows];
 
   // ── Step 2: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
