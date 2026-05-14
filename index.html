@@ -1236,11 +1236,22 @@ function aggregate(rows){
   const deduped = Object.values(dedupMap);
   console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.final_status==='Under Review').length}`);
 
-  // ── Step 2: Unique set counts ─────────────────────────────────
+  // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
+  // Formula: ∑(final_time - createdAt) / Total completed rows
+  // Matches Metabase: "All vinName rows" not unique
+  let tatSum=0, tatCount=0;
+  for (const r of rows){
+    if (!isCompleted(r)) continue;
+    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat >= 0){
+      tatSum += r.tat;
+      tatCount++;
+    }
+  }
+
+  // ── Step 3: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
-  let tatSum=0, tatCount=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={};
@@ -1277,12 +1288,11 @@ function aggregate(rows){
       totalPending++;
     }
 
-    // SLA & TAT on completed vinNames
+    // SLA on completed vinNames (deduped)
     if (isCompleted(r)){
       totalCompletedVins++;
       if      (r.sla === 1) withinSla++;
       else if (r.sla === 0) outOfSla++;
-      if (typeof r.tat === 'number' && isFinite(r.tat)){ tatSum+=r.tat; tatCount++; }
     }
 
     // Temp Type
