@@ -1176,14 +1176,13 @@ function passesFilters(r){
     if (!isRejected(r)) return false;
     if (normReason(r.rej) !== F.rejReason) return false;
   }
-  if (F.from){
-    if (!r._created) return false;
-    if (r._created.getTime() < F.from.getTime()) return false;
-  }
-  if (F.to){
-    if (!r._created) return false;
-    const toExclusive = F.to.getTime() + 86400000;
-    if (r._created.getTime() >= toExclusive) return false;
+  if (F.from || F.to){
+    // Use _created if available, otherwise try _updated
+    const ts = r._created || r._updated;
+    if (!ts) return true; // no date → include (don't filter out dateless records)
+    const t = ts.getTime();
+    if (F.from && t < F.from.getTime()) return false;
+    if (F.to   && t >= F.to.getTime() + 86400000) return false;
   }
   return true;
 }
@@ -1212,25 +1211,41 @@ function buildFilterScopes(){
 }
 
 function aggregate(rows){
-  // Unique counts for received/enterprises/teams
+  // ── Step 1: Deduplicate by enterpriseId + teamId + vinName ───
+  // Same vinName across different enterprises/teams = different record
+  // Only exact match on all 3 = duplicate → keep latest row
+  const vinMap = {}; // "eid|tid|vin" → latest row
+  const noVinRows = [];
+  for (const r of rows){
+    const vin = (r.vin || '').trim();
+    const eid = (r.eid || r.ent || '').trim();
+    const tid = (r.tid || r.team || '').trim();
+    if (!vin){
+      noVinRows.push(r);
+      continue;
+    }
+    const key = `${eid}|${tid}|${vin}`;
+    const existing = vinMap[key];
+    if (!existing){
+      vinMap[key] = r;
+    } else {
+      // Keep latest by createdAt
+      const tNew = r._created ? r._created.getTime() : 0;
+      const tOld = existing._created ? existing._created.getTime() : 0;
+      if (tNew > tOld) vinMap[key] = r;
+    }
+  }
+  const deduped = [...Object.values(vinMap), ...noVinRows];
+
+  // ── Step 2: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
-  // ── SLA on all rows basis ─────────────────────────────────────
-  // Count all completed rows, check if TAT ≤ 6h
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
-  for (const r of rows) {
-    if (!isCompleted(r)) continue;
-    totalCompletedVins++;
-    if      (r.sla === 1) withinSla++;
-    else if (r.sla === 0) outOfSla++;
-  }
-  let tatSum=0,tatCount=0;
+  let tatSum=0, tatCount=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
-  const entCount={},teamCount={},qcCount={};
-  const entBreak={},teamBreak={};
-  const reasonsCount={};                 // case-normalized rejected reason counts
-
-  // Per-enterprise / per-team POC samples (first observed, since usually a 1:1 mapping)
+  const entCount={}, teamCount={}, qcCount={};
+  const entBreak={}, teamBreak={};
+  const reasonsCount={}, reasonDisplay={};
   const entPoc={}, teamPoc={};
 
   function bump(map,key,kind){
@@ -1238,8 +1253,113 @@ function aggregate(rows){
     map[key].total++; map[key][kind]++;
   }
 
-  // reasonsCount uses the module-scoped normReason() helper.
-  const reasonDisplay = {}; // norm → first-seen display string
+  // ── Step 3: Count on deduped rows ─────────────────────────────
+  for (const r of deduped){
+    if (r.sku) skuSet.add(r.sku);
+    if (r.eid) entIdSet.add(r.eid); else if (r.ent) entIdSet.add(r.ent);
+    if (r.tid) teamIdSet.add(r.tid); else if (r.team) teamIdSet.add(r.team);
+
+    let kind = 'pending';
+    if (isDelivered(r)){
+      totalDelivered++; kind='delivered';
+    } else if (isRejected(r)){
+      totalRejected++; kind='rejected';
+      if (isValidationFailed(r)) totalValidationFailed++;
+      if (isQcFailed(r))         totalQcFailed++;
+      const k = normReason(r.rej);
+      if (k){
+        reasonsCount[k] = (reasonsCount[k]||0)+1;
+        if (!reasonDisplay[k]) reasonDisplay[k] = r.rej.trim();
+      } else {
+        reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
+        reasonDisplay['(unspecified)'] = '(no reason recorded)';
+      }
+    } else if (isPending(r)){
+      totalPending++;
+    }
+
+    // SLA & TAT on completed vinNames
+    if (isCompleted(r)){
+      totalCompletedVins++;
+      if      (r.sla === 1) withinSla++;
+      else if (r.sla === 0) outOfSla++;
+      if (typeof r.tat === 'number' && isFinite(r.tat)){ tatSum+=r.tat; tatCount++; }
+    }
+
+    // Temp Type
+    const tt = (r.ttype||'').trim();
+    if (!tt)                               ttBlankCount++;
+    else if (tt.toLowerCase()==='dare')    dareCount++;
+    else if (tt.toLowerCase()==='turbo')   turboCount++;
+    else                                   ttOtherCount++;
+
+    if (r.ent)  entCount[r.ent]  = (entCount[r.ent]||0)+1;
+    if (r.team) teamCount[r.team]= (teamCount[r.team]||0)+1;
+    if (r.qc)   qcCount[r.qc]   = (qcCount[r.qc]||0)+1;
+
+    if (r.ent){
+      bump(entBreak, r.ent, kind);
+      if (r.sla===1) entBreak[r.ent].withinSla++;
+      else if (r.sla===0) entBreak[r.ent].outOfSla++;
+      if (!entPoc[r.ent]) entPoc[r.ent]={ob:r.poc_ob||'',cs:r.poc_cs||''};
+      else {
+        if (!entPoc[r.ent].ob && r.poc_ob) entPoc[r.ent].ob=r.poc_ob;
+        if (!entPoc[r.ent].cs && r.poc_cs) entPoc[r.ent].cs=r.poc_cs;
+      }
+    }
+    if (r.team){
+      bump(teamBreak, r.team, kind);
+      if (r.sla===1) teamBreak[r.team].withinSla++;
+      else if (r.sla===0) teamBreak[r.team].outOfSla++;
+      if (!teamPoc[r.team]) teamPoc[r.team]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
+      else {
+        if (!teamPoc[r.team].ob  && r.poc_ob) teamPoc[r.team].ob =r.poc_ob;
+        if (!teamPoc[r.team].cs  && r.poc_cs) teamPoc[r.team].cs =r.poc_cs;
+        if (!teamPoc[r.team].ent && r.ent)    teamPoc[r.team].ent=r.ent;
+      }
+    }
+  }
+
+  const sortDesc = obj => Object.fromEntries(Object.entries(obj).sort((a,b)=>b[1]-a[1]));
+  const slice    = (obj,n)=> Object.fromEntries(Object.entries(obj).slice(0,n));
+
+  const reasonsDisplay={}, reasonsKeys={};
+  for (const [k,v] of Object.entries(reasonsCount).sort((a,b)=>b[1]-a[1])){
+    const disp  = reasonDisplay[k]||k;
+    const label = disp.length>60 ? disp.slice(0,57)+'…' : disp;
+    reasonsDisplay[label]=v; reasonsKeys[label]=k;
+  }
+  const topReasons    = slice(reasonsDisplay,10);
+  const topReasonsKeys= {};
+  Object.keys(topReasons).forEach(l=>{ topReasonsKeys[l]=reasonsKeys[l]; });
+
+  const totalReceived = skuSet.size;
+  return {
+    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed, totalPending,
+    withinSla, outOfSla,
+    slaCompliance: totalCompletedVins ? +((withinSla/totalCompletedVins)*100).toFixed(2) : null,
+    deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
+    rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
+    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
+    tatRecordCount: tatCount,
+    enterpriseCount: entIdSet.size,
+    teamCount:       teamIdSet.size,
+    topEnt:  slice(sortDesc(entCount), 12),
+    topTeam: slice(sortDesc(teamCount),12),
+    topQc:   slice(sortDesc(qcCount),  15),
+    topReasons, topReasonsKeys,
+    entBreak, teamBreak, entPoc, teamPoc,
+    dareCount, turboCount, ttOtherCount, ttBlankCount,
+  };
+}
+// ─────────────────────────────────────────────────────────────
+// TREND BUCKETING  (independent of date filter)
+// ─────────────────────────────────────────────────────────────
+function bucketTrend(rows, range){
+  const now = new Date();
+  const buckets = [];
+
+  if (range === '15days'){
 
   for (const r of rows){
     // Unique counts
@@ -1319,36 +1439,6 @@ function aggregate(rows){
     reasonsKeys[label] = k;
   }
   const topReasons = slice(reasonsDisplay, 10);
-  const topReasonsKeys = {};
-  Object.keys(topReasons).forEach(label => { topReasonsKeys[label] = reasonsKeys[label]; });
-
-  const totalReceived = skuSet.size;
-  return {
-    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed, totalPending,
-    withinSla, outOfSla,
-    slaCompliance: totalCompletedVins ? +((withinSla/totalCompletedVins)*100).toFixed(2) : null,
-    deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
-    rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
-    avgTat: tatCount ? +(tatSum/tatCount).toFixed(2) : null,
-    tatRecordCount: tatCount,
-    enterpriseCount: entIdSet.size,
-    teamCount:       teamIdSet.size,
-    topEnt:  slice(sortDesc(entCount),  12),
-    topTeam: slice(sortDesc(teamCount), 12),
-    topQc:   slice(sortDesc(qcCount),   15),
-    topReasons, topReasonsKeys,
-    entBreak, teamBreak, entPoc, teamPoc,
-    dareCount, turboCount, ttOtherCount, ttBlankCount,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────
-// TREND BUCKETING  (independent of date filter)
-// ─────────────────────────────────────────────────────────────
-function bucketTrend(rows, range){
-  const now = new Date();
-  const buckets = [];
-
   if (range === '15days'){
     // Last 15 days, ending today, one bucket per day
     for (let i = 14; i >= 0; i--){
@@ -1865,6 +1955,12 @@ async function syncFromServer({silent=false, force=false}={}){
       r._updated = parseTs(r.u);
       RAW.push(r);
     }
+    // Diagnostic — open browser console to debug date filter
+    const nullDates = RAW.filter(r=>!r._created).length;
+    const filtered  = RAW.filter(passesFilters).length;
+    console.log('[debug] RAW='+RAW.length+' nullDates='+nullDates+' filtered='+filtered);
+    console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
+    if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
     lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
     $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
 
