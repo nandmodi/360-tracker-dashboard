@@ -1266,7 +1266,7 @@ function aggregate(rows){
         reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
         reasonDisplay['(unspecified)'] = '(no reason recorded)';
       }
-    } else {
+    } else if (isPending(r)){
       totalPending++;
     }
 
