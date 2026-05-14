@@ -115,16 +115,21 @@ async function fetchFromMetabase() {
   if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
 
   // ── Apply SQL WHERE filters (mirrors Metabase SQL conditions) ──────────────
-  // Excluded enterprise IDs (from v1_skus hardcoded list)
+  // Full excluded enterprises list from {{#10629-excluded-enterprises}}
   const EXCLUDED_IDS = new Set([
-    '4bc9d1ce6',  // Ai tool
-    'TaD1VC1Ko',  // Spyne
-    '93e1a2855',  // Spyne Operations
-    '39b5a5268',  // Myntra
-    '28733e36c',  // Data Annotation
-    '197d146c4',  // Chrome Extension
-    'af5e033aa',  // Swiggy
-    '2LA80M7WO',  // Swiggy
+    'ab450c917','1a606c1be','3f7e1de7d','a45469aae','0ab14c0e5',
+    'b83672002','d0ff81353','f3e852d59','93e1a2855','6454b95ba',
+    '3756e853d','89caf2cee','TaD1VC1Ko','858b283d5','e44c9a35c',
+    'd43efacc7','d4c8a4a1d','TTUPJL4CX','36dd343cd','c0ed7fa96',
+    '02b8d46b3','12ac53b3e','88135ef45','f9830c477','204fffd0d',
+    'f9c214e85','ae0a68ccf','ca3c8e6e7','42025c0d0','7a0316bc8',
+    '48d291b7d','770f86373','bee254e26','f68f573c5','de4aca97f',
+    'd1afe11d2','db61eb217','e36499a20','c25ec9c3a','151210e04',
+    '7475bba76','d414b35ff','17a32e021','9166ddff0','d4b845bb5',
+    '59f60f5b1','462680aed','459b94b51','543e60308','528aef9c5',
+    'd6e653898','e5a5a9289',
+    // v1_skus hardcoded list
+    '4bc9d1ce6','39b5a5268','28733e36c','197d146c4','af5e033aa','2LA80M7WO',
   ]);
 
   const filteredRaw = rawRows.filter(r => {
