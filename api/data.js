@@ -114,10 +114,33 @@ async function fetchFromMetabase() {
   console.log(`[api/data] parsed ${rawRows.length} rows, total=${Date.now()-t0}ms`);
   if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
 
-  const rows      = rawRows.map(mapRow);
-  const delivered = rows.filter(r => r.crm === "qc_done" && r.ver === "verified").length;
-  const rejected  = rows.filter(r => r.crm === "qc_done" && r.ver === "rejected").length;
-  const pending   = rows.filter(r => r.crm !== "qc_done").length;
+  // ── Apply SQL WHERE filters (mirrors Metabase SQL conditions) ──────────────
+  // Excluded enterprise IDs (from v1_skus hardcoded list)
+  const EXCLUDED_IDS = new Set([
+    '4bc9d1ce6',  // Ai tool
+    'TaD1VC1Ko',  // Spyne
+    '93e1a2855',  // Spyne Operations
+    '39b5a5268',  // Myntra
+    '28733e36c',  // Data Annotation
+    '197d146c4',  // Chrome Extension
+    'af5e033aa',  // Swiggy
+    '2LA80M7WO',  // Swiggy
+  ]);
+
+  const filteredRaw = rawRows.filter(r => {
+    if (EXCLUDED_IDS.has(r.enterpriseId)) return false;
+    const name = (r.enterprise_name || '').toLowerCase();
+    if (name.includes('spyne')) return false;
+    if (name.includes('test'))  return false;
+    return true;
+  });
+
+  console.log(`[api/data] after enterprise filter: ${filteredRaw.length} rows (removed ${rawRows.length - filteredRaw.length})`);
+
+  const rows        = filteredRaw.map(mapRow);
+  const delivered   = rows.filter(r => r.final_status === 'Delivered').length;
+  const rejected    = rows.filter(r => r.final_status === 'QC Failed' || r.final_status === 'Validation Failed').length;
+  const pending     = rows.filter(r => r.final_status === 'Under Review').length;
 
   console.log(`[api/data] D:${delivered} R:${rejected} P:${pending}`);
 
