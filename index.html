@@ -1240,10 +1240,11 @@ function aggregate(rows){
 
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
   // Formula: ∑(final_time - createdAt) / Total completed rows
-  // Matches Metabase: "All vinName rows" not unique
+  // Exclude records where qc_user_id is null (not QC processed)
   let tatSum=0, tatCount=0;
   for (const r of rows){
     if (!isCompleted(r)) continue;
+    if (!r.qc) continue;  // skip where qc_user_id is null
     if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat >= 0){
       tatSum += r.tat;
       tatCount++;
