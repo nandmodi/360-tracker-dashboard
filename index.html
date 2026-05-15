@@ -1143,7 +1143,7 @@ function aggregate(rows){
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
-  const entBreak={}, teamBreak={};
+  const entBreak={}, teamBreak={}, qcBreak={};
   const reasonsCount={}, reasonDisplay={};
   const entPoc={}, teamPoc={};
 
@@ -1194,6 +1194,7 @@ function aggregate(rows){
     if (r.ent)  entCount[r.ent]  = (entCount[r.ent]||0)+1;
     if (r.team) teamCount[r.team]= (teamCount[r.team]||0)+1;
     if (r.qc)   qcCount[r.qc]   = (qcCount[r.qc]||0)+1;
+    if (r.qc)   bump(qcBreak, r.qc, kind);
 
     if (r.ent){
       bump(entBreak, r.ent, kind);
@@ -1246,7 +1247,7 @@ function aggregate(rows){
     topTeam: slice(sortDesc(teamCount),12),
     topQc:   slice(sortDesc(qcCount),  15),
     topReasons, topReasonsKeys,
-    entBreak, teamBreak, entPoc, teamPoc,
+    entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     dareCount, turboCount, ttOtherCount, ttBlankCount,
   };
 }
@@ -1462,6 +1463,88 @@ function mkTrend(canvas, buckets){
   ).join('');
 }
 
+// ── Segmented bar (Delivered + Rejected in one bar) ──────────────────────────
+function mkSegBar(id, container, breakMap, opts={}){
+  if (!container) return;
+  container.innerHTML = '';
+  if (!breakMap || !Object.keys(breakMap).length){
+    container.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>';
+    return;
+  }
+
+  // Sort by total desc, take top 12
+  const entries = Object.entries(breakMap)
+    .map(([label, b]) => ({ label, total: b.total||0, delivered: b.delivered||0, rejected: b.rejected||0 }))
+    .sort((a,b) => b.total - a.total)
+    .slice(0, 12);
+
+  const maxTotal = entries[0]?.total || 1;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:7px';
+
+  // Legend
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:14px;margin-bottom:6px;font-size:11px;color:var(--muted)';
+  legend.innerHTML = `
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>Delivered
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:8px;height:8px;border-radius:2px;background:#E24B4A;display:inline-block"></span>Rejected
+    </span>`;
+  wrap.appendChild(legend);
+
+  entries.forEach(({ label, total, delivered, rejected }) => {
+    const dPct = total ? (delivered / maxTotal) * 100 : 0;
+    const rPct = total ? (rejected  / maxTotal) * 100 : 0;
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+    row.setAttribute('role','button');
+    row.setAttribute('tabindex','0');
+    if (opts.onPick){
+      row.addEventListener('click', ()=> opts.onPick(label));
+      row.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); opts.onPick(label); }});
+    }
+
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'font-size:11px;color:var(--muted);width:130px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0';
+    nameEl.textContent = label;
+    nameEl.title = label;
+
+    const barWrap = document.createElement('div');
+    barWrap.style.cssText = 'flex:1;display:flex;height:20px;border-radius:4px;overflow:hidden;background:var(--line);min-width:0';
+
+    // Delivered segment
+    if (dPct > 0){
+      const dSeg = document.createElement('div');
+      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:width .3s`;
+      if (dPct > 8) dSeg.innerHTML = `<span style="font-size:9px;color:#fff;font-weight:500;white-space:nowrap;padding:0 3px">${delivered.toLocaleString()}</span>`;
+      barWrap.appendChild(dSeg);
+    }
+
+    // Rejected segment
+    if (rPct > 0){
+      const rSeg = document.createElement('div');
+      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:width .3s`;
+      if (rPct > 5) rSeg.innerHTML = `<span style="font-size:9px;color:#fff;font-weight:500;white-space:nowrap;padding:0 3px">${rejected.toLocaleString()}</span>`;
+      barWrap.appendChild(rSeg);
+    }
+
+    const totalEl = document.createElement('span');
+    totalEl.style.cssText = 'font-size:11px;font-weight:500;color:var(--ink);width:40px;flex-shrink:0;text-align:right';
+    totalEl.textContent = total.toLocaleString();
+
+    row.appendChild(nameEl);
+    row.appendChild(barWrap);
+    row.appendChild(totalEl);
+    wrap.appendChild(row);
+  });
+
+  container.appendChild(wrap);
+}
+
 function mkBar(id, canvas, map, opts={}){
   killChart(id);
   if (!map || !Object.keys(map).length){
@@ -1600,14 +1683,17 @@ function paint(){
   paintSla(k);
   paintDelivery(k);
 
-  // Top-X horizontal bars
+  // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
-  mkBar('ent',  $('cEnt'),  k.topEnt,  { h:true, color:PAL.accent,
-    onPick:label=>{ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); refresh(); } });
-  mkBar('team', $('cTeam'), k.topTeam, { h:true, color:PAL.purple,
-    onPick:label=>{ F.team = new Set([label]); refreshMsTriggers(); refresh(); } });
-  mkBar('qc',   $('cQc'),   k.topQc,   { h:true, color:PAL.ink,
-    onPick:label=>{ F.user = new Set([label]); refreshMsTriggers(); refresh(); } });
+  mkSegBar('ent',  $('cEnt'),  k.entBreak,  {
+    onPick: label=>{ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); refresh(); }
+  });
+  mkSegBar('team', $('cTeam'), k.teamBreak, {
+    onPick: label=>{ F.team = new Set([label]); refreshMsTriggers(); refresh(); }
+  });
+  mkSegBar('qc',   $('cQc'),   k.qcBreak,  {
+    onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); refresh(); }
+  });
 
   // Rejection reasons — clicking a bar toggles a filter for that reason
   mkBar('reasons', $('cReasons'), k.topReasons, { h:true, color:PAL.red,
