@@ -314,6 +314,9 @@
   #loadOverlay.show{display:flex;}
   .spinner-box{background:var(--surface);border-radius:12px;padding:28px 36px;display:flex;flex-direction:column;align-items:center;gap:14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);}
   .spinner{width:28px;height:28px;border:2.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+  .load-progress-wrap{width:220px;height:5px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:4px;}
+  .load-progress-bar{height:100%;background:var(--accent);border-radius:999px;width:0%;transition:width .4s ease;}
+  .load-pct{font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.04em;}
   @keyframes spin{to{transform:rotate(360deg);}}
 
   /* DRILL-DOWN MODAL */
@@ -388,7 +391,7 @@
 </head>
 <body>
 
-<div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span></div></div>
+<div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span><div class="load-progress-wrap"><div class="load-progress-bar" id="loadBar"></div></div><span class="load-pct" id="loadPct"></span></div></div>
 
 <button class="theme-toggle" id="themeBtn">
   <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1864,12 +1867,34 @@ function refresh(){
 // ─────────────────────────────────────────────────────────────
 async function syncFromServer({silent=false, force=false}={}){
   const btn = $('syncBtn');
-  if (!silent){ btn.disabled = true; btn.textContent = 'Syncing…'; setLoading(true, 'Loading data…'); }
+  if (!silent){ btn.disabled = true; btn.textContent = 'Syncing…'; setLoading(true, 'Connecting to Metabase…'); setLoadProgress(5); }
   $('errBox').innerHTML='';
   try {
+    setLoadProgress(10, 'Fetching data…');
+
+    // Simulate progress while waiting for large response
+    let pct = 10;
+    const progressInterval = setInterval(()=>{
+      if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
+    }, 800);
+
     const res = await fetch('/api/data' + (force ? '?force=1' : ''));
-    const data = await res.json();
+
+    clearInterval(progressInterval);
+    setLoadProgress(85, 'Processing rows…');
+
+    // Handle non-JSON responses (API errors, timeouts)
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch(e) {
+      throw new Error(`Server error: ${text.slice(0, 120)}`);
+    }
+
     if (!res.ok) throw new Error(data.error || 'Request failed');
+
+    setLoadProgress(92, 'Applying filters…');
 
     // Parse dates once on receipt — filters then become fast.
     // IMPORTANT: the CSV timestamps come as "2026-05-11T08:54:58Z" but the
@@ -1913,6 +1938,7 @@ async function syncFromServer({silent=false, force=false}={}){
     })();
 
     // Populate filter dropdowns from the FULL dataset (won't shrink as user filters)
+    setLoadProgress(96, 'Building filters…');
     const sc = buildFilterScopes();
     msEnt.setOptions(sc.enterpriseList);
     msTeam.setOptions(sc.teamList);
@@ -1923,6 +1949,8 @@ async function syncFromServer({silent=false, force=false}={}){
     msSla.setOptions(['Within SLA','Out of SLA']);
     msTempType.setOptions(sc.tempTypeList);
 
+    setLoadProgress(100, 'Done!');
+    await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
     refresh();
   } catch (err) {
     $('errBox').innerHTML = `<div class="err">Failed to load: ${esc(err.message)}</div>`;
@@ -2940,7 +2968,16 @@ $('syncBtn').addEventListener('click', async()=>{
   schedAuto();
 });
 
-function setLoading(on, msg='Loading…'){ $('loadOverlay').classList.toggle('show', on); $('loadMsg').textContent = msg; }
+function setLoading(on, msg='Loading…'){
+  $('loadOverlay').classList.toggle('show', on);
+  $('loadMsg').textContent = msg;
+  if (!on){ $('loadBar').style.width='0%'; $('loadPct').textContent=''; }
+}
+function setLoadProgress(pct, msg){
+  $('loadBar').style.width = pct+'%';
+  $('loadPct').textContent = pct+'%';
+  if (msg) $('loadMsg').textContent = msg;
+}
 
 // ─────────────────────────────────────────────────────────────
 // DOWNLOAD REPORT (PDF)
