@@ -548,7 +548,7 @@
       </div>
     </div>
     <div class="f-group ms-wrap" id="msVerifiedWrap">
-      <label class="f-label">Verified</label>
+      <label class="f-label">Status</label>
       <div class="ms-trigger compact" id="msVerifiedTrigger" tabindex="0">
         <span class="ms-text" id="msVerifiedText">All</span>
         <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
@@ -609,7 +609,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Throughput trend</h3>
-          <div class="panel-sub" id="trendSub">received · delivered · rejected · dare · turbo</div>
+          <div class="panel-sub" id="trendSub">received · delivered · rejected</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div class="trend-tabs" id="trendTabs">
@@ -1086,10 +1086,9 @@ const charts = {};
 const F = {
   preset:'this_month', from:null, to:null,
   ent:null, team:null,
-  user:null, pocOb:null, pocCs:null,
+  user:null,
   verified:null, sla:null,
-  tempType:null,
-  rejReason: null,   // string | null — when set, filter to rejected rows whose reason matches
+  rejReason: null,
 };
 
 // Records-table column sort
@@ -1100,7 +1099,6 @@ const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full' },
   { id:'sla',      size:'third' },
   { id:'delivery', size:'third' },
-  { id:'tempType', size:'third' },
   { id:'reasons',  size:'full' },
   { id:'topEnt',   size:'half' },
   { id:'topTeam',  size:'half' },
@@ -1161,10 +1159,7 @@ function passesFilters(r){
   if (F.ent      && !F.ent.has(r.ent))                  return false;
   if (F.team     && !F.team.has(r.team))                return false;
   if (F.user     && !F.user.has(r.qc))                  return false;
-  if (F.pocOb    && !F.pocOb.has(r.poc_ob||''))         return false;
-  if (F.pocCs    && !F.pocCs.has(r.poc_cs||''))         return false;
   if (F.verified && !F.verified.has(r.final_status||'')) return false;
-  if (F.tempType && !F.tempType.has(r.ttype||''))       return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
     const isWithin = r.sla === 1;
@@ -1190,24 +1185,18 @@ function passesFilters(r){
 
 function buildFilterScopes(){
   // Build option lists from the full dataset so dropdowns don't shrink as filters apply.
-  const ent=new Set(),team=new Set(),user=new Set(),ver=new Set(),pocOb=new Set(),pocCs=new Set(),tt=new Set();
+  const ent=new Set(),team=new Set(),user=new Set(),ver=new Set();
   for (const r of RAW){
     if (r.ent) ent.add(r.ent);
     if (r.team) team.add(r.team);
     if (r.qc) user.add(r.qc);
-    if (r.final_status) ver.add(r.final_status);  // show actual final_status values
-    if (r.poc_ob) pocOb.add(r.poc_ob);
-    if (r.poc_cs) pocCs.add(r.poc_cs);
-    if (r.ttype) tt.add(r.ttype);
+    if (r.final_status) ver.add(r.final_status);
   }
   return {
     enterpriseList: [...ent].sort(),
     teamList:       [...team].sort(),
     userList:       [...user].sort(),
     verifiedList:   [...ver].sort(),
-    pocObList:      [...pocOb].sort(),
-    pocCsList:      [...pocCs].sort(),
-    tempTypeList:   [...tt].sort(),
   };
 }
 
@@ -1414,7 +1403,7 @@ function bucketTrend(rows, range){
     }
   }
 
-  const result = buckets.map(b => ({...b, received:0, delivered:0, rejected:0, dare:0, turbo:0}));
+  const result = buckets.map(b => ({...b, received:0, delivered:0, rejected:0}));
   for (const r of rows){
     if (!r._created) continue;
     const t = r._created.getTime();
@@ -1423,9 +1412,6 @@ function bucketTrend(rows, range){
         b.received++;
         if (isDelivered(r)) b.delivered++;
         else if (isRejected(r)) b.rejected++;
-        const tt = (r.ttype||'').trim().toLowerCase();
-        if (tt === 'dare') b.dare++;
-        else if (tt === 'turbo') b.turbo++;
         break;
       }
     }
@@ -1482,8 +1468,6 @@ function mkTrend(canvas, buckets){
   const recv  = buckets.map(b=>b.received);
   const dlvd  = buckets.map(b=>b.delivered);
   const rejd  = buckets.map(b=>b.rejected);
-  const dare  = buckets.map(b=>b.dare  || 0);
-  const turbo = buckets.map(b=>b.turbo || 0);
 
   // Theme-aware gradient under the Received line. The fill must use the CURRENT
   // accent color (light=navy, dark=blue) so the chart re-renders correctly on toggle.
@@ -1548,37 +1532,11 @@ function mkTrend(canvas, buckets){
           padding:{top:2, bottom:2},
         },
       },
-      { label:'Dare',  data:dare,  borderColor:PAL.accent, backgroundColor:'transparent',
-        borderWidth:1.6, tension:0.35, pointRadius:2, pointHoverRadius:5,
-        pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
-        pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
-        fill:false, borderDash:[2,3],
-        datalabels:{
-          align:'bottom', anchor:'end',
-          color:PAL.accent,
-          font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-          formatter:v=> v>0 ? v.toLocaleString() : '',
-          padding:{top:1, bottom:1},
-        },
-      },
-      { label:'Turbo', data:turbo, borderColor:PAL.purple, backgroundColor:'transparent',
-        borderWidth:1.6, tension:0.35, pointRadius:2, pointHoverRadius:5,
-        pointBackgroundColor:PAL.purple, pointBorderColor:pointBorder, pointBorderWidth:0,
-        pointHoverBackgroundColor:PAL.purple, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
-        fill:false, borderDash:[2,3],
-        datalabels:{
-          align:'top', anchor:'end', clamp:true,
-          color:PAL.purple,
-          font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-          formatter:v=> v>0 ? v.toLocaleString() : '',
-          padding:{top:1, bottom:1},
-        },
-      },
     ] },
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
-      layout:{ padding:{ top:18 } },   // room for the "Received" point labels
+      layout:{ padding:{ top:18 } },
       plugins:{
         legend:{display:false},
         tooltip:{
@@ -1600,10 +1558,8 @@ function mkTrend(canvas, buckets){
     Received:  recv.reduce((a,b)=>a+b,0),
     Delivered: dlvd.reduce((a,b)=>a+b,0),
     Rejected:  rejd.reduce((a,b)=>a+b,0),
-    Dare:      dare.reduce((a,b)=>a+b,0),
-    Turbo:     turbo.reduce((a,b)=>a+b,0),
   };
-  const cols = { Received:PAL.accent, Delivered:PAL.green, Rejected:PAL.red, Dare:PAL.accent, Turbo:PAL.purple };
+  const cols = { Received:PAL.accent, Delivered:PAL.green, Rejected:PAL.red };
   $('trendLegend').innerHTML = Object.entries(totals).map(([k,v])=>
     `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v.toLocaleString()}</span></div>`
   ).join('');
@@ -1804,10 +1760,7 @@ function paint(){
     if (F.ent      && !F.ent.has(r.ent))           return false;
     if (F.team     && !F.team.has(r.team))         return false;
     if (F.user     && !F.user.has(r.qc))           return false;
-    if (F.pocOb    && !F.pocOb.has(r.poc_ob||'')) return false;
-    if (F.pocCs    && !F.pocCs.has(r.poc_cs||'')) return false;
     if (F.verified && !F.verified.has(r.final_status||'')) return false;
-    if (F.tempType && !F.tempType.has(r.ttype||'')) return false;
     if (F.sla){
       if (F.sla.size === 0) return false;
       const isW = r.sla === 1, isO = r.sla === 0;
@@ -1944,11 +1897,8 @@ async function syncFromServer({silent=false, force=false}={}){
     msEnt.setOptions(sc.enterpriseList);
     msTeam.setOptions(sc.teamList);
     msUser.setOptions(sc.userList);
-    msPocOb.setOptions(sc.pocObList);
-    msPocCs.setOptions(sc.pocCsList);
     msVerified.setOptions(sc.verifiedList);
     msSla.setOptions(['Within SLA','Out of SLA']);
-    msTempType.setOptions(sc.tempTypeList);
 
     setLoadProgress(100, 'Done!');
     await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
@@ -2090,7 +2040,7 @@ const msPocCs = createMultiSelect({
 const msVerified = createMultiSelect({
   field:'verified', triggerId:'msVerifiedTrigger', panelId:'msVerifiedPanel',
   textId:'msVerifiedText', searchId:null, listId:'msVerifiedList',
-  singularLabel:'verified status', pluralLabel:'statuses',
+  singularLabel:'status', pluralLabel:'statuses',
   onChange: ()=> refresh(),
 });
 const msSla = createMultiSelect({
@@ -2106,8 +2056,8 @@ const msTempType = createMultiSelect({
   onChange: ()=> refresh(),
 });
 
-const MS_INSTANCES = [msEnt, msTeam, msUser, msPocOb, msPocCs, msVerified, msSla, msTempType];
-const MS_WRAPS = ['msEntWrap','msTeamWrap','msUserWrap','msPocObWrap','msPocCsWrap','msVerifiedWrap','msSlaWrap','msTempTypeWrap'];
+const MS_INSTANCES = [msEnt, msTeam, msUser, msVerified, msSla];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msUserWrap','msVerifiedWrap','msSlaWrap'];
 
 // Close any open multi-select on outside click
 document.addEventListener('mousedown', e=>{
@@ -2126,8 +2076,8 @@ $('resetBtn').addEventListener('click', ()=>{
   Object.assign(F, {
     preset:'this_month', from:r.from, to:r.to,
     ent:null, team:null,
-    user:null, pocOb:null, pocCs:null,
-    verified:null, sla:null, tempType:null,
+    user:null,
+    verified:null, sla:null,
     rejReason: null,
   });
   refreshMsTriggers();
@@ -2344,11 +2294,8 @@ function activeFilterChips(){
   setChip('Enterprise', F.ent);
   setChip('Team',       F.team);
   setChip('User',       F.user);
-  setChip('POC OB',     F.pocOb);
-  setChip('POC CS',     F.pocCs);
-  setChip('Verified',   F.verified);
+  setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
-  setChip('Temp Type',  F.tempType);
   if (F.rejReason) chips.push(`<span class="chip">Reason <strong>filtered</strong></span>`);
   return chips.length?chips.join(''):'<span class="chip">No filters</span>';
 }
@@ -2630,7 +2577,7 @@ function extractRecordsForExport(){
   const isRejView = _modalCtx.recordsView === 'rejected';
   // Header labels match the on-screen header text (without sort indicators).
   const headers = [
-    'Created','Enterprise','Team','QC User','POC OB','POC CS',
+    'Created','Enterprise','Team','QC User',
     'Status','SLA','TAT',
   ];
   if (isRejView) headers.push('Rejected Reason');
@@ -3042,8 +2989,8 @@ async function downloadReport(){
       if (sel.size === 1) return `${label}: ${[...sel][0] || '(blank)'}`;
       return `${label}: ${sel.size} selected`;
     };
-    [['Enterprise',F.ent],['Team',F.team],['User',F.user],['POC OB',F.pocOb],
-     ['POC CS',F.pocCs],['Verified',F.verified],['SLA',F.sla]].forEach(([l,s])=>{
+    [['Enterprise',F.ent],['Team',F.team],['User',F.user],
+     ['Verified',F.verified],['SLA',F.sla]].forEach(([l,s])=>{
       const t = summarizeSet(l, s); if (t) filters.push(t);
     });
     if (F.rejReason) filters.push('Reason: filtered');
@@ -3331,7 +3278,6 @@ function getUserRowsInRange(buckets){
     // Shared filters that apply in this view
     if (F.ent      && !F.ent.has(r.ent))           return false;
     if (F.team     && !F.team.has(r.team))         return false;
-    if (F.tempType && !F.tempType.has(r.ttype||'')) return false;
     // Note: date filter from the picker (F.from/F.to) is intentionally NOT applied here —
     // the granularity tab IS the date filter for this view, otherwise picking
     // "1 year" while operations filter says "This month" would show nothing.
