@@ -261,8 +261,8 @@
   .panel-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:16px;}
   .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:0;transition:background .25s,border-color .25s;position:relative;}
   .panel[data-size="full"]{grid-column:span 6;}
-  .panel[data-size="half"]{grid-column:span 2;}
-  .panel[data-size="third"]{grid-column:span 3;}
+  .panel[data-size="half"]{grid-column:span 3;}
+  .panel[data-size="third"]{grid-column:span 2;}
   .panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}
   .panel-title-wrap{flex:1;min-width:0;}
   .panel h3{margin:0;font-family:'Bricolage Grotesque',serif;font-size:16px;font-weight:600;letter-spacing:-.01em;}
@@ -620,7 +620,7 @@
 
     <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
 
-    <div class="panel" data-panel="sla" data-size="full" style="margin:0">
+    <div class="panel" data-panel="sla" data-size="full" style="margin:0;grid-column:auto">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
@@ -650,7 +650,7 @@
       </div>
     </div>
 
-    <div class="panel" data-panel="delivery" data-size="full" style="margin:0">
+    <div class="panel" data-panel="delivery" data-size="full" style="margin:0;grid-column:auto">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
@@ -681,16 +681,42 @@
     </div> <!-- end delivery panel -->
     </div> <!-- end 50-50 row wrapper -->
 
-    <div class="panel" data-panel="reasons" data-size="full">
+    <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+
+    <!-- Card 1: QC Failed (Blocker issues) -->
+    <div class="panel" data-panel="reasons" data-size="full" style="grid-column:auto;margin:0">
       <div class="panel-header">
         <div class="panel-title-wrap">
-          <h3>Rejection reasons</h3>
-          <div class="panel-sub" id="reasonsSub">top reasons by count · respects all filters</div>
+          <h3>QC Failed reasons</h3>
+          <div class="panel-sub">Blocker severity issues · top 5</div>
         </div>
-        <div class="edit-controls" data-panel-ctl="reasons"></div>
       </div>
-      <div class="chart-wrap tall"><canvas id="cReasons"></canvas></div>
+      <div id="cQcReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
     </div>
+
+    <!-- Card 2: Validation Failed -->
+    <div class="panel" data-size="full" style="grid-column:auto;margin:0">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Validation Failed reasons</h3>
+          <div class="panel-sub">failure reasons · top 5</div>
+        </div>
+      </div>
+      <div id="cValReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+    </div>
+
+    <!-- Card 3: Tech & AI Failure -->
+    <div class="panel" data-size="full" style="grid-column:auto;margin:0">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Tech &amp; AI Failure reasons</h3>
+          <div class="panel-sub">failure reasons · top 5</div>
+        </div>
+      </div>
+      <div id="cTechReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+    </div>
+
+    </div> <!-- end 3-col reasons row -->
 
     <div class="panel" data-panel="topEnt" data-size="half">
       <div class="panel-header">
@@ -1263,7 +1289,50 @@ function aggregate(rows){
     }
   }
 
-  const sortDesc = obj => Object.fromEntries(Object.entries(obj).sort((a,b)=>b[1]-a[1]));
+  // ── Per-category reason maps ──────────────────────────────────
+  const qcReasons  = {};  // Blocker issues from issues_by_severity
+  const valReasons = {};  // failure_reason for Validation Failed
+  const techReasons= {};  // failure_reason for Tech Failure + AI Failed
+
+  for (const r of deduped){
+    const fs = (r.final_status||'').trim();
+
+    // QC Failed → extract Blocker items from issues_by_severity
+    if (fs === 'QC Failed' && r.issues_by_severity){
+      // Format: "High - A, B || Blocker - C, D || Low - E"
+      const parts = String(r.issues_by_severity).split('||');
+      for (const part of parts){
+        const t = part.trim();
+        if (/^blocker/i.test(t)){
+          // Extract items after "Blocker - "
+          const items = t.replace(/^blocker\s*-\s*/i,'').split(',');
+          for (const item of items){
+            const k = item.trim();
+            if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+          }
+        }
+      }
+      // fallback if no Blocker tag found — use full issues text
+      if (!Object.keys(qcReasons).length && r.rej){
+        const k = (r.rej||'').trim().slice(0,60);
+        if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+      }
+    }
+
+    // Validation Failed → failure_reason
+    if (fs === 'Validation Failed' && r.rej){
+      const k = (r.rej||'').trim().slice(0,80);
+      if (k) valReasons[k] = (valReasons[k]||0)+1;
+    }
+
+    // Tech Failure + AI Failed → failure_reason
+    if ((fs === 'Tech Failure' || fs === 'AI Failed') && r.rej){
+      const k = (r.rej||'').trim().slice(0,80);
+      if (k) techReasons[k] = (techReasons[k]||0)+1;
+    }
+  }
+
+  const top = (map, n) => Object.fromEntries(Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,n));
   const slice    = (obj,n)=> Object.fromEntries(Object.entries(obj).slice(0,n));
 
   const reasonsDisplay={}, reasonsKeys={};
@@ -1292,6 +1361,9 @@ function aggregate(rows){
     topTeam: slice(sortDesc(teamCount),12),
     topQc:   slice(sortDesc(qcCount),  15),
     topReasons, topReasonsKeys,
+    qcReasons:   top(qcReasons,   20),
+    valReasons:  top(valReasons,  20),
+    techReasons: top(techReasons, 20),
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     dareCount, turboCount, ttOtherCount, ttBlankCount,
   };
@@ -1597,6 +1669,29 @@ function mkSegBar(id, container, breakMap, opts={}){
   container.appendChild(wrap);
 }
 
+// ── Reason breakdown card (top N with scroll) ────────────────────────────────
+function mkReasonCard(containerId, countMap, color){
+  const el = $(containerId);
+  if (!el) return;
+  const entries = Object.entries(countMap).sort((a,b)=>b[1]-a[1]);
+  if (!entries.length){ el.innerHTML='<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>'; return; }
+  const max = entries[0][1];
+  el.innerHTML = entries.map(([label, count]) => {
+    const pct = (count/max)*100;
+    return `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:8px">
+          <span style="font-size:11px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%"
+                title="${esc(label)}">${esc(label)}</span>
+          <span style="font-size:11px;font-weight:600;color:var(--ink);font-family:'JetBrains Mono',monospace;flex-shrink:0">${num(count)}</span>
+        </div>
+        <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .3s"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 function mkBar(id, canvas, map, opts={}){
   killChart(id);
   if (!map || !Object.keys(map).length){
@@ -1764,24 +1859,10 @@ function paint(){
     onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); refresh(); }
   });
 
-  // Rejection reasons — clicking a bar toggles a filter for that reason
-  mkBar('reasons', $('cReasons'), k.topReasons, { h:true, color:PAL.red,
-    onPick:label=>{
-      const key = (k.topReasonsKeys||{})[label];
-      if (!key) return;
-      // Click same active reason → clear it. Otherwise apply it.
-      F.rejReason = (F.rejReason === key) ? null : key;
-      refresh();
-    }
-  });
-  const reasonTotal = Object.values(k.topReasons||{}).reduce((a,b)=>a+b,0);
-  const activeReasonLabel = F.rejReason
-    ? ` · filtered: "${esc((Object.entries(k.topReasonsKeys||{}).find(([,v])=>v===F.rejReason)||[''])[0])}" — click bar again to clear`
-    : '';
-  $('reasonsSub').innerHTML = (reasonTotal
-    ? `top reasons across ${num(k.totalRejected)} rejections · ${num(Object.keys(k.topReasons).length)} shown`
-    : 'no rejected records in view') + activeReasonLabel;
-
+  // Reason breakdown cards
+  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red);
+  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange);
+  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber);
   // Trend chart — uses the same filters as the main view BUT ignores date filter
   // and ignores the rejection-reason filter (so the timeline shows full context).
   const trendRows = RAW.filter(r => {
