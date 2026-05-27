@@ -220,6 +220,18 @@
   .kpi-arrow{position:absolute;top:18px;right:18px;color:var(--muted);opacity:0;transition:opacity .15s,transform .15s;}
   .kpi:hover .kpi-arrow{opacity:.7;transform:translate(2px,-2px);}
   .kpi-arrow svg{width:14px;height:14px;display:block;}
+  .kpi-tooltip{
+    display:none;position:absolute;bottom:calc(100% + 8px);left:50%;
+    transform:translateX(-50%);background:var(--ink);color:#fff;
+    font-size:11px;border-radius:6px;padding:8px 12px;
+    white-space:nowrap;z-index:200;pointer-events:none;line-height:1.9;
+  }
+  .kpi-tooltip::after{
+    content:'';position:absolute;top:100%;left:50%;
+    transform:translateX(-50%);border:5px solid transparent;
+    border-top-color:var(--ink);
+  }
+  .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
 
   /* PANEL GRID — customizable */
   .panel-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:16px;}
@@ -1343,7 +1355,9 @@ function renderKpiCards(){
       <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
       <div class="kpi-label">${esc(k.label)}</div>
       <div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>
-      ${k.id==='rejected' ? `<div class="kpi-pct" id="kv-rejected-sub" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>` : ''}
+      ${k.id==='rejected' ? `
+        <div class="kpi-tooltip" id="kv-rejected-tooltip"></div>
+      ` : ''}
     </div>
   `).join('');
   $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
@@ -1692,8 +1706,12 @@ function paint(){
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
   $('kv-rejected').textContent  = num(k.totalRejected);
-  const rejSub = $('kv-rejected-sub');
-  if (rejSub) rejSub.textContent = `QC Failed: ${num(k.totalQcFailed)} · Validation Failed: ${num(k.totalValidationFailed)}`;
+  const rejTip = $('kv-rejected-tooltip');
+  if (rejTip) rejTip.innerHTML =
+    `QC Failed: <strong>${num(k.totalQcFailed)}</strong><br>` +
+    `Validation Failed: <strong>${num(k.totalValidationFailed)}</strong><br>` +
+    `Tech Failure: <strong>${num(k.totalTechFailed||0)}</strong><br>` +
+    `AI Failed: <strong>${num(k.totalAiFailed||0)}</strong>`;
   $('kv-pending').textContent   = num(k.totalPending);
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
