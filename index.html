@@ -48,7 +48,8 @@
   .btn-sync:hover{opacity:.82;}.btn-sync[disabled]{opacity:.45;cursor:wait;}
 
   /* FILTERS */
-  .filters{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 28px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;box-shadow:0 2px 10px var(--shadow);transition:background .25s,border-color .25s;}
+  .filters{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 28px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;box-shadow:0 2px 10px var(--shadow);transition:background .25s,border-color .25s;-webkit-overflow-scrolling:touch;}
+  .filters::-webkit-scrollbar{height:3px;}.filters::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px;}
   .f-group{display:flex;flex-direction:column;gap:4px;}
   .f-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
   .f-select{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:400 13px 'Inter';color:var(--ink);outline:none;cursor:pointer;min-width:150px;transition:border-color .15s,background .25s,color .25s;}
@@ -421,8 +422,107 @@
   body.edit-mode .edit-hint{display:flex;align-items:center;gap:8px;}
   [data-theme="dark"] .edit-hint{background:rgba(107,158,255,0.1);border-color:rgba(107,158,255,0.3);color:var(--accent);}
 
-  @media(max-width:900px){.panel-grid{grid-template-columns:1fr;}.panel[data-size="full"],.panel[data-size="half"],.panel[data-size="third"]{grid-column:span 1;}.modal-panel{width:100vw;}}
-  @media(max-width:600px){header,.filters,main{padding-left:16px;padding-right:16px;}.kpi-value{font-size:30px;}.modal-stats{gap:14px;padding:12px 18px;}.date-panel{min-width:0;width:calc(100vw - 32px);flex-direction:column;}.dp-presets{width:100%;border-right:none;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;}}
+  /* ── RESPONSIVE ─────────────────────────────────────────────── */
+
+  /* Tablet: 600–1024px */
+  @media(max-width:1024px){
+    header{ padding:0 16px; gap:8px; flex-wrap:wrap; height:auto; min-height:52px; }
+    .header-left{ gap:8px; }
+    .nav-tabs{ gap:4px; }
+    .nav-tab{ padding:6px 10px; font-size:12px; }
+    .header-right{ gap:6px; flex-wrap:wrap; }
+    .sync-badge{ font-size:10px; }
+    main{ padding:16px 16px 60px; }
+    .filters{ padding:8px 16px; gap:8px; flex-wrap:wrap; }
+    .f-group{ min-width:120px; }
+    .ms-trigger{ min-width:110px; max-width:160px; font-size:12px; }
+    .ms-trigger.compact{ min-width:100px; }
+    .date-trigger{ min-width:160px; font-size:12px; }
+    .kpis{ grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; }
+    .kpi{ padding:14px 16px; }
+    .kpi-value{ font-size:24px; }
+    .panel-grid{ gap:12px; }
+    .panel[data-size="full"]  { grid-column:span 6; }
+    .panel[data-size="half"]  { grid-column:span 6; }
+    .panel[data-size="third"] { grid-column:span 6; }
+    .sla-cells{ grid-template-columns:1fr 1fr; }
+  }
+
+  /* Large tablet: 768–1024px — allow half panels side by side */
+  @media(min-width:768px) and (max-width:1024px){
+    .panel[data-size="half"]  { grid-column:span 3; }
+    .panel[data-size="third"] { grid-column:span 2; }
+    .kpis{ grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); }
+  }
+
+  /* Mobile: < 768px */
+  @media(max-width:768px){
+    header{ padding:8px 12px; flex-direction:column; align-items:flex-start; height:auto; gap:8px; }
+    .header-left{ width:100%; justify-content:space-between; }
+    .header-right{ width:100%; justify-content:space-between; gap:6px; }
+    .brand{ font-size:16px; }
+    .nav-tabs{ gap:0; background:var(--surface-2); border-radius:8px; padding:2px; }
+    .nav-tab{ padding:5px 10px; font-size:11px; border-radius:6px; }
+    .btn-sync{ padding:6px 12px; font-size:12px; }
+    .btn-download{ display:none; } /* hide download on mobile */
+    .sync-badge{ display:none; }
+    main{ padding:12px 12px 60px; }
+    .filters{ padding:6px 12px; gap:6px; overflow-x:auto; flex-wrap:nowrap; }
+    .f-group{ flex-shrink:0; }
+    .ms-trigger{ min-width:100px; max-width:140px; font-size:11px; padding:5px 8px; }
+    .date-trigger{ min-width:130px; font-size:11px; }
+    .section-label{ font-size:10px; }
+    .kpis{ grid-template-columns:repeat(2,1fr); gap:8px; margin-bottom:16px; }
+    .kpi{ padding:12px 14px; }
+    .kpi-label{ font-size:9px; }
+    .kpi-value{ font-size:22px; }
+    .panel-grid{ grid-template-columns:1fr; gap:10px; }
+    .panel[data-size="full"],
+    .panel[data-size="half"],
+    .panel[data-size="third"]{ grid-column:span 1 !important; }
+    .panel{ padding:14px 14px; }
+    .panel-header{ margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+    h3{ font-size:13px; }
+    .panel-sub{ font-size:9px; }
+    .sla-cells{ grid-template-columns:1fr 1fr; gap:8px; }
+    .sla-num{ font-size:22px; }
+    .sla-cell{ padding:10px 12px; }
+    .chart-wrap{ height:200px; }
+    .chart-wrap.tall{ height:220px; }
+    .trend-tabs{ gap:2px; }
+    .trend-tab{ padding:4px 7px; font-size:10px; }
+    .date-panel{ min-width:0; width:calc(100vw - 24px); left:-12px; }
+    .dp-presets{ width:100%; border-right:none; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; }
+    .modal-panel{ width:100vw; max-width:100vw; border-radius:0; }
+    .modal-header{ padding:12px 16px; }
+    .modal-body table{ font-size:12px; }
+    .modal-body th,.modal-body td{ padding:8px 10px; }
+    td{ max-width:120px; }
+    .kpi.kpi-flip:hover .kpi-front,
+    .kpi.kpi-flip:focus-within .kpi-front{ transform:none; opacity:1; }
+    .kpi.kpi-flip:hover .kpi-back,
+    .kpi.kpi-flip:focus-within .kpi-back{ transform:translateY(100%); opacity:0; }
+  }
+
+  /* Small mobile: < 480px */
+  @media(max-width:480px){
+    .kpis{ grid-template-columns:repeat(2,1fr); gap:6px; }
+    .kpi-value{ font-size:20px; }
+    .filters{ gap:4px; }
+    .ms-trigger{ min-width:88px; font-size:10px; padding:4px 6px; }
+    h3{ font-size:12px; }
+    .sla-num{ font-size:20px; }
+    .chart-wrap{ height:180px; }
+    .chart-wrap.tall{ height:200px; }
+    .trend-tab{ padding:3px 6px; font-size:9px; }
+    main{ padding:10px 10px 60px; }
+  }
+
+  /* ── keep modal usable on small screens ─────────────────────── */
+  @media(max-width:600px){
+    .modal-stats{ gap:12px; padding:10px 14px; }
+    .modal-stat-value{ font-size:18px; }
+  }
 </style>
 </head>
 <body>
