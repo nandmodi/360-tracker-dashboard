@@ -232,22 +232,32 @@
     border-bottom-color:var(--ink);
   }
   .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
-  .kpi-inner{ position:relative; overflow:hidden; }
+  .kpi-inner{ position:relative; min-height: 60px; }
   .kpi-front,.kpi-back{
     transition: transform .3s ease, opacity .3s ease;
   }
   .kpi-back{
     position:absolute; top:0; left:0; width:100%;
-    transform:translateY(12px); opacity:0; pointer-events:none;
-    font-size:11px; line-height:1.9; color:var(--muted);
+    transform:translateY(10px); opacity:0; pointer-events:none;
+    font-size:12px; line-height:2.1; color:var(--ink);
   }
+  .kpi-back span{ display:block; }
+  .kpi-back strong{ font-weight:600; }
   .kpi[data-id="rejected"]:hover .kpi-front,
   .kpi[data-id="rejected"]:focus-within .kpi-front{
-    transform:translateY(-8px); opacity:0;
+    transform:translateY(-10px); opacity:0;
   }
   .kpi[data-id="rejected"]:hover .kpi-back,
   .kpi[data-id="rejected"]:focus-within .kpi-back{
     transform:translateY(0); opacity:1; pointer-events:auto;
+  }
+  .kpi[data-id="rejected"]:hover .kpi-label,
+  .kpi[data-id="rejected"]:focus-within .kpi-label{
+    opacity:0; transition: opacity .2s;
+  }
+  .kpi[data-id="rejected"]:hover,
+  .kpi[data-id="rejected"]:focus-within{
+    min-height: 120px;
   }
 
   /* PANEL GRID — customizable */
@@ -1729,10 +1739,10 @@ function paint(){
   $('kv-rejected').textContent  = num(k.totalRejected);
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
-    `QC Failed: <strong>${num(k.totalQcFailed)}</strong><br>` +
-    `Validation Failed: <strong>${num(k.totalValidationFailed)}</strong><br>` +
-    `Tech Failure: <strong>${num(k.totalTechFailed||0)}</strong><br>` +
-    `AI Failed: <strong>${num(k.totalAiFailed||0)}</strong>`;
+    `<span style="color:var(--muted);font-size:10px;letter-spacing:.06em;font-weight:600">QC FAILED &nbsp;<strong style="color:var(--red);font-size:15px">${num(k.totalQcFailed)}</strong></span>` +
+    `<span style="color:var(--muted);font-size:10px;letter-spacing:.06em;font-weight:600">VALIDATION FAILED &nbsp;<strong style="color:var(--red);font-size:15px">${num(k.totalValidationFailed)}</strong></span>` +
+    `<span style="color:var(--muted);font-size:10px;letter-spacing:.06em;font-weight:600">TECH FAILURE &nbsp;<strong style="color:var(--amber);font-size:15px">${num(k.totalTechFailed||0)}</strong></span>` +
+    `<span style="color:var(--muted);font-size:10px;letter-spacing:.06em;font-weight:600">AI FAILED &nbsp;<strong style="color:var(--orange);font-size:15px">${num(k.totalAiFailed||0)}</strong></span>`;
   $('kv-pending').textContent   = num(k.totalPending);
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
