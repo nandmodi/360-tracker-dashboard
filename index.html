@@ -1651,23 +1651,26 @@ function paintSla(k){
 }
 
 function paintDelivery(k){
-  const deliv       = k.totalDelivered   || 0;
-  const rejected    = k.totalRejected    || 0;
-  const techFailed  = k.totalTechFailed  || 0;
-  const aiFailed    = k.totalAiFailed    || 0;
-  const pending     = k.totalPending     || 0;
-  const total       = k.totalReceived    || 0;
+  const deliv      = k.totalDelivered  || 0;
+  const rejected   = k.totalRejected   || 0;
+  const techFailed = k.totalTechFailed || 0;
+  const aiFailed   = k.totalAiFailed   || 0;
+  const pending    = k.totalPending    || 0;
+  const total      = k.totalReceived   || 0;
 
   // Denominator = Total Received - Under Review
-  // = Delivered + Rejected(QC+Val) + Tech Failure + AI Failed
-  const denom   = Math.max(total - pending, 1);
-  const notDeliv = rejected + techFailed + aiFailed; // all non-delivered completed
+  const denom    = Math.max(total - pending, 1);
 
-  const pctDone = (deliv    / denom) * 100;
-  const pctNot  = (notDeliv / denom) * 100;
+  // Delivered % uses the formula exactly as specified
+  const pctDone  = (deliv / denom) * 100;
+  // Not Delivered % = 100 - Delivered % (always adds to 100%)
+  const pctNot   = Math.max(0, 100 - pctDone);
+
+  // Counts shown in the cards
+  const notDelivCount = rejected + techFailed + aiFailed;
 
   $('delvNumDone').textContent = num(deliv);
-  $('delvNumRej').textContent  = num(notDeliv + pending); // show full "not delivered" count
+  $('delvNumRej').textContent  = num(notDelivCount + pending);
   $('delvPctDone').textContent = pctDone.toFixed(1)+'%';
   $('delvPctRej').textContent  = pctNot.toFixed(1)+'%';
   $('delvBarDone').style.width = pctDone+'%';
