@@ -679,6 +679,38 @@
     </div>
 
 
+    <div class="panel" data-panel="reasons" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>QC Failed reasons</h3>
+          <div class="panel-sub">Blocker severity issues · top 5</div>
+        </div>
+      </div>
+      <div id="cQcReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+    </div>
+
+    <div class="panel" data-panel="reasons2" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Validation Failed reasons</h3>
+          <div class="panel-sub">failure reasons · top 5</div>
+        </div>
+      </div>
+      <div id="cValReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+    </div>
+
+    <div class="panel" data-panel="reasons3" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Tech &amp; AI Failure reasons</h3>
+          <div class="panel-sub">failure reasons · top 5</div>
+        </div>
+      </div>
+      <div id="cTechReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+    </div>
+
+
+
     <div class="panel" data-panel="topEnt" data-size="half">
       <div class="panel-header">
         <div class="panel-title-wrap">
@@ -711,38 +743,6 @@
       </div>
       <div class="chart-wrap"><canvas id="cQc"></canvas></div>
     </div>
-
-
-    <div class="panel" data-panel="reasons" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>QC Failed reasons</h3>
-          <div class="panel-sub">Blocker severity issues · top 5</div>
-        </div>
-      </div>
-      <div id="cQcReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
-    </div>
-
-    <div class="panel" data-panel="reasons2" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Validation Failed reasons</h3>
-          <div class="panel-sub">failure reasons · top 5</div>
-        </div>
-      </div>
-      <div id="cValReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
-    </div>
-
-    <div class="panel" data-panel="reasons3" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Tech &amp; AI Failure reasons</h3>
-          <div class="panel-sub">failure reasons · top 5</div>
-        </div>
-      </div>
-      <div id="cTechReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
-    </div>
-
 
 
     <div class="panel" data-panel="records" data-size="full" style="padding:0;">
@@ -1055,12 +1055,12 @@ const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full'  },
   { id:'sla',      size:'half'  },
   { id:'delivery', size:'half'  },
-  { id:'topEnt',   size:'half'  },
-  { id:'topTeam',  size:'half'  },
-  { id:'topQc',    size:'full'  },
   { id:'reasons',  size:'third' },
   { id:'reasons2', size:'third' },
   { id:'reasons3', size:'third' },
+  { id:'topEnt',   size:'half'  },
+  { id:'topTeam',  size:'half'  },
+  { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
 let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v6'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
