@@ -1645,19 +1645,24 @@ function paintSla(k){
 }
 
 function paintDelivery(k){
-  const deliv = k.totalDelivered||0;
-  const notDeliv = (k.totalRejected||0) + (k.totalPending||0);
-  const total = k.totalReceived || 0;
-  const pctDone = total ? (deliv/total)*100 : 0;
-  const pctNot  = total ? (notDeliv/total)*100 : 0;
+  const deliv    = k.totalDelivered||0;
+  const rejected = k.totalRejected||0;
+  const pending  = k.totalPending||0;
+  const total    = k.totalReceived||0;
+
+  // Denominator = Total Received - Under Review (pending are still processing)
+  const denom    = Math.max(total - pending, 1);
+  const pctDone  = (deliv    / denom) * 100;
+  const pctNot   = (rejected / denom) * 100;
+
   $('delvNumDone').textContent = num(deliv);
-  $('delvNumRej').textContent  = num(notDeliv);
-  $('delvPctDone').textContent = total ? pctDone.toFixed(1)+'%' : '—%';
-  $('delvPctRej').textContent  = total ? pctNot.toFixed(1)+'%'  : '—%';
+  $('delvNumRej').textContent  = num(rejected + pending);
+  $('delvPctDone').textContent = pctDone.toFixed(1)+'%';
+  $('delvPctRej').textContent  = pctNot.toFixed(1)+'%';
   $('delvBarDone').style.width = pctDone+'%';
   $('delvBarRej').style.width  = pctNot+'%';
-  $('delvRejCount').textContent  = num(k.totalRejected||0);
-  $('delvPendCount').textContent = num(k.totalPending||0);
+  $('delvRejCount').textContent  = num(rejected);
+  $('delvPendCount').textContent = num(pending);
   $('delvMeta').textContent = total ? `${num(total)} received in view` : 'No records in view';
 }
 
