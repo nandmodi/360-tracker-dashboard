@@ -1051,12 +1051,12 @@ function presetRange(p){
 // FILTERING & AGGREGATION  (client-side, instant)
 // ─────────────────────────────────────────────────────────────
 const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
-function isDelivered(r){ return r.final_status === 'Delivered'; }
-function isRejected(r){  return r.final_status === 'QC Failed' || r.final_status === 'Validation Failed'; }
-function isValidationFailed(r){ return r.final_status === 'Validation Failed'; }
-function isQcFailed(r){         return r.final_status === 'QC Failed'; }
-function isPending(r){   return r.final_status === 'Under Review'; }
-function isCompleted(r){ return COMPLETED_STATUSES.includes(r.final_status); }
+function isDelivered(r){       const s=(r.final_status||'').trim(); return s==='Delivered'; }
+function isRejected(r){        const s=(r.final_status||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
+function isValidationFailed(r){const s=(r.final_status||'').trim(); return s==='Validation Failed'; }
+function isQcFailed(r){        const s=(r.final_status||'').trim(); return s==='QC Failed'; }
+function isPending(r){         const s=(r.final_status||'').trim(); return s==='Under Review'; }
+function isCompleted(r){       const s=(r.final_status||'').trim(); return COMPLETED_STATUSES.includes(s); }
 
 // Helper: normalize a rejection reason for comparison (lowercase, collapsed whitespace)
 function normReason(s){
@@ -1186,9 +1186,9 @@ function aggregate(rows){
         reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
         reasonDisplay['(unspecified)'] = '(no reason recorded)';
       }
-    } else if (r.final_status === 'Tech Failure'){
+    } else if ((r.final_status||'').trim() === 'Tech Failure'){
       totalTechFailed++; kind='rejected';
-    } else if (r.final_status === 'AI Failed'){
+    } else if ((r.final_status||'').trim() === 'AI Failed'){
       totalAiFailed++;   kind='rejected';
     } else if (isPending(r)){
       totalPending++;
