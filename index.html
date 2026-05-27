@@ -681,6 +681,41 @@
     </div> <!-- end delivery panel -->
     </div> <!-- end 50-50 row wrapper -->
 
+
+    <div class="panel" data-panel="topEnt" data-size="half">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Top enterprises</h3>
+          <div class="panel-sub">by job count · click to filter</div>
+        </div>
+        <div class="edit-controls" data-panel-ctl="topEnt"></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cEnt"></canvas></div>
+    </div>
+
+    <div class="panel" data-panel="topTeam" data-size="half">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Top teams</h3>
+          <div class="panel-sub">by job count · click to filter</div>
+        </div>
+        <div class="edit-controls" data-panel-ctl="topTeam"></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cTeam"></canvas></div>
+    </div>
+
+    <div class="panel" data-panel="topQc" data-size="half">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Top QC users</h3>
+          <div class="panel-sub">by job count · click to filter</div>
+        </div>
+        <div class="edit-controls" data-panel-ctl="topQc"></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cQc"></canvas></div>
+    </div>
+
+
     <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
 
     <!-- Card 1: QC Failed (Blocker issues) -->
@@ -717,39 +752,6 @@
     </div>
 
     </div> <!-- end 3-col reasons row -->
-
-    <div class="panel" data-panel="topEnt" data-size="half">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Top enterprises</h3>
-          <div class="panel-sub">by job count · click to filter</div>
-        </div>
-        <div class="edit-controls" data-panel-ctl="topEnt"></div>
-      </div>
-      <div class="chart-wrap"><canvas id="cEnt"></canvas></div>
-    </div>
-
-    <div class="panel" data-panel="topTeam" data-size="half">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Top teams</h3>
-          <div class="panel-sub">by job count · click to filter</div>
-        </div>
-        <div class="edit-controls" data-panel-ctl="topTeam"></div>
-      </div>
-      <div class="chart-wrap"><canvas id="cTeam"></canvas></div>
-    </div>
-
-    <div class="panel" data-panel="topQc" data-size="half">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Top QC users</h3>
-          <div class="panel-sub">by job count · click to filter</div>
-        </div>
-        <div class="edit-controls" data-panel-ctl="topQc"></div>
-      </div>
-      <div class="chart-wrap"><canvas id="cQc"></canvas></div>
-    </div>
 
     <div class="panel" data-panel="records" data-size="full" style="padding:0;">
       <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
@@ -1357,9 +1359,9 @@ function aggregate(rows){
     tatRecordCount: tatCount,
     enterpriseCount: entIdSet.size,
     teamCount:       teamIdSet.size,
-    topEnt:  slice(sortDesc(entCount), 12),
-    topTeam: slice(sortDesc(teamCount),12),
-    topQc:   slice(sortDesc(qcCount),  15),
+    topEnt:  slice(Object.fromEntries(Object.entries(entCount).sort((a,b)=>b[1]-a[1])), 12),
+    topTeam: slice(Object.fromEntries(Object.entries(teamCount).sort((a,b)=>b[1]-a[1])),12),
+    topQc:   slice(Object.fromEntries(Object.entries(qcCount).sort((a,b)=>b[1]-a[1])),  15),
     topReasons, topReasonsKeys,
     qcReasons:   top(qcReasons,   20),
     valReasons:  top(valReasons,  20),
