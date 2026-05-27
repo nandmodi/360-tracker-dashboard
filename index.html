@@ -618,7 +618,9 @@
       <div class="trend-legend" id="trendLegend"></div>
     </div>
 
-    <div class="panel" data-panel="sla" data-size="half">
+    <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+    <div class="panel" data-panel="sla" data-size="full" style="margin:0">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
@@ -648,7 +650,7 @@
       </div>
     </div>
 
-    <div class="panel" data-panel="delivery" data-size="half">
+    <div class="panel" data-panel="delivery" data-size="full" style="margin:0">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
@@ -676,7 +678,8 @@
           <span id="delvMeta">—</span>
         </div>
       </div>
-    </div>
+    </div> <!-- end delivery panel -->
+    </div> <!-- end 50-50 row wrapper -->
 
     <div class="panel" data-panel="reasons" data-size="full">
       <div class="panel-header">
