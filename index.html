@@ -232,6 +232,23 @@
     border-bottom-color:var(--ink);
   }
   .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
+  .kpi-inner{ position:relative; overflow:hidden; }
+  .kpi-front,.kpi-back{
+    transition: transform .3s ease, opacity .3s ease;
+  }
+  .kpi-back{
+    position:absolute; top:0; left:0; width:100%;
+    transform:translateY(12px); opacity:0; pointer-events:none;
+    font-size:11px; line-height:1.9; color:var(--muted);
+  }
+  .kpi[data-id="rejected"]:hover .kpi-front,
+  .kpi[data-id="rejected"]:focus-within .kpi-front{
+    transform:translateY(-8px); opacity:0;
+  }
+  .kpi[data-id="rejected"]:hover .kpi-back,
+  .kpi[data-id="rejected"]:focus-within .kpi-back{
+    transform:translateY(0); opacity:1; pointer-events:auto;
+  }
 
   /* PANEL GRID — customizable */
   .panel-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:16px;}
@@ -1354,10 +1371,14 @@ function renderKpiCards(){
     <div class="kpi" data-id="${k.id}" role="button" tabindex="0">
       <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
       <div class="kpi-label">${esc(k.label)}</div>
-      <div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>
       ${k.id==='rejected' ? `
-        <div class="kpi-tooltip" id="kv-rejected-tooltip"></div>
-      ` : ''}
+        <div class="kpi-inner">
+          <div class="kpi-front">
+            <div class="kpi-value red" id="kv-rejected">—</div>
+          </div>
+          <div class="kpi-back" id="kv-rejected-tooltip"></div>
+        </div>
+      ` : `<div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>`}
     </div>
   `).join('');
   $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
