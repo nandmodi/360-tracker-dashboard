@@ -1140,6 +1140,7 @@ function aggregate(rows){
   // ── Step 3: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
+  let totalTechFailed=0, totalAiFailed=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
@@ -1173,6 +1174,10 @@ function aggregate(rows){
         reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
         reasonDisplay['(unspecified)'] = '(no reason recorded)';
       }
+    } else if (r.final_status === 'Tech Failure'){
+      totalTechFailed++; kind='rejected';
+    } else if (r.final_status === 'AI Failed'){
+      totalAiFailed++;   kind='rejected';
     } else if (isPending(r)){
       totalPending++;
     }
@@ -1234,7 +1239,8 @@ function aggregate(rows){
 
   const totalReceived = skuSet.size;
   return {
-    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed, totalPending,
+    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
+    totalTechFailed, totalAiFailed, totalPending,
     withinSla, outOfSla,
     slaCompliance: totalCompletedVins ? +((withinSla/totalCompletedVins)*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
@@ -1645,18 +1651,23 @@ function paintSla(k){
 }
 
 function paintDelivery(k){
-  const deliv    = k.totalDelivered||0;
-  const rejected = k.totalRejected||0;
-  const pending  = k.totalPending||0;
-  const total    = k.totalReceived||0;
+  const deliv       = k.totalDelivered   || 0;
+  const rejected    = k.totalRejected    || 0;
+  const techFailed  = k.totalTechFailed  || 0;
+  const aiFailed    = k.totalAiFailed    || 0;
+  const pending     = k.totalPending     || 0;
+  const total       = k.totalReceived    || 0;
 
-  // Denominator = Total Received - Under Review (pending are still processing)
-  const denom    = Math.max(total - pending, 1);
-  const pctDone  = (deliv    / denom) * 100;
-  const pctNot   = (rejected / denom) * 100;
+  // Denominator = Total Received - Under Review
+  // = Delivered + Rejected(QC+Val) + Tech Failure + AI Failed
+  const denom   = Math.max(total - pending, 1);
+  const notDeliv = rejected + techFailed + aiFailed; // all non-delivered completed
+
+  const pctDone = (deliv    / denom) * 100;
+  const pctNot  = (notDeliv / denom) * 100;
 
   $('delvNumDone').textContent = num(deliv);
-  $('delvNumRej').textContent  = num(rejected + pending);
+  $('delvNumRej').textContent  = num(notDeliv + pending); // show full "not delivered" count
   $('delvPctDone').textContent = pctDone.toFixed(1)+'%';
   $('delvPctRej').textContent  = pctNot.toFixed(1)+'%';
   $('delvBarDone').style.width = pctDone+'%';
