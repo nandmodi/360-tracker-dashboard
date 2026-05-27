@@ -232,30 +232,30 @@
     border-bottom-color:var(--ink);
   }
   .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
-  .kpi-inner{ position:relative; min-height: 60px; }
-  .kpi.kpi-flip{ overflow:hidden; }
-  .kpi-front,.kpi-back{
-    transition: transform .3s ease, opacity .3s ease;
-  }
+  .kpi.kpi-flip{ overflow:hidden; position:relative; }
   .kpi-front{
-    display:flex; flex-direction:column; gap:0;
+    transition:transform .28s ease, opacity .28s ease;
+    will-change:transform;
   }
   .kpi-back{
-    position:absolute; top:18px; left:20px; right:20px; bottom:18px;
-    transform:translateY(14px); opacity:0; pointer-events:none;
-    display:flex; flex-direction:column; justify-content:center; gap:6px;
+    position:absolute; inset:0; padding:18px 20px;
+    display:flex; flex-direction:column; justify-content:center; gap:5px;
+    transform:translateY(100%); opacity:0;
+    transition:transform .28s ease, opacity .28s ease;
+    will-change:transform;
+    pointer-events:none;
   }
-  .kpi-back span{ display:flex; justify-content:space-between; align-items:baseline; }
-  .kpi-back .rb-label{ font-size:9px; letter-spacing:.06em; font-weight:600; color:var(--muted); }
-  .kpi-back .rb-val{   font-size:15px; font-weight:700; }
   .kpi.kpi-flip:hover .kpi-front,
   .kpi.kpi-flip:focus-within .kpi-front{
-    transform:translateY(-14px); opacity:0;
+    transform:translateY(-100%); opacity:0;
   }
   .kpi.kpi-flip:hover .kpi-back,
   .kpi.kpi-flip:focus-within .kpi-back{
     transform:translateY(0); opacity:1; pointer-events:auto;
   }
+  .rb-row{ display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .rb-lbl{ font-size:9px; font-weight:700; letter-spacing:.06em; color:var(--muted); white-space:nowrap; }
+  .rb-num{ font-size:16px; font-weight:800; letter-spacing:-.02em; flex-shrink:0; }
 
   /* PANEL GRID — customizable */
   .panel-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:16px;}
@@ -1737,10 +1737,10 @@ function paint(){
   $('kv-rejected').textContent  = num(k.totalRejected);
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
-    `<span><i class="rb-label">QC FAILED</i><b class="rb-val" style="color:var(--red)">${num(k.totalQcFailed)}</b></span>` +
-    `<span><i class="rb-label">VALIDATION FAILED</i><b class="rb-val" style="color:var(--red)">${num(k.totalValidationFailed)}</b></span>` +
-    `<span><i class="rb-label">TECH FAILURE</i><b class="rb-val" style="color:var(--amber)">${num(k.totalTechFailed||0)}</b></span>` +
-    `<span><i class="rb-label">AI FAILED</i><b class="rb-val" style="color:var(--orange)">${num(k.totalAiFailed||0)}</b></span>`;
+    `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
   $('kv-pending').textContent   = num(k.totalPending);
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
