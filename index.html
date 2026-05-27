@@ -221,15 +221,15 @@
   .kpi:hover .kpi-arrow{opacity:.7;transform:translate(2px,-2px);}
   .kpi-arrow svg{width:14px;height:14px;display:block;}
   .kpi-tooltip{
-    display:none;position:absolute;bottom:calc(100% + 8px);left:50%;
+    display:none;position:absolute;top:calc(100% + 8px);left:50%;
     transform:translateX(-50%);background:var(--ink);color:#fff;
     font-size:11px;border-radius:6px;padding:8px 12px;
     white-space:nowrap;z-index:200;pointer-events:none;line-height:1.9;
   }
   .kpi-tooltip::after{
-    content:'';position:absolute;top:100%;left:50%;
+    content:'';position:absolute;bottom:100%;left:50%;
     transform:translateX(-50%);border:5px solid transparent;
-    border-top-color:var(--ink);
+    border-bottom-color:var(--ink);
   }
   .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
 
