@@ -618,9 +618,7 @@
       <div class="trend-legend" id="trendLegend"></div>
     </div>
 
-    <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
-    <div class="panel" data-panel="sla" data-size="full" style="margin:0;grid-column:auto">
+    <div class="panel" data-panel="sla" data-size="half">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
@@ -650,7 +648,7 @@
       </div>
     </div>
 
-    <div class="panel" data-panel="delivery" data-size="full" style="margin:0;grid-column:auto">
+    <div class="panel" data-panel="delivery" data-size="half">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
@@ -678,8 +676,7 @@
           <span id="delvMeta">—</span>
         </div>
       </div>
-    </div> <!-- end delivery panel -->
-    </div> <!-- end 50-50 row wrapper -->
+    </div>
 
 
     <div class="panel" data-panel="topEnt" data-size="half">
@@ -704,7 +701,7 @@
       <div class="chart-wrap"><canvas id="cTeam"></canvas></div>
     </div>
 
-    <div class="panel" data-panel="topQc" data-size="half">
+    <div class="panel" data-panel="topQc" data-size="full">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Top QC users</h3>
@@ -716,10 +713,7 @@
     </div>
 
 
-    <div style="grid-column:span 6;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
-
-    <!-- Card 1: QC Failed (Blocker issues) -->
-    <div class="panel" data-panel="reasons" data-size="full" style="grid-column:auto;margin:0">
+    <div class="panel" data-panel="reasons" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>QC Failed reasons</h3>
@@ -729,8 +723,7 @@
       <div id="cQcReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
     </div>
 
-    <!-- Card 2: Validation Failed -->
-    <div class="panel" data-size="full" style="grid-column:auto;margin:0">
+    <div class="panel" data-panel="reasons2" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Validation Failed reasons</h3>
@@ -740,8 +733,7 @@
       <div id="cValReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
     </div>
 
-    <!-- Card 3: Tech & AI Failure -->
-    <div class="panel" data-size="full" style="grid-column:auto;margin:0">
+    <div class="panel" data-panel="reasons3" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Tech &amp; AI Failure reasons</h3>
@@ -751,7 +743,7 @@
       <div id="cTechReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
     </div>
 
-    </div> <!-- end 3-col reasons row -->
+
 
     <div class="panel" data-panel="records" data-size="full" style="padding:0;">
       <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
@@ -1060,17 +1052,19 @@ const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
 
 // Layout — saved to localStorage. Bump key to v3 because schema changed (new panels).
 const DEFAULT_LAYOUT = [
-  { id:'trend',    size:'full' },
-  { id:'sla',      size:'third' },
-  { id:'delivery', size:'third' },
-  { id:'reasons',  size:'full' },
-  { id:'topEnt',   size:'half' },
-  { id:'topTeam',  size:'half' },
-  { id:'topQc',    size:'half' },
-  { id:'records',  size:'full' },
+  { id:'trend',    size:'full'  },
+  { id:'sla',      size:'half'  },
+  { id:'delivery', size:'half'  },
+  { id:'topEnt',   size:'half'  },
+  { id:'topTeam',  size:'half'  },
+  { id:'topQc',    size:'full'  },
+  { id:'reasons',  size:'third' },
+  { id:'reasons2', size:'third' },
+  { id:'reasons3', size:'third' },
+  { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v5'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v5',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v6'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v6',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
