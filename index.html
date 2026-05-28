@@ -221,7 +221,13 @@
   .kpi-arrow{position:absolute;top:18px;right:18px;color:var(--muted);opacity:0;transition:opacity .15s,transform .15s;}
   .kpi:hover .kpi-arrow{opacity:.7;transform:translate(2px,-2px);}
   .kpi-arrow svg{width:14px;height:14px;display:block;}
-  .kpi-tooltip{
+  .seg-tooltip{
+    position:fixed; background:var(--ink); color:#fff;
+    font-size:11px; padding:6px 10px; border-radius:6px;
+    pointer-events:none; z-index:999; display:none;
+    white-space:nowrap; line-height:1.7;
+    box-shadow:0 4px 12px rgba(0,0,0,.3);
+  }
     display:none;position:absolute;top:calc(100% + 8px);left:50%;
     transform:translateX(-50%);background:var(--ink);color:#fff;
     font-size:11px;border-radius:6px;padding:8px 12px;
@@ -527,6 +533,7 @@
 </head>
 <body>
 
+<div id="segTooltip" class="seg-tooltip"></div>
 <div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span><div class="load-progress-wrap"><div class="load-progress-bar" id="loadBar"></div></div><span class="load-pct" id="loadPct"></span></div></div>
 
 <button class="theme-toggle" id="themeBtn">
@@ -1720,6 +1727,17 @@ function mkTrend(canvas, buckets){
 }
 
 // ── Segmented bar (Delivered + Rejected in one bar) ──────────────────────────
+function showSegTip(e, text){
+  const t = $('segTooltip');
+  t.innerHTML = text.split('\n').map(l=>`<div>${l}</div>`).join('');
+  t.style.display = 'block';
+  t.style.left = (e.clientX + 14)+'px';
+  t.style.top  = (e.clientY - 52)+'px';
+}
+function hideSegTip(){
+  $('segTooltip').style.display = 'none';
+}
+
 function mkSegBar(id, container, breakMap, opts={}){
   if (!container) return;
   container.innerHTML = '';
@@ -1772,16 +1790,21 @@ function mkSegBar(id, container, breakMap, opts={}){
 
     if (dPct > 0){
       const dSeg = document.createElement('div');
-      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:4px`;
-      if (dPct > 5) dSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${delivered.toLocaleString()}</span>`;
+      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:6px`;
+      if (dPct > 5) dSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${((delivered/total)*100).toFixed(1)}%</span>`;
       barWrap.appendChild(dSeg);
     }
     if (rPct > 0){
       const rSeg = document.createElement('div');
-      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:4px`;
-      if (rPct > 5) rSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${rejected.toLocaleString()}</span>`;
+      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:6px`;
+      if (rPct > 5) rSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${((rejected/total)*100).toFixed(1)}%</span>`;
       barWrap.appendChild(rSeg);
     }
+
+    // Hover on entire bar shows both delivered + rejected
+    const bothTip = `✅ Delivered: ${delivered.toLocaleString()} (${((delivered/total)*100).toFixed(1)}%)\n❌ Rejected: ${rejected.toLocaleString()} (${((rejected/total)*100).toFixed(1)}%)`;
+    barWrap.addEventListener('mousemove', e=>showSegTip(e, bothTip));
+    barWrap.addEventListener('mouseleave', hideSegTip);
 
     // Total
     const totalEl = document.createElement('span');
