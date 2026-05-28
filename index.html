@@ -2644,38 +2644,48 @@ function renderRecordsModal(){
 
   const shown = sorted.slice(0, 500);
 
-  // Build header columns array — preserves the rejected-view column reorder
-  const reasonTh = sortableTh('rej', 'Rejected Reason');
+  // Build header columns
+  const reasonTh = sortableTh('rej', 'Rejection Reason');
   const headHTML = [
-    sortableTh('_created', 'Created'),
+    sortableTh('vin',      'VIN'),
+    sortableTh('sku',      'SKU ID'),
+    sortableTh('spin_id',  'Spin ID'),
     sortableTh('ent',      'Enterprise'),
     sortableTh('team',     'Team'),
     sortableTh('qc',       'QC User'),
-    sortableTh('poc_ob',   'POC OB'),
-    sortableTh('poc_cs',   'POC CS'),
     sortableTh('_status',  'Status'),
     sortableTh('sla',      'SLA'),
     sortableTh('tat',      'TAT'),
-    isRejView ? reasonTh : '',
-    sortableTh('vid',      'Video ID'),
-    !isRejView ? reasonTh : '',
-    sortableTh('vurl',     'Video URL'),
-    sortableTh('vmode',    'View Mode'),
-    sortableTh('ttype',    'Temp Type'),
-    sortableTh('vin',      'VIN'),
-    sortableTh('sku',      'SKU ID'),
-    sortableTh('_updated', 'Updated'),
+    reasonTh,
+    sortableTh('ttype',    'Input Type'),
+    sortableTh('vmode',    'Platform'),
+    sortableTh('_created', 'Created At'),
+    sortableTh('_updated', 'Final Time'),
   ].filter(Boolean).join('');
 
   $('modalBody').innerHTML = `
     <table>
       <thead><tr>${headHTML}</tr></thead>
       <tbody>${shown.length===0?`<tr><td colspan="17" class="empty">No records match.</td></tr>`:shown.map(r=>{
-        const isD=isDelivered(r), isR=isRejected(r);
-        const pill = isD?'<span class="pill delivered">Delivered</span>':isR?'<span class="pill rejected">Rejected</span>':'<span class="pill pending">Pending</span>';
+        const statusLabel = (r.final_status || (isD?'Delivered':isR?'Rejected':'Pending'));
+        const pill = isD?`<span class="pill delivered">${esc(statusLabel)}</span>`:isR?`<span class="pill rejected">${esc(statusLabel)}</span>`:`<span class="pill pending">${esc(statusLabel)}</span>`;
         const slaPill = r.sla===1?'<span class="pill sla-in">In</span>':r.sla===0?'<span class="pill sla-out">Out</span>':'<span class="pill">—</span>';
-        const reasonCell = `<td title="${esc(r.rej||'')}" style="max-width:240px;white-space:normal;">${esc(r.rej||'—')}</td>`;
-        return `<tr><td class="mono">${esc(fmtDate(r.c))}</td><td>${esc(r.ent||'—')}</td><td>${esc(r.team||'—')}</td><td>${esc(r.qc||'—')}</td><td>${esc(r.poc_ob||'—')}</td><td>${esc(r.poc_cs||'—')}</td><td>${pill}</td><td>${slaPill}</td><td class="mono">${esc(fmtTatHrs(r.tat))}</td>${isRejView?reasonCell:''}<td class="mono">${esc(r.vid||'—')}</td>${!isRejView?reasonCell:''}<td>${videoLink(r.vurl)}</td><td class="mono">${esc(r.vmode||'—')}</td><td class="mono">${esc(r.ttype||'—')}</td><td class="mono">${esc(r.vin||'—')}</td><td class="mono">${esc(r.sku||'—')}</td><td class="mono">${esc(fmtDate(r.u))}</td></tr>`;
+        return `<tr>
+          <td class="mono">${esc(r.vin||'—')}</td>
+          <td class="mono">${esc(r.sku||'—')}</td>
+          <td class="mono">${esc(r.spin_id||r.vid||'—')}</td>
+          <td>${esc(r.ent||'—')}</td>
+          <td>${esc(r.team||'—')}</td>
+          <td>${esc(r.qc||'—')}</td>
+          <td>${pill}</td>
+          <td>${slaPill}</td>
+          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
+          <td title="${esc(r.rej||'')}" style="max-width:200px;white-space:normal;">${esc(r.rej||'—')}</td>
+          <td class="mono">${esc(r.ttype||'—')}</td>
+          <td class="mono">${esc(r.vmode||'—')}</td>
+          <td class="mono">${esc(fmtDate(r.c))}</td>
+          <td class="mono">${esc(fmtDate(r.u))}</td>
+        </tr>`;
       }).join('')}</tbody>
     </table>`;
   $('modalCount').textContent = `Showing ${num(shown.length)} of ${num(rows.length)}` + (shown.length>=500 && rows.length>500 ? ' (preview · download for all)' : '');
@@ -2833,7 +2843,7 @@ function extractRecordsForExport(){
   if (isRejView) headers.push('Rejected Reason');
   headers.push('Video ID');
   if (!isRejView) headers.push('Rejected Reason');
-  headers.push('Video URL','View Mode','Temp Type','VIN','SKU ID','Updated');
+  headers.push('VIN','SKU ID','Spin ID','Enterprise','Team','QC User','Status','SLA','TAT','Rejection Reason','Input Type','Platform','Created At','Final Time');
 
   const statusOf = r => isDelivered(r) ? 'Delivered' : isRejected(r) ? 'Rejected' : 'Pending';
   const slaOf    = r => r.sla === 1 ? 'In' : r.sla === 0 ? 'Out' : '—';
