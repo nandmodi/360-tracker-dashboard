@@ -126,40 +126,57 @@ async function fetchFromMetabase() {
   };
 }
 
+// ── Background refresh (fire-and-forget) ─────────────────────────────────────
+let _refreshing = false;
+async function backgroundRefresh() {
+  if (_refreshing) return;
+  _refreshing = true;
+  try {
+    const payload = await fetchFromMetabase();
+    _cache = { ...payload, ts: Date.now() };
+    console.log('[api/data] background refresh complete');
+  } catch (err) {
+    console.error('[api/data] background refresh failed:', err.message);
+  } finally {
+    _refreshing = false;
+  }
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   const force = req.query?.force === "1";
+  const now   = Date.now();
 
+  // ── Case 1: Fresh cache — return immediately ──────────────────
+  if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
+    console.log(`[api/data] HIT age=${Math.round((now-_cache.ts)/1000)}s`);
+    res.setHeader("X-Cache", "HIT");
+    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+    return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
+  }
+
+  // ── Case 2: Stale cache exists — return it, refresh in background ──
+  if (!force && _cache) {
+    console.log(`[api/data] STALE age=${Math.round((now-_cache.ts)/1000)}s — serving stale, refreshing in bg`);
+    res.setHeader("X-Cache", "STALE");
+    res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=600");
+    res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
+    backgroundRefresh(); // fire and forget — no await
+    return;
+  }
+
+  // ── Case 3: No cache — must fetch (first load or force) ──────────
   try {
-    const now = Date.now();
-
-    // Serve from cache if fresh
-    if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
-      console.log(`[api/data] cache HIT age=${Math.round((now-_cache.ts)/1000)}s`);
-      res.setHeader("X-Cache", "HIT");
-      res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
-      return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
-    }
-
-    const payload  = await fetchFromMetabase();
-    _cache         = { ...payload, ts: now };
-
+    console.log('[api/data] MISS — fetching fresh data');
+    const payload = await fetchFromMetabase();
+    _cache = { ...payload, ts: now };
     res.setHeader("X-Cache", "MISS");
     res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
     res.status(200).json(payload);
-
   } catch (err) {
     console.error("[api/data] ERROR:", err.message);
-
-    // Return stale cache on error — better than an empty dashboard
-    if (_cache) {
-      console.log("[api/data] serving stale cache after error");
-      res.setHeader("X-Cache", "STALE");
-      return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
-    }
-
     res.status(500).json({ error: err.message });
   }
 };
