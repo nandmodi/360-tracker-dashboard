@@ -63,6 +63,7 @@ function mapRow(r) {
     spin_id:  r['ss.spin_id'] || null,
     vurl:  null,
     vmode: r["fd.platform"],
+    seg:   r.customer_segment || null,  // Ent / Mid / SMB / Resellers
     ttype: r.input_type,
     vin:   r.vinName,
     sku:   r.spin_sku_id,
