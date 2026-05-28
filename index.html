@@ -1320,13 +1320,12 @@ function aggregate(rows){
   console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.final_status==='Under Review').length}`);
 
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
-  // Formula: ∑(final_time - createdAt) / Total completed rows
-  // Exclude records where qc_user_id is null (not QC processed)
+  // Only Delivered rows, qc_user not null, TAT > 0
   let tatSum=0, tatCount=0;
   for (const r of rows){
-    if (!isCompleted(r)) continue;
-    if (!r.qc) continue;  // skip where qc_user_id is null
-    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat >= 0){
+    if (!isDelivered(r)) continue;          // only Delivered
+    if (!r.qc) continue;                    // skip null qc_user_id
+    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
       tatSum += r.tat;
       tatCount++;
     }
@@ -1381,9 +1380,8 @@ function aggregate(rows){
       totalPending++;
     }
 
-    // SLA on completed vinNames (deduped)
-    if (isCompleted(r)){
-      totalCompletedVins++;
+    // SLA — all rows except Under Review
+    if (!isPending(r) && r.sla !== null){
       if      (r.sla === 1) withinSla++;
       else if (r.sla === 0) outOfSla++;
     }
@@ -1484,7 +1482,7 @@ function aggregate(rows){
     totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
     totalTechFailed, totalAiFailed, totalPending,
     withinSla, outOfSla,
-    slaCompliance: totalCompletedVins ? +((withinSla/totalCompletedVins)*100).toFixed(2) : null,
+    slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
     avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
