@@ -7,8 +7,8 @@
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
-const SLA_THRESHOLD_HOURS = 24;
-const CACHE_TTL_MS        = 10 * 60 * 1000; // 10 min cache
+const SLA_THRESHOLD_HOURS = 6;   // within 6h = Within SLA
+const CACHE_TTL_MS        = 10 * 60 * 1000;
 
 let _cache = null;
 
@@ -32,21 +32,19 @@ function mapRow(r) {
   const createdAt = parseDate(r.createdAt);
   const finalTime = parseDate(r.final_time);
 
+  // TAT = final_time - createdAt (hours)
   let tat = null;
   if (createdAt && finalTime) {
     const ms = finalTime.getTime() - createdAt.getTime();
-    if (ms >= 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
-  }
-
-  // Use total_qc_time if available (already in minutes → convert to hours)
-  if (r.total_qc_time != null && !isNaN(+r.total_qc_time)) {
-    tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
+    if (ms > 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
   }
 
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
+  const fs = (r.final_status || '').trim();
 
+  // SLA = TAT ≤ 6h, exclude Under Review only
   let sla = null;
-  if (tat !== null && (ver === "verified" || ver === "rejected"))
+  if (tat !== null && fs !== 'Under Review')
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
 
   return {
