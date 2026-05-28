@@ -29,13 +29,15 @@ function mapStatus(finalStatus, crmStatus) {
 }
 
 function mapRow(r) {
-  const createdAt = parseDate(r.createdAt);
-  const finalTime = parseDate(r.final_time);
+  const createdAt   = parseDate(r.createdAt);
+  const finalTime   = parseDate(r.final_time);
+  const firstQcDone = parseDate(r.first_qc_done);  // preferred for TAT/SLA
 
-  // TAT = final_time - createdAt (hours)
+  // TAT = first_qc_done - createdAt  (fallback: final_time - createdAt)
+  const tatTime = firstQcDone || finalTime;
   let tat = null;
-  if (createdAt && finalTime) {
-    const ms = finalTime.getTime() - createdAt.getTime();
+  if (createdAt && tatTime) {
+    const ms = tatTime.getTime() - createdAt.getTime();
     if (ms > 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
   }
 
