@@ -2666,14 +2666,15 @@ function renderRecordsModal(){
   $('modalBody').innerHTML = `
     <table>
       <thead><tr>${headHTML}</tr></thead>
-      <tbody>${shown.length===0?`<tr><td colspan="17" class="empty">No records match.</td></tr>`:shown.map(r=>{
-        const statusLabel = (r.final_status || (isD?'Delivered':isR?'Rejected':'Pending'));
+      <tbody>${shown.length===0?`<tr><td colspan="14" class="empty">No records match.</td></tr>`:shown.map(r=>{
+        const isD = isDelivered(r), isR = isRejected(r);
+        const statusLabel = r.final_status || (isD?'Delivered':isR?'Rejected':'Pending');
         const pill = isD?`<span class="pill delivered">${esc(statusLabel)}</span>`:isR?`<span class="pill rejected">${esc(statusLabel)}</span>`:`<span class="pill pending">${esc(statusLabel)}</span>`;
         const slaPill = r.sla===1?'<span class="pill sla-in">In</span>':r.sla===0?'<span class="pill sla-out">Out</span>':'<span class="pill">—</span>';
         return `<tr>
           <td class="mono">${esc(r.vin||'—')}</td>
           <td class="mono">${esc(r.sku||'—')}</td>
-          <td class="mono">${esc(r.spin_id||r.vid||'—')}</td>
+          <td class="mono">${esc(r.spin_id||'—')}</td>
           <td>${esc(r.ent||'—')}</td>
           <td>${esc(r.team||'—')}</td>
           <td>${esc(r.qc||'—')}</td>
