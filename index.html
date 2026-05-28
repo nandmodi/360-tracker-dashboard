@@ -550,7 +550,7 @@
 
 <div id="sticky-top">
   <header>
-    <div class="brand"><h1>Ops Dashboard</h1><span class="tag">QC · Throughput · SLA</span></div>
+    <div class="brand"><h1>360 Dashboard</h1><span class="tag">QC · Throughput · SLA</span></div>
     <div class="actions">
       <div class="view-switch" id="viewSwitch">
         <button data-view="operations" class="sel" title="Operations view">
@@ -688,6 +688,20 @@
           <button class="ms-action muted" type="button" data-act="none" data-ms="sla">Clear all</button>
         </div>
         <div class="ms-list" id="msSlaList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msSegWrap">
+      <label class="f-label">Segment</label>
+      <div class="ms-trigger compact" id="msSegTrigger" tabindex="0">
+        <span class="ms-text" id="msSegText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msSegPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="seg">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="seg">Clear all</button>
+        </div>
+        <div class="ms-list" id="msSegList"></div>
       </div>
     </div>
     <button class="btn-reset" id="resetBtn">Reset</button>
@@ -1185,7 +1199,7 @@ const F = {
   preset:'this_month', from:null, to:null,
   ent:null, team:null,
   user:null,
-  verified:null, sla:null,
+  verified:null, sla:null, seg:null,
   rejReason: null,
 };
 
@@ -1270,6 +1284,7 @@ function passesFilters(r){
     if (F.sla.has('Out of SLA') && isOut)    ok = true;
     if (!ok) return false;
   }
+  if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
   if (F.rejReason){
     if (!isRejected(r)) return false;
     if (normReason(r.rej) !== F.rejReason) return false;
@@ -1284,20 +1299,30 @@ function passesFilters(r){
   return true;
 }
 
+// SMB and Resellers grouped as "SMB & Resellers"
+function normSeg(s){
+  if (!s) return 'Unknown';
+  const v = s.trim();
+  if (/^smb$/i.test(v) || /resell/i.test(v)) return 'SMB & Resellers';
+  return v;  // Ent, Mid pass through as-is
+}
+
 function buildFilterScopes(){
   // Build option lists from the full dataset so dropdowns don't shrink as filters apply.
-  const ent=new Set(),team=new Set(),user=new Set(),ver=new Set();
+  const ent=new Set(),team=new Set(),user=new Set(),ver=new Set(),seg=new Set();
   for (const r of RAW){
     if (r.ent) ent.add(r.ent);
     if (r.team) team.add(r.team);
     if (r.qc) user.add(r.qc);
     if (r.final_status) ver.add(r.final_status);
+    seg.add(normSeg(r.seg));
   }
   return {
     enterpriseList: [...ent].sort(),
     teamList:       [...team].sort(),
     userList:       [...user].sort(),
     verifiedList:   [...ver].sort(),
+    segList:        [...seg].sort(),
   };
 }
 
@@ -2046,6 +2071,7 @@ function paint(){
       if (F.sla.has('Out of SLA') && isO) ok = true;
       if (!ok) return false;
     }
+    if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
     return true;
   });
   const buckets = bucketTrend(trendRows, trendRange);
@@ -2176,6 +2202,7 @@ async function syncFromServer({silent=false, force=false}={}){
     msUser.setOptions(sc.userList);
     msVerified.setOptions(sc.verifiedList);
     msSla.setOptions(['Within SLA','Out of SLA']);
+    msSeg.setOptions(sc.segList);
 
     setLoadProgress(100, 'Done!');
     await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
@@ -2315,8 +2342,15 @@ const msSla = createMultiSelect({
   onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 
-const MS_INSTANCES = [msEnt, msTeam, msUser, msVerified, msSla];
-const MS_WRAPS = ['msEntWrap','msTeamWrap','msUserWrap','msVerifiedWrap','msSlaWrap'];
+const msSeg = createMultiSelect({
+  field:'seg', triggerId:'msSegTrigger', panelId:'msSegPanel',
+  textId:'msSegText', searchId:null, listId:'msSegList',
+  singularLabel:'segment', pluralLabel:'segments',
+  onChange: ()=> setTimeout(()=>refresh(),0),
+});
+
+const MS_INSTANCES = [msEnt, msTeam, msUser, msVerified, msSla, msSeg];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msUserWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
 
 // Close any open multi-select on outside click
 document.addEventListener('mousedown', e=>{
@@ -2336,7 +2370,7 @@ $('resetBtn').addEventListener('click', ()=>{
     preset:'this_month', from:r.from, to:r.to,
     ent:null, team:null,
     user:null,
-    verified:null, sla:null,
+    verified:null, sla:null, seg:null,
     rejReason: null,
   });
   refreshMsTriggers();
@@ -2548,6 +2582,7 @@ function activeFilterChips(){
   setChip('User',       F.user);
   setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
+  setChip('Segment',    F.seg);
   if (F.rejReason) chips.push(`<span class="chip">Reason <strong>filtered</strong></span>`);
   return chips.length?chips.join(''):'<span class="chip">No filters</span>';
 }
@@ -3232,7 +3267,7 @@ async function downloadReport(){
 
     pdf.setTextColor(inkColor);
     pdf.setFontSize(18);
-    pdf.text('Ops Dashboard Report', M, M + 14);
+    pdf.text('360 Dashboard Report', M, M + 14);
     pdf.setFontSize(9);
     pdf.setTextColor(mutedColor);
     pdf.text('Generated ' + new Date().toLocaleString(), M, M + 30);
@@ -3278,7 +3313,7 @@ async function downloadReport(){
       // Page header
       pdf.setTextColor(mutedColor);
       pdf.setFontSize(9);
-      pdf.text(`Ops Dashboard · page ${pdf.internal.getNumberOfPages()}`, M, M);
+      pdf.text(`360 Dashboard · page ${pdf.internal.getNumberOfPages()}`, M, M);
 
       const panel = panels[i];
       const canvas = await html2canvas(panel, { backgroundColor:null, scale:2, useCORS:true, logging:false });
