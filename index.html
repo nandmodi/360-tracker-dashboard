@@ -779,7 +779,38 @@
     </div>
 
 
-    <div class="panel" data-panel="reasons" data-size="third">
+    <div class="panel" data-panel="accuracy" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Accuracy</h3>
+          <div class="panel-sub">Auto vs manually edited · delivered SKUs only</div>
+        </div>
+        <div class="edit-controls" data-panel-ctl="accuracy"></div>
+      </div>
+      <div class="sla-content">
+        <div class="sla-cells">
+          <div class="sla-cell sla-in" id="accCellAuto" tabindex="0" role="button">
+            <div class="sla-num green" id="accNumAuto">—</div>
+            <div class="sla-pct" id="accPctAuto">—%</div>
+            <div class="sla-cell-label">AUTO</div>
+          </div>
+          <div class="sla-cell sla-out" id="accCellManual" tabindex="0" role="button">
+            <div class="sla-num red" id="accNumManual">—</div>
+            <div class="sla-pct" id="accPctManual">—%</div>
+            <div class="sla-cell-label">MANUALLY EDITED</div>
+          </div>
+        </div>
+        <div class="sla-bar">
+          <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
+          <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
+        </div>
+        <div class="sla-tick"><span>0%</span><span>100%</span></div>
+        <div class="sla-bottom">
+          <span id="accMeta">—</span>
+          <span id="accTotal">—</span>
+        </div>
+      </div>
+    </div>
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>QC Failed reasons</h3>
@@ -1153,8 +1184,9 @@ const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
 // Layout — saved to localStorage. Bump key to v3 because schema changed (new panels).
 const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full'  },
-  { id:'sla',      size:'half'  },
-  { id:'delivery', size:'half'  },
+  { id:'sla',      size:'third' },
+  { id:'delivery', size:'third' },
+  { id:'accuracy', size:'third' },
   { id:'reasons',  size:'third' },
   { id:'reasons2', size:'third' },
   { id:'reasons3', size:'third' },
@@ -1163,8 +1195,8 @@ const DEFAULT_LAYOUT = [
   { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v7'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v7',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v8'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v8',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
@@ -1303,6 +1335,7 @@ function aggregate(rows){
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
   let totalTechFailed=0, totalAiFailed=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
+  let autoDelivered=0, manualDelivered=0;  // Accuracy: manual_editing false/true on delivered
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={}, qcBreak={};
@@ -1323,6 +1356,9 @@ function aggregate(rows){
     let kind = 'pending';
     if (isDelivered(r)){
       totalDelivered++; kind='delivered';
+      // Accuracy tracking
+      if (r.manual_editing === true)  manualDelivered++;
+      else                            autoDelivered++;
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
       if (isValidationFailed(r)) totalValidationFailed++;
@@ -1461,7 +1497,7 @@ function aggregate(rows){
     valReasons:  top(valReasons,  20),
     techReasons: top(techReasons, 20),
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
-    dareCount, turboCount, ttOtherCount, ttBlankCount,
+    autoDelivered, manualDelivered,
   };
 }
 // ─────────────────────────────────────────────────────────────
@@ -1882,6 +1918,23 @@ function paintSla(k){
     : 'No delivered records in view';
 }
 
+function paintAccuracy(k){
+  const auto   = k.autoDelivered   || 0;
+  const manual = k.manualDelivered || 0;
+  const total  = auto + manual || 1;
+  const pctAuto   = (auto   / total) * 100;
+  const pctManual = (manual / total) * 100;
+
+  $('accNumAuto').textContent   = num(auto);
+  $('accNumManual').textContent = num(manual);
+  $('accPctAuto').textContent   = pctAuto.toFixed(1)+'%';
+  $('accPctManual').textContent = pctManual.toFixed(1)+'%';
+  $('accBarAuto').style.width   = pctAuto+'%';
+  $('accBarManual').style.width = pctManual+'%';
+  $('accMeta').textContent  = `Auto accuracy: ${pctAuto.toFixed(1)}%`;
+  $('accTotal').textContent = `${num(total)} delivered SKUs`;
+}
+
 function paintDelivery(k){
   const deliv      = k.totalDelivered  || 0;
   const rejected   = k.totalRejected   || 0;
@@ -1937,6 +1990,7 @@ function paint(){
   // SLA + Delivery panels
   paintSla(k);
   paintDelivery(k);
+  paintAccuracy(k);
 
   // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
