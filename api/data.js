@@ -7,7 +7,7 @@
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
-const SLA_THRESHOLD_HOURS = 6;   // within 6h = Within SLA
+const SLA_THRESHOLD_HOURS = 24;
 const CACHE_TTL_MS        = 10 * 60 * 1000; // 10 min cache
 
 let _cache = null;
@@ -32,29 +32,28 @@ function mapRow(r) {
   const createdAt = parseDate(r.createdAt);
   const finalTime = parseDate(r.final_time);
 
-  // TAT = final_time - createdAt (in hours)
-  // total_qc_time is QC processing time only — NOT the same as delivery TAT
   let tat = null;
   if (createdAt && finalTime) {
     const ms = finalTime.getTime() - createdAt.getTime();
     if (ms >= 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
   }
 
-  const COMPLETED = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
+  // Use total_qc_time if available (already in minutes → convert to hours)
+  if (r.total_qc_time != null && !isNaN(+r.total_qc_time)) {
+    tat = parseFloat((+r.total_qc_time / 60).toFixed(3));
+  }
+
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
 
-  // SLA & TAT only for completed records (Delivered, QC Failed, Validation Failed, Tech Failure, AI Failed)
   let sla = null;
-  if (tat !== null && COMPLETED.includes(r.final_status))
+  if (tat !== null && (ver === "verified" || ver === "rejected"))
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
 
   return {
     c:      r.createdAt,
     u:      r.final_time,
     ent:    r.enterprise_name,
-    eid:    r.enterpriseId,          // raw ID for unique enterprise count
     team:   r.team_name,
-    tid:    r.teamId,                // raw ID for unique team count
     qc:     r.qc_user,
     poc_ob: null,
     poc_cs: null,
@@ -69,6 +68,7 @@ function mapRow(r) {
     final_status:         r.final_status,
     issues_by_severity:   r.issues_by_severity,
     is_assisted_by_qc:    r.is_assisted_by_qc,
+    manual_editing:       r.manual_editing === true || r.manual_editing === 'true' || r.manual_editing === 1 ? true : false,
     placement_logic:      r.placement_logic,
     retry_count:          r.retry_count,
     exterior_image_count: r.exterior_image_count,
@@ -114,38 +114,10 @@ async function fetchFromMetabase() {
   console.log(`[api/data] parsed ${rawRows.length} rows, total=${Date.now()-t0}ms`);
   if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
 
-  // ── Apply SQL WHERE filters (mirrors Metabase SQL conditions) ──────────────
-  // Full excluded enterprises list from {{#10629-excluded-enterprises}}
-  const EXCLUDED_IDS = new Set([
-    'ab450c917','1a606c1be','3f7e1de7d','a45469aae','0ab14c0e5',
-    'b83672002','d0ff81353','f3e852d59','93e1a2855','6454b95ba',
-    '3756e853d','89caf2cee','TaD1VC1Ko','858b283d5','e44c9a35c',
-    'd43efacc7','d4c8a4a1d','TTUPJL4CX','36dd343cd','c0ed7fa96',
-    '02b8d46b3','12ac53b3e','88135ef45','f9830c477','204fffd0d',
-    'f9c214e85','ae0a68ccf','ca3c8e6e7','42025c0d0','7a0316bc8',
-    '48d291b7d','770f86373','bee254e26','f68f573c5','de4aca97f',
-    'd1afe11d2','db61eb217','e36499a20','c25ec9c3a','151210e04',
-    '7475bba76','d414b35ff','17a32e021','9166ddff0','d4b845bb5',
-    '59f60f5b1','462680aed','459b94b51','543e60308','528aef9c5',
-    'd6e653898','e5a5a9289',
-    // v1_skus hardcoded list
-    '4bc9d1ce6','39b5a5268','28733e36c','197d146c4','af5e033aa','2LA80M7WO',
-  ]);
-
-  const filteredRaw = rawRows.filter(r => {
-    if (EXCLUDED_IDS.has(r.enterpriseId)) return false;
-    const name = (r.enterprise_name || '').toLowerCase();
-    if (name.includes('spyne')) return false;
-    if (name.includes('test'))  return false;
-    return true;
-  });
-
-  console.log(`[api/data] after enterprise filter: ${filteredRaw.length} rows (removed ${rawRows.length - filteredRaw.length})`);
-
-  const rows        = filteredRaw.map(mapRow);
-  const delivered   = rows.filter(r => r.final_status === 'Delivered').length;
-  const rejected    = rows.filter(r => r.final_status === 'QC Failed' || r.final_status === 'Validation Failed').length;
-  const pending     = rows.filter(r => r.final_status === 'Under Review').length;
+  const rows      = rawRows.map(mapRow);
+  const delivered = rows.filter(r => r.crm === "qc_done" && r.ver === "verified").length;
+  const rejected  = rows.filter(r => r.crm === "qc_done" && r.ver === "rejected").length;
+  const pending   = rows.filter(r => r.crm !== "qc_done").length;
 
   console.log(`[api/data] D:${delivered} R:${rejected} P:${pending}`);
 
