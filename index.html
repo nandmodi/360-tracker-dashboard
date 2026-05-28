@@ -819,7 +819,7 @@
         </div>
         <div class="edit-controls" data-panel-ctl="topEnt"></div>
       </div>
-      <div class="chart-wrap"><canvas id="cEnt"></canvas></div>
+      <div id="cEnt" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
 
     <div class="panel" data-panel="topTeam" data-size="half">
@@ -830,7 +830,7 @@
         </div>
         <div class="edit-controls" data-panel-ctl="topTeam"></div>
       </div>
-      <div class="chart-wrap"><canvas id="cTeam"></canvas></div>
+      <div id="cTeam" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
 
     <div class="panel" data-panel="topQc" data-size="full">
@@ -841,7 +841,7 @@
         </div>
         <div class="edit-controls" data-panel-ctl="topQc"></div>
       </div>
-      <div class="chart-wrap"><canvas id="cQc"></canvas></div>
+      <div id="cQc" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
     </div>
 
 
@@ -1692,27 +1692,23 @@ function mkSegBar(id, container, breakMap, opts={}){
     return;
   }
 
-  // Sort by total desc, take top 12
+  // Sort by total desc, take top 10
   const entries = Object.entries(breakMap)
-    .map(([label, b]) => ({ label, total: b.total||0, delivered: b.delivered||0, rejected: b.rejected||0 }))
+    .map(([label, b]) => ({ label, total:b.total||0, delivered:b.delivered||0, rejected:b.rejected||0 }))
     .sort((a,b) => b.total - a.total)
-    .slice(0, 12);
+    .slice(0, 10);
 
   const maxTotal = entries[0]?.total || 1;
 
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;gap:7px';
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:0';
 
-  // Legend
+  // Legend row
   const legend = document.createElement('div');
-  legend.style.cssText = 'display:flex;gap:14px;margin-bottom:6px;font-size:11px;color:var(--muted)';
-  legend.innerHTML = `
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>Delivered
-    </span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:8px;height:8px;border-radius:2px;background:#E24B4A;display:inline-block"></span>Rejected
-    </span>`;
+  legend.style.cssText = 'display:flex;gap:14px;margin-bottom:10px;font-size:10px;color:var(--muted);letter-spacing:.04em';
+  legend.innerHTML =
+    `<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>DELIVERED</span>` +
+    `<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#E24B4A;display:inline-block"></span>REJECTED</span>`;
   wrap.appendChild(legend);
 
   entries.forEach(({ label, total, delivered, rejected }) => {
@@ -1720,7 +1716,7 @@ function mkSegBar(id, container, breakMap, opts={}){
     const rPct = total ? (rejected  / maxTotal) * 100 : 0;
 
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);cursor:pointer';
     row.setAttribute('role','button');
     row.setAttribute('tabindex','0');
     if (opts.onPick){
@@ -1728,32 +1724,32 @@ function mkSegBar(id, container, breakMap, opts={}){
       row.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); opts.onPick(label); }});
     }
 
+    // Name
     const nameEl = document.createElement('span');
-    nameEl.style.cssText = 'font-size:11px;color:var(--muted);width:130px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0';
+    nameEl.style.cssText = 'font-size:11px;color:var(--ink-2);width:150px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     nameEl.textContent = label;
     nameEl.title = label;
 
+    // Bar
     const barWrap = document.createElement('div');
-    barWrap.style.cssText = 'flex:1;display:flex;height:20px;border-radius:4px;overflow:hidden;background:var(--line);min-width:0';
+    barWrap.style.cssText = 'flex:1;display:flex;height:26px;border-radius:4px;overflow:hidden;background:var(--line);min-width:0';
 
-    // Delivered segment
     if (dPct > 0){
       const dSeg = document.createElement('div');
-      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:width .3s`;
-      if (dPct > 8) dSeg.innerHTML = `<span style="font-size:9px;color:#fff;font-weight:500;white-space:nowrap;padding:0 3px">${delivered.toLocaleString()}</span>`;
+      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:4px`;
+      if (dPct > 5) dSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${delivered.toLocaleString()}</span>`;
       barWrap.appendChild(dSeg);
     }
-
-    // Rejected segment
     if (rPct > 0){
       const rSeg = document.createElement('div');
-      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:width .3s`;
-      if (rPct > 5) rSeg.innerHTML = `<span style="font-size:9px;color:#fff;font-weight:500;white-space:nowrap;padding:0 3px">${rejected.toLocaleString()}</span>`;
+      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;padding-right:4px`;
+      if (rPct > 5) rSeg.innerHTML = `<span style="font-size:10px;color:#fff;font-weight:700;white-space:nowrap">${rejected.toLocaleString()}</span>`;
       barWrap.appendChild(rSeg);
     }
 
+    // Total
     const totalEl = document.createElement('span');
-    totalEl.style.cssText = 'font-size:11px;font-weight:500;color:var(--ink);width:40px;flex-shrink:0;text-align:right';
+    totalEl.style.cssText = 'font-size:11px;font-weight:700;color:var(--ink);width:46px;flex-shrink:0;text-align:right;font-family:"JetBrains Mono",monospace';
     totalEl.textContent = total.toLocaleString();
 
     row.appendChild(nameEl);
@@ -1764,7 +1760,6 @@ function mkSegBar(id, container, breakMap, opts={}){
 
   container.appendChild(wrap);
 }
-
 // ── Reason breakdown card (top N with scroll) ────────────────────────────────
 function mkReasonCard(containerId, countMap, color){
   const el = $(containerId);
@@ -1946,13 +1941,13 @@ function paint(){
   // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
   mkSegBar('ent',  $('cEnt'),  k.entBreak,  {
-    onPick: label=>{ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); refresh(); }
+    onPick: label=>{ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); setTimeout(()=>refresh(),0); }
   });
   mkSegBar('team', $('cTeam'), k.teamBreak, {
-    onPick: label=>{ F.team = new Set([label]); refreshMsTriggers(); refresh(); }
+    onPick: label=>{ F.team = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); }
   });
   mkSegBar('qc',   $('cQc'),   k.qcBreak,  {
-    onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); refresh(); }
+    onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); }
   });
 
   // Reason breakdown cards
@@ -2216,31 +2211,31 @@ const msEnt  = createMultiSelect({
   field:'ent',  triggerId:'msEntTrigger',  panelId:'msEntPanel',
   textId:'msEntText', searchId:'msEntSearch', listId:'msEntList',
   singularLabel:'enterprise', pluralLabel:'enterprises',
-  onChange: ()=> refresh(),
+  onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 const msTeam = createMultiSelect({
   field:'team', triggerId:'msTeamTrigger', panelId:'msTeamPanel',
   textId:'msTeamText', searchId:'msTeamSearch', listId:'msTeamList',
   singularLabel:'team', pluralLabel:'teams',
-  onChange: ()=> refresh(),
+  onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 const msUser = createMultiSelect({
   field:'user', triggerId:'msUserTrigger', panelId:'msUserPanel',
   textId:'msUserText', searchId:'msUserSearch', listId:'msUserList',
   singularLabel:'user', pluralLabel:'users',
-  onChange: ()=> refresh(),
+  onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 const msVerified = createMultiSelect({
   field:'verified', triggerId:'msVerifiedTrigger', panelId:'msVerifiedPanel',
   textId:'msVerifiedText', searchId:null, listId:'msVerifiedList',
   singularLabel:'status', pluralLabel:'statuses',
-  onChange: ()=> refresh(),
+  onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 const msSla = createMultiSelect({
   field:'sla', triggerId:'msSlaTrigger', panelId:'msSlaPanel',
   textId:'msSlaText', searchId:null, listId:'msSlaList',
   singularLabel:'SLA state', pluralLabel:'SLA states',
-  onChange: ()=> refresh(),
+  onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 
 const MS_INSTANCES = [msEnt, msTeam, msUser, msVerified, msSla];
@@ -2334,7 +2329,8 @@ document.querySelectorAll('.dp-preset').forEach(btn=>{
     F.preset = p; F.from = r.from; F.to = r.to;
     syncDateUI();
     dtPanel.classList.remove('open'); dtTrigger.classList.remove('open');
-    refresh();
+    // Defer heavy computation so browser paints button state first → fixes INP
+    setTimeout(()=>refresh(), 0);
   });
 });
 
