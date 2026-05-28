@@ -811,6 +811,8 @@
         </div>
       </div>
     </div>
+
+    <div class="panel" data-panel="reasons" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>QC Failed reasons</h3>
@@ -1195,8 +1197,8 @@ const DEFAULT_LAYOUT = [
   { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v8'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v8',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v9'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v9',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
