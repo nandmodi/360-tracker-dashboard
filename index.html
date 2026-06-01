@@ -2870,46 +2870,31 @@ function extractModalTable(){
 // Build headers + rows for record exports directly from the row objects.
 // Mirrors the column order used by renderRecordsModal so the export matches the table.
 function extractRecordsForExport(){
-  const isRejView = _modalCtx.recordsView === 'rejected';
-  // Header labels match the on-screen header text (without sort indicators).
   const headers = [
-    'Created','Enterprise','Team','QC User',
-    'Status','SLA','TAT',
+    'VIN', 'SKU ID', 'Spin ID', 'Enterprise', 'Team', 'QC User',
+    'Status', 'SLA', 'TAT', 'Rejection Reason',
+    'Input Type', 'Platform', 'Created At', 'Final Time',
   ];
-  if (isRejView) headers.push('Rejected Reason');
-  headers.push('Video ID');
-  if (!isRejView) headers.push('Rejected Reason');
-  headers.push('VIN','SKU ID','Spin ID','Enterprise','Team','QC User','Status','SLA','TAT','Rejection Reason','Input Type','Platform','Created At','Final Time');
 
-  const statusOf = r => isDelivered(r) ? 'Delivered' : isRejected(r) ? 'Rejected' : 'Pending';
-  const slaOf    = r => r.sla === 1 ? 'In' : r.sla === 0 ? 'Out' : '—';
+  const statusOf = r => r.final_status || (isDelivered(r) ? 'Delivered' : isRejected(r) ? 'Rejected' : 'Pending');
+  const slaOf    = r => r.sla === 1 ? 'Within SLA' : r.sla === 0 ? 'Out of SLA' : '—';
 
-  const rows = _modalCtx.sortedRows.map(r => {
-    const reason = r.rej || '';
-    const base = [
-      fmtDate(r.c),
-      r.ent  || '',
-      r.team || '',
-      r.qc   || '',
-      r.poc_ob || '',
-      r.poc_cs || '',
-      statusOf(r),
-      slaOf(r),
-      fmtTatHrs(r.tat),
-    ];
-    if (isRejView) base.push(reason || '');
-    base.push(r.vid || '');
-    if (!isRejView) base.push(reason || '');
-    base.push(
-      r.vurl  || '',   // full URL, not the truncated label
-      r.vmode || '',
-      r.ttype || '',
-      r.vin   || '',
-      r.sku   || '',
-      fmtDate(r.u),
-    );
-    return base;
-  });
+  const rows = _modalCtx.sortedRows.map(r => [
+    r.vin      || '',
+    r.sku      || '',
+    r.spin_id  || '',
+    r.ent      || '',
+    r.team     || '',
+    r.qc       || '',
+    statusOf(r),
+    slaOf(r),
+    fmtTatHrs(r.tat),
+    r.rej      || '',
+    r.ttype    || '',
+    r.vmode    || '',
+    fmtDate(r.c),
+    fmtDate(r.u),
+  ]);
 
   return { headers, rows };
 }
