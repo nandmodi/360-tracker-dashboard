@@ -1370,7 +1370,10 @@ function aggregate(rows){
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
   let totalTechFailed=0, totalAiFailed=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
-  let autoDelivered=0, manualDelivered=0;  // Accuracy: manual_editing false/true on delivered
+  let autoDelivered=0, manualDelivered=0;
+  // New metrics
+  let e2eTatSum=0, e2eTatCount=0;
+  let within3h=0, within6h=0, slaDelivCount=0;  // Accuracy: manual_editing false/true on delivered
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={}, qcBreak={};
@@ -1394,6 +1397,13 @@ function aggregate(rows){
       // Accuracy tracking
       if (r.manual_editing === true)  manualDelivered++;
       else                            autoDelivered++;
+      // E2E TAT (final_time - createdAt)
+      if (typeof r.e2e_tat === 'number' && isFinite(r.e2e_tat) && r.e2e_tat > 0){
+        e2eTatSum += r.e2e_tat; e2eTatCount++;
+        slaDelivCount++;
+        if (r.e2e_tat <= 3) within3h++;
+        if (r.e2e_tat <= 6) within6h++;
+      }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
       if (isValidationFailed(r)) totalValidationFailed++;
@@ -1532,6 +1542,10 @@ function aggregate(rows){
     techReasons: top(techReasons, 20),
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     autoDelivered, manualDelivered,
+    e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
+    within3hPct: slaDelivCount ? +((within3h/slaDelivCount)*100).toFixed(1) : null,
+    within6hPct: slaDelivCount ? +((within6h/slaDelivCount)*100).toFixed(1) : null,
+    techAiFailed: (totalTechFailed||0) + (totalAiFailed||0),
   };
 }
 // ─────────────────────────────────────────────────────────────
@@ -1609,9 +1623,13 @@ const KPIS = [
   { id:'received',  label:'Total Received',    sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
   { id:'delivered', label:'Delivered',         sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
   { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
+  { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
   { id:'pending',   label:'Pending',           sub:'Under Review',           color:'amber',  kind:'records',   view:'pending'    },
-  { id:'sla',       label:'SLA Compliance',    sub:'completed within 6h',    color:'green',  kind:'records',   view:'within_sla' },
-  { id:'tat',       label:'Avg TAT',           sub:'completed records',      color:'blue',   kind:'records',   view:'tat'        },
+  { id:'sla',       label:'SLA Compliance',    sub:'within 6h (first_qc_done)', color:'green', kind:'records', view:'within_sla' },
+  { id:'tat',       label:'Avg TAT',           sub:'first_qc_done - createdAt', color:'blue', kind:'records',  view:'tat'        },
+  { id:'e2e-tat',   label:'E2E TAT',           sub:'final_time - createdAt', color:'blue',   kind:'records',   view:'e2e_tat'    },
+  { id:'w3h',       label:'Within 3h %',       sub:'delivered ≤ 3h',         color:'green',  kind:'records',   view:'within_3h'  },
+  { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
 ];
 
 function renderKpiCards(){
@@ -1985,30 +2003,28 @@ function paintAccuracy(k){
 
 function paintDelivery(k){
   const deliv      = k.totalDelivered  || 0;
-  const rejected   = k.totalRejected   || 0;
+  const qcFailed   = k.totalQcFailed   || 0;
+  const valFailed  = k.totalValidationFailed || 0;
   const techFailed = k.totalTechFailed || 0;
   const aiFailed   = k.totalAiFailed   || 0;
   const pending    = k.totalPending    || 0;
   const total      = k.totalReceived   || 0;
 
+  // Not Delivered = all failed statuses (NO pending/Under Review)
+  const notDeliv = qcFailed + valFailed + techFailed + aiFailed;
+
   // Denominator = Total Received - Under Review
-  const denom    = Math.max(total - pending, 1);
-
-  // Delivered % uses the formula exactly as specified
-  const pctDone  = (deliv / denom) * 100;
-  // Not Delivered % = 100 - Delivered % (always adds to 100%)
-  const pctNot   = Math.max(0, 100 - pctDone);
-
-  // Counts shown in the cards
-  const notDelivCount = rejected + techFailed + aiFailed;
+  const denom   = Math.max(total - pending, 1);
+  const pctDone = (deliv    / denom) * 100;
+  const pctNot  = Math.max(0, 100 - pctDone);
 
   $('delvNumDone').textContent = num(deliv);
-  $('delvNumRej').textContent  = num(notDelivCount + pending);
+  $('delvNumRej').textContent  = num(notDeliv);   // NO pending added
   $('delvPctDone').textContent = pctDone.toFixed(1)+'%';
   $('delvPctRej').textContent  = pctNot.toFixed(1)+'%';
   $('delvBarDone').style.width = pctDone+'%';
   $('delvBarRej').style.width  = pctNot+'%';
-  $('delvRejCount').textContent  = num(rejected);
+  $('delvRejCount').textContent  = num(qcFailed + valFailed);  // Rejected label: QC+Val
   $('delvPendCount').textContent = num(pending);
   $('delvMeta').textContent = total ? `${num(total)} received in view` : 'No records in view';
 }
@@ -2024,14 +2040,15 @@ function paint(){
   $('kv-team').textContent      = num(k.teamCount);
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
-  $('kv-rejected').textContent  = num(k.totalRejected);
+  $('kv-rejected').textContent  = num((k.totalRejected||0) + (k.totalTechFailed||0) + (k.totalAiFailed||0));
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
-    `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>` +
-    `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
-    `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
-  $('kv-pending').textContent   = num(k.totalPending);
+    `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>`;
+  $('kv-tech-ai') && ($('kv-tech-ai').textContent = num(k.techAiFailed||0));
+  $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
+  $('kv-w3h')     && ($('kv-w3h').textContent     = k.within3hPct!=null ? k.within3hPct.toFixed(1)+'%' : '—');
+  $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
 
@@ -2595,6 +2612,10 @@ function drillSubset(rows, view){
     case 'not_delivered': return rows.filter(r => !isDelivered(r));
     case 'within_sla':    return rows.filter(r => isCompleted(r) && r.sla===1);
     case 'out_of_sla':    return rows.filter(r => isCompleted(r) && r.sla===0);
+    case 'tech_ai':       return rows.filter(r => r.final_status==='Tech Failure'||r.final_status==='AI Failed');
+    case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e_tat > 0);
+    case 'within_3h':     return rows.filter(r => isDelivered(r) && r.e2e_tat <= 3);
+    case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e_tat <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
     default:              return rows;
   }
