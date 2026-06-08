@@ -7,10 +7,46 @@
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
-const SLA_THRESHOLD_HOURS = 6;   // within 6h = Within SLA
-const CACHE_TTL_MS        = 10 * 60 * 1000;
+const SLA_THRESHOLD_HOURS = 6;
+const CACHE_TTL_MS        = 5 * 60 * 1000;  // 5 min — near-live refresh
 
 let _cache = null;
+
+// ── Simple CSV parser ─────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.split('\n');
+  if (!lines.length) return [];
+  // Parse headers
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = parseCSVLine(line);
+    const row = {};
+    headers.forEach((h, idx) => { row[h] = vals[idx] ?? ''; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function parseDate(s) {
@@ -48,7 +84,6 @@ function mapRow(r) {
     if (ms2 > 0) e2e_tat = parseFloat((ms2 / 3_600_000).toFixed(3));
   }
 
-  const { crm, ver } = mapStatus(r.final_status, r.crm_status);
   const fs = (r.final_status || '').trim();
 
   // SLA = TAT ≤ 6h, exclude Under Review only
@@ -62,13 +97,10 @@ function mapRow(r) {
     ent:    r.enterprise_name,
     team:   r.team_name,
     qc:     r.qc_user,
-    poc_ob: null,
-    poc_cs: null,
-    crm, ver, sla, tat, e2e_tat,
+    sla, tat, e2e_tat,
     rej:   r.failure_reason || null,
     vid:      r.mediaId || null,
     spin_id:  r['ss.spin_id'] || null,
-    vurl:  null,
     vmode: r["fd.platform"],
     seg:   r.customer_segment || null,  // Ent / Mid / SMB / Resellers
     ttype: r.input_type,
@@ -76,15 +108,8 @@ function mapRow(r) {
     sku:   r.spin_sku_id,
     final_status:         r.final_status,
     issues_by_severity:   r.issues_by_severity,
-    is_assisted_by_qc:    r.is_assisted_by_qc,
     manual_editing:       r.manual_editing === true || r.manual_editing === 'true' || r.manual_editing === 1 ? true : false,
-    placement_logic:      r.placement_logic,
-    retry_count:          r.retry_count,
-    exterior_image_count: r.exterior_image_count,
-    version_count:        r.version_count,
-    total_qc_time:        r.total_qc_time,
-    platform:             r["fd.platform"],
-    source:               r["fd.source"],
+
   };
 }
 
@@ -92,41 +117,24 @@ function mapRow(r) {
 async function fetchFromMetabase() {
   const t0 = Date.now();
 
-  // /query/json returns ALL rows (no 2000-row cap)
-  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/json`, {
-    headers: { "Accept": "application/json" },
+  // CSV endpoint: ~8MB vs 89MB JSON = 10x faster
+  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
+    headers: { "Accept": "text/csv" },
   });
 
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
 
   const text = await res.text();
-  console.log(`[api/data] raw bytes=${text.length} time=${Date.now()-t0}ms`);
+  console.log(`[api/data] CSV bytes=${text.length} time=${Date.now()-t0}ms`);
 
-  let rawRows;
-  try {
-    rawRows = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`JSON parse failed: ${e.message}`);
-  }
-
-  // /query/json always returns a direct array
-  if (!Array.isArray(rawRows)) {
-    // Fallback: handle columnar format just in case
-    if (rawRows?.data?.cols && Array.isArray(rawRows?.data?.rows)) {
-      const cols = rawRows.data.cols.map(c => c.display_name || c.name);
-      rawRows    = rawRows.data.rows.map(r => Object.fromEntries(r.map((v, i) => [cols[i], v])));
-    } else {
-      throw new Error(`Unexpected format. Keys: ${Object.keys(rawRows || {}).join(", ")}`);
-    }
-  }
-
-  console.log(`[api/data] parsed ${rawRows.length} rows, total=${Date.now()-t0}ms`);
+  const rawRows = parseCSV(text);
+  console.log(`[api/data] parsed ${rawRows.length} rows total=${Date.now()-t0}ms`);
   if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
 
   const rows      = rawRows.map(mapRow);
-  const delivered = rows.filter(r => r.crm === "qc_done" && r.ver === "verified").length;
-  const rejected  = rows.filter(r => r.crm === "qc_done" && r.ver === "rejected").length;
-  const pending   = rows.filter(r => r.crm !== "qc_done").length;
+  const delivered = rows.filter(r => (r.final_status||'').trim() === 'Delivered').length;
+  const rejected  = rows.filter(r => ['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes((r.final_status||'').trim())).length;
+  const pending   = rows.filter(r => (r.final_status||'').trim() === 'Under Review').length;
 
   console.log(`[api/data] D:${delivered} R:${rejected} P:${pending}`);
 
