@@ -8,7 +8,7 @@ const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
 const SLA_THRESHOLD_HOURS = 6;
-const CACHE_TTL_MS        = 5 * 60 * 1000;  // 5 min — near-live refresh
+const CACHE_TTL_MS        = 8 * 60 * 1000;  // 8 min cache — balance freshness vs cold starts
 
 let _cache = null;
 
@@ -117,10 +117,20 @@ function mapRow(r) {
 async function fetchFromMetabase() {
   const t0 = Date.now();
 
-  // CSV endpoint: ~8MB vs 89MB JSON = 10x faster
+  // Timeout fetch after 45s — leaves 15s for processing
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 45000);
+
+  // Use CSV + gzip compression: ~6MB vs 61MB = 10x faster
   const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
-    headers: { "Accept": "text/csv" },
+    headers: {
+      "Accept": "text/csv",
+      "Accept-Encoding": "gzip, deflate, br",
+    },
+    compress: true,
+    signal: controller.signal,
   });
+  clearTimeout(timeoutId);
 
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
 
