@@ -208,8 +208,8 @@
   .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:10px;}
 
   /* KPI CARDS */
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:28px;}
-  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:28px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
   .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--shadow-md);border-color:var(--line-2);}
   .kpi:active{transform:translateY(0);}
   .kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;line-height:1.35;}
@@ -1368,7 +1368,7 @@ function aggregate(rows){
   // ── Step 3: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
-  let totalTechFailed=0, totalAiFailed=0;
+  let totalTechFailed=0, totalAiFailed=0, totalProcessing=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
   let autoDelivered=0, manualDelivered=0;
   // New metrics
@@ -1420,6 +1420,8 @@ function aggregate(rows){
       totalTechFailed++; kind='rejected';
     } else if ((r.final_status||'').trim() === 'AI Failed'){
       totalAiFailed++;   kind='rejected';
+    } else if ((r.final_status||'').trim() === 'Processing'){
+      totalProcessing++;
     } else if (isPending(r)){
       totalPending++;
     }
@@ -1524,7 +1526,7 @@ function aggregate(rows){
   const totalReceived = skuSet.size;
   return {
     totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
-    totalTechFailed, totalAiFailed, totalPending,
+    totalTechFailed, totalAiFailed, totalPending, totalProcessing,
     withinSla, outOfSla,
     slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
@@ -1620,8 +1622,9 @@ function bucketTrend(rows, range){
 const KPIS = [
   { id:'ent',       label:'Total Enterprises', sub:'unique enterprise IDs',  color:'',       kind:'breakdown', dim:'ent'  },
   { id:'team',      label:'Total Teams',       sub:'unique team IDs',        color:'purple', kind:'breakdown', dim:'team' },
-  { id:'received',  label:'Total Received',    sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
-  { id:'delivered', label:'Delivered',         sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
+  { id:'received',   label:'Total Received', sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
+  { id:'processing', label:'Processing',     sub:'final_status=Processing',color:'blue',   kind:'records',   view:'processing' },
+  { id:'delivered',  label:'Delivered',      sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
   { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
   { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
   { id:'pending',   label:'Pending',           sub:'Under Review',           color:'amber',  kind:'records',   view:'pending'    },
@@ -1634,7 +1637,7 @@ const KPIS = [
 
 function renderKpiCards(){
   $('kpiGrid').innerHTML = KPIS.map(k => `
-    <div class="kpi${k.id==='rejected' ? ' kpi-flip' : ''}" data-id="${k.id}" role="button" tabindex="0">
+    <div class="kpi${(k.id==='rejected'||k.id==='tech-ai') ? ' kpi-flip' : ''}" data-id="${k.id}" role="button" tabindex="0">
       <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
       ${k.id==='rejected' ? `
         <div class="kpi-front">
@@ -1642,6 +1645,12 @@ function renderKpiCards(){
           <div class="kpi-value red" id="kv-rejected">—</div>
         </div>
         <div class="kpi-back" id="kv-rejected-tooltip"></div>
+      ` : k.id==='tech-ai' ? `
+        <div class="kpi-front">
+          <div class="kpi-label">${esc(k.label)}</div>
+          <div class="kpi-value amber" id="kv-tech-ai">—</div>
+        </div>
+        <div class="kpi-back" id="kv-tech-ai-tooltip"></div>
       ` : `
         <div class="kpi-label">${esc(k.label)}</div>
         <div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>
@@ -2045,7 +2054,11 @@ function paint(){
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
     `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>`;
-  $('kv-tech-ai') && ($('kv-tech-ai').textContent = num(k.techAiFailed||0));
+  $('kv-processing') && ($('kv-processing').textContent = num(k.totalProcessing||0));
+  const techTip = $('kv-tech-ai-tooltip');
+  if (techTip) techTip.innerHTML =
+    `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
   $('kv-pending').textContent   = num(k.totalPending);
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
@@ -2613,6 +2626,7 @@ function drillSubset(rows, view){
     case 'not_delivered': return rows.filter(r => !isDelivered(r));
     case 'within_sla':    return rows.filter(r => isCompleted(r) && r.sla===1);
     case 'out_of_sla':    return rows.filter(r => isCompleted(r) && r.sla===0);
+    case 'processing':    return rows.filter(r => (r.final_status||'').trim()==='Processing');
     case 'tech_ai':       return rows.filter(r => r.final_status==='Tech Failure'||r.final_status==='AI Failed');
     case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e_tat > 0);
     case 'within_3h':     return rows.filter(r => isDelivered(r) && r.e2e_tat <= 3);
