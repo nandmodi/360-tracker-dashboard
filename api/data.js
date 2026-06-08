@@ -41,6 +41,13 @@ function mapRow(r) {
     if (ms > 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
   }
 
+  // E2E TAT always uses final_time - createdAt (regardless of first_qc_done)
+  let e2e_tat = null;
+  if (createdAt && finalTime) {
+    const ms2 = finalTime.getTime() - createdAt.getTime();
+    if (ms2 > 0) e2e_tat = parseFloat((ms2 / 3_600_000).toFixed(3));
+  }
+
   const { crm, ver } = mapStatus(r.final_status, r.crm_status);
   const fs = (r.final_status || '').trim();
 
@@ -57,7 +64,7 @@ function mapRow(r) {
     qc:     r.qc_user,
     poc_ob: null,
     poc_cs: null,
-    crm, ver, sla, tat,
+    crm, ver, sla, tat, e2e_tat,
     rej:   r.failure_reason || null,
     vid:      r.mediaId || null,
     spin_id:  r['ss.spin_id'] || null,
