@@ -915,23 +915,20 @@
       <div class="table-scroll">
         <table>
           <thead id="tHead"><tr>
-            <th class="sortable" data-sort="_created">Created<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="vin">VIN<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="sku">SKU ID<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="spin_id">Spin ID<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="ent">Enterprise<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="team">Team<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="qc">QC User<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="poc_ob">POC OB<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="poc_cs">POC CS<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="_status">Status<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="sla">SLA<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="tat">TAT<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="rej">Rejected Reason<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="vid">Video ID<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="vurl">Video URL<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="vmode">View Mode<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="ttype">Temp Type<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="vin">VIN<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="sku">SKU ID<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="_updated">Updated<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="rej">Rejection Reason<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="ttype">Input Type<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="vmode">Platform<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="_created">Created At<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="_updated">Final Time<span class="sort-ind">↕</span></th>
           </tr></thead>
           <tbody id="tBody"></tbody>
         </table>
@@ -2129,7 +2126,7 @@ function paint(){
   $('tCount').textContent = `${num(recent.length)} of ${num(filtered.length)} filtered (${num(RAW.length)} total)`;
   updateSortIndicators();
   $('tBody').innerHTML = !recent.length
-    ? `<tr><td colspan="17" class="empty">No records match these filters.</td></tr>`
+    ? `<tr><td colspan="14" class="empty">No records match these filters.</td></tr>`
     : recent.map(r=>{
         const isD=isDelivered(r), isR=isRejected(r);
         const statusLabel = r.final_status || '—';
@@ -2139,7 +2136,22 @@ function paint(){
         const slaPill = r.sla===1?'<span class="pill sla-in">In</span>'
                        :r.sla===0?'<span class="pill sla-out">Out</span>'
                                  :'<span class="pill">—</span>';
-        return `<tr><td class="mono">${esc(fmtDate(r.c))}</td><td>${esc(r.ent||'—')}</td><td>${esc(r.team||'—')}</td><td>${esc(r.qc||'—')}</td><td>${esc(r.poc_ob||'—')}</td><td>${esc(r.poc_cs||'—')}</td><td>${pill}</td><td>${slaPill}</td><td class="mono">${esc(fmtTatHrs(r.tat))}</td><td title="${esc(r.rej||'')}">${esc(r.rej||'—')}</td><td class="mono">${esc(r.vid||'—')}</td><td>${videoLink(r.vurl)}</td><td class="mono">${esc(r.vmode||'—')}</td><td class="mono">${esc(r.ttype||'—')}</td><td class="mono">${esc(r.vin||'—')}</td><td class="mono">${esc(r.sku||'—')}</td><td class="mono">${esc(fmtDate(r.u))}</td></tr>`;
+        return `<tr>
+          <td class="mono">${esc(r.vin||'—')}</td>
+          <td class="mono">${esc(r.sku||'—')}</td>
+          <td class="mono">${esc(r.spin_id||'—')}</td>
+          <td>${esc(r.ent||'—')}</td>
+          <td>${esc(r.team||'—')}</td>
+          <td>${esc(r.qc||'—')}</td>
+          <td>${pill}</td>
+          <td>${slaPill}</td>
+          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
+          <td title="${esc(r.rej||'')}" style="max-width:180px;white-space:normal">${esc(r.rej||'—')}</td>
+          <td class="mono">${esc(r.ttype||'—')}</td>
+          <td class="mono">${esc(r.vmode||'—')}</td>
+          <td class="mono">${esc(fmtDate(r.c))}</td>
+          <td class="mono">${esc(fmtDate(r.u))}</td>
+        </tr>`;
       }).join('');
 
   console.log(`[paint] ${filtered.length} rows in ${(performance.now()-t0).toFixed(1)}ms`);
@@ -3211,7 +3223,7 @@ $('editBtn').addEventListener('click', ()=>{
 // ─────────────────────────────────────────────────────────────
 // AUTO-SYNC — 30 minutes
 // ─────────────────────────────────────────────────────────────
-const AUTO_MS = 30 * 60 * 1000;
+const AUTO_MS = 5 * 60 * 1000;  // 5 min — near-live
 let autoTimer = null, cdTimer = null, nextAt = null;
 function startCD(){
   if (cdTimer) clearInterval(cdTimer);
