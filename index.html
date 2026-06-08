@@ -2046,11 +2046,12 @@ function paint(){
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
     `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>`;
   $('kv-tech-ai') && ($('kv-tech-ai').textContent = num(k.techAiFailed||0));
+  $('kv-pending').textContent   = num(k.totalPending);
+  $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
+  $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
   $('kv-w3h')     && ($('kv-w3h').textContent     = k.within3hPct!=null ? k.within3hPct.toFixed(1)+'%' : '—');
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
-  $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
-  $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
 
   // SLA + Delivery panels
   paintSla(k);
