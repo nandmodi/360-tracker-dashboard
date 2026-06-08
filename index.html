@@ -2052,6 +2052,7 @@ function paint(){
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
     `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>`;
   $('kv-processing') && ($('kv-processing').textContent = num(k.totalProcessing||0));
+  $('kv-tech-ai')    && ($('kv-tech-ai').textContent    = num((k.totalTechFailed||0)+(k.totalAiFailed||0)));
   const techTip = $('kv-tech-ai-tooltip');
   if (techTip) techTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
