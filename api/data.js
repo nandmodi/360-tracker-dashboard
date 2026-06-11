@@ -101,7 +101,8 @@ function mapRow(r) {
     rej:   r.failure_reason || null,
     vid:      r.mediaId || null,
     spin_id:  r['ss.spin_id'] || null,
-    vmode: r["fd.platform"],
+    vmode:      r["fd.platform"],
+    crm_status: r.crm_status || null,
     seg:   r.customer_segment || null,  // Ent / Mid / SMB / Resellers
     ttype: r.input_type,
     vin:   r.vinName,
