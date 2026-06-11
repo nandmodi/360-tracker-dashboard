@@ -741,7 +741,27 @@
       <div class="trend-legend" id="trendLegend"></div>
     </div>
 
-    <div class="panel" data-panel="sla" data-size="half">
+    <div class="panel" data-panel="hourly" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Hourly throughput</h3>
+          <div class="panel-sub" id="hourlySub">summed by hour of day · received by createdAt · QC Done by final_time</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="trend-tabs" id="hourlyTabs">
+            <button class="trend-tab sel" data-hr="today">Today</button>
+            <button class="trend-tab" data-hr="yesterday">Yesterday</button>
+            <button class="trend-tab" data-hr="this_week">This week</button>
+            <button class="trend-tab" data-hr="this_month">This month</button>
+            <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
+            <button class="trend-tab" data-hr="3months">Last 3 months</button>
+          </div>
+          <div class="edit-controls" data-panel-ctl="hourly"></div>
+        </div>
+      </div>
+      <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
+      <div class="trend-legend" id="hourlyLegend"></div>
+    </div>
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
@@ -1185,6 +1205,8 @@ let lastSynced = null;
 let isDark = false;
 let editMode = false;
 let trendRange = 'months';      // '15days' | 'this_month' | 'months' | 'year'
+let hourlyRange = 'today';      // 'today' | 'yesterday' | 'this_week' | 'this_month' | '3weeks' | '3months'
+let _hourlyChart = null;
 let currentView = 'operations'; // 'operations' | 'performance'
 const charts = {};
 
@@ -1206,6 +1228,7 @@ const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
 // Layout — saved to localStorage. Bump key to v3 because schema changed (new panels).
 const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full'  },
+  { id:'hourly',   size:'full'  },
   { id:'sla',      size:'third' },
   { id:'delivery', size:'third' },
   { id:'accuracy', size:'third' },
@@ -1217,8 +1240,8 @@ const DEFAULT_LAYOUT = [
   { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v9'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v9',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v10'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v10',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
@@ -1258,7 +1281,7 @@ function isDelivered(r){       const s=(r.final_status||'').trim(); return s==='
 function isRejected(r){        const s=(r.final_status||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
 function isValidationFailed(r){const s=(r.final_status||'').trim(); return s==='Validation Failed'; }
 function isQcFailed(r){        const s=(r.final_status||'').trim(); return s==='QC Failed'; }
-function isPending(r){         const s=(r.final_status||'').trim(); return s==='Under Review'; }
+function isPending(r){         return (r.crm_status||'').trim() === 'qc_unassigned'; }
 function isCompleted(r){       const s=(r.final_status||'').trim(); return COMPLETED_STATUSES.includes(s); }
 
 // Helper: normalize a rejection reason for comparison (lowercase, collapsed whitespace)
@@ -1671,6 +1694,103 @@ function getPal(){
   return Object.fromEntries(['ink','muted','line','accent','green','amber','red','orange','purple','teal'].map(k=>[k,s.getPropertyValue('--'+k).trim()]));
 }
 function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
+
+// ── Hourly throughput ─────────────────────────────────────────────────────────
+function getHourlyDateRange(range){
+  const now = new Date();
+  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  switch(range){
+    case 'today':      return { from: startOf(now), label:'Today' };
+    case 'yesterday':  { const y=new Date(now); y.setDate(y.getDate()-1); return { from:startOf(y), to:startOf(now), label:'Yesterday' }; }
+    case 'this_week':  { const d=new Date(now); d.setDate(d.getDate()-(d.getDay()||7)+1); return { from:startOf(d), label:'This week' }; }
+    case 'this_month': return { from:new Date(now.getFullYear(),now.getMonth(),1), label:'This month' };
+    case '3weeks':     { const d=new Date(now); d.setDate(d.getDate()-21); return { from:startOf(d), label:'Last 3 weeks' }; }
+    case '3months':    { const d=new Date(now); d.setMonth(d.getMonth()-3); return { from:startOf(d), label:'Last 3 months' }; }
+    default:           return { from: startOf(now), label:'Today' };
+  }
+}
+
+function renderHourlyChart(allRows){
+  const PAL  = getPal();
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const { from, to, label } = getHourlyDateRange(hourlyRange);
+
+  // Filter rows by date range
+  const filtered = allRows.filter(r => {
+    const cd = r._created, ud = r._updated;
+    const inFrom = d => d && d >= from && (!to || d < to);
+    return inFrom(cd) || inFrom(ud);
+  });
+
+  // Bucket by hour of day (0–23) for Received and QC Done
+  const recv  = new Array(24).fill(0);
+  const qcDone= new Array(24).fill(0);
+
+  for (const r of allRows){
+    const cd = r._created, ud = r._updated;
+    if (cd && cd >= from && (!to || cd < to))
+      recv[cd.getHours()]++;
+    if (ud && ud >= from && (!to || ud < to) && isCompleted(r))
+      qcDone[ud.getHours()]++;
+  }
+
+  const labels = Array.from({length:24}, (_,i)=> String(i).padStart(2,'0')+':00');
+  const totalRecv = recv.reduce((a,b)=>a+b,0);
+  const totalQc   = qcDone.reduce((a,b)=>a+b,0);
+
+  $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATEDAT · QC DONE BY FINAL_TIME`;
+
+  if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+
+  const ctx = $('cHourly').getContext('2d');
+  _hourlyChart = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'Received', data:recv,
+        borderColor:'#2c4a7c', backgroundColor:'rgba(44,74,124,0.08)',
+        borderWidth:2.5, tension:0.35, fill:true,
+        pointRadius:3, pointHoverRadius:6,
+        pointBackgroundColor:'#2c4a7c',
+        datalabels:{ display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+          color:'#2c4a7c', font:{size:10,weight:'700'}, align:'top', anchor:'end',
+          formatter: v => v>0?v:'' }
+      },
+      { label:'QC Done', data:qcDone,
+        borderColor:'#1D9E75', backgroundColor:'rgba(29,158,117,0.05)',
+        borderWidth:2.5, tension:0.35, fill:false,
+        pointRadius:3, pointHoverRadius:6,
+        pointBackgroundColor:'#1D9E75',
+        datalabels:{ display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+          color:'#1D9E75', font:{size:10,weight:'700'}, align:'bottom', anchor:'end',
+          formatter: v => v>0?v:'' }
+      },
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      layout:{ padding:{ top:20 } },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:PAL.ink, titleColor:'#fff', bodyColor:'#fff',
+          padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+        },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ font:{size:10}, color:PAL.muted, maxRotation:0, autoSkip:true, maxTicksLimit:24 } },
+        y:{ grid:{ color:PAL.line, drawBorder:false }, beginAtZero:true,
+            ticks:{ font:{size:10}, color:PAL.muted, precision:0 } },
+      },
+    },
+  });
+
+  $('hourlyLegend').innerHTML = [
+    { label:'Received', color:'#2c4a7c', val:totalRecv },
+    { label:'QC Done',  color:'#1D9E75', val:totalQc   },
+  ].map(({label,color,val})=>
+    `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val.toLocaleString()}</span></div>`
+  ).join('');
+}
 
 function mkTrend(canvas, buckets){
   killChart('trend');
@@ -2107,6 +2227,9 @@ function paint(){
   mkTrend($('cTrend'), buckets);
   $('trendSub').textContent =
     `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'last 6 months','year':'last 12 months'}[trendRange]} · independent of date filter`;
+
+  // Hourly throughput chart
+  renderHourlyChart(RAW);
 
   // Recent records — apply sort state if any, else default sort by created desc
   const allFiltered = filtered.slice();
@@ -2581,11 +2704,19 @@ $('calNext').addEventListener('click', e=>{ e.stopPropagation();
 // ─────────────────────────────────────────────────────────────
 // TREND TABS
 // ─────────────────────────────────────────────────────────────
-document.querySelectorAll('.trend-tab').forEach(btn=>{
+document.querySelectorAll('#trendTabs .trend-tab').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     trendRange = btn.dataset.r;
-    document.querySelectorAll('.trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
-    refresh();
+    document.querySelectorAll('#trendTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    setTimeout(()=>refresh(), 0);
+  });
+});
+
+document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    hourlyRange = btn.dataset.hr;
+    document.querySelectorAll('#hourlyTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    renderHourlyChart(RAW);
   });
 });
 
