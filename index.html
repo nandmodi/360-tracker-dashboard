@@ -1747,28 +1747,57 @@ const GS_TTL      = 5 * 60 * 1000;
 function parseHourIST(val) {
   if (!val) return null;
   const s = String(val).trim();
-
-  // "12 Jun 2026 23:00" or "2026-06-12 23:00:00" — extract hour directly
   let hour = null, dateStr = null;
 
-  // Format: "12 Jun 2026 23:00"
+  // "12 Jun 2026 23:00"
   const m1 = s.match(/(\d{1,2})\s+(\w+)\s+(\d{4})\s+(\d{2}):(\d{2})/);
   if (m1) {
+    const mon = {'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06','Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'};
     hour    = parseInt(m1[4], 10);
-    dateStr = `${m1[3]}-${({'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06','Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'})[m1[2]]||'01'}-${m1[1].padStart(2,'0')}`;
+    dateStr = `${m1[3]}-${mon[m1[2]]||'01'}-${m1[1].padStart(2,'0')}`;
   }
 
-  // Format: "2026-06-12 23:00:00" or "2026-06-12T23:00"
+  // "2026-06-12 23:00:00" or "2026-06-12T23:00"
   const m2 = !m1 && s.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):/);
-  if (m2) {
-    hour    = parseInt(m2[2], 10);
-    dateStr = m2[1];
-  }
+  if (m2) { hour = parseInt(m2[2], 10); dateStr = m2[1]; }
 
-  if (dateStr === null || hour === null) return null;
-  const d = new Date(dateStr + 'T00:00:00Z');
-  if (isNaN(d.getTime())) return null;
-  return { date: d, hour };
+  if (!dateStr || hour === null) return null;
+  return { dateStr, hour };  // dateStr = "YYYY-MM-DD" in IST, no Date object
+}
+
+// IST "YYYY-MM-DD" from a JS Date
+function toISTDateStr(d) {
+  const ist = new Date(d.getTime() + 5.5 * 3600000);  // shift to IST
+  return ist.toISOString().slice(0, 10);
+}
+
+function getHourlyDateBounds(range) {
+  const now  = new Date();
+  const ms1d = 86400000;
+  // All dates as IST strings "YYYY-MM-DD"
+  const todStr  = toISTDateStr(now);
+  const yesStr  = toISTDateStr(new Date(now.getTime() - ms1d));
+  function daysAgo(n) { return toISTDateStr(new Date(now.getTime() - n * ms1d)); }
+  function addDay(str) {
+    const d = new Date(str + 'T00:00:00Z');
+    return toISTDateStr(new Date(d.getTime() + ms1d));
+  }
+  // Get Monday of this week (IST)
+  const dow = new Date(now.getTime() + 5.5*3600000).getUTCDay();
+  const monStr = daysAgo(dow === 0 ? 6 : dow - 1);
+  // First of this month (IST)
+  const istNow = new Date(now.getTime() + 5.5*3600000);
+  const monStart = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth()+1).padStart(2,'0')}-01`;
+
+  switch(range) {
+    case 'today':      return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+    case 'yesterday':  return { fromStr: yesStr,    toStr: todStr,          label:'Yesterday' };
+    case 'this_week':  return { fromStr: monStr,    toStr: addDay(todStr),  label:'This week' };
+    case 'this_month': return { fromStr: monStart,  toStr: addDay(todStr),  label:'This month' };
+    case '3weeks':     return { fromStr: daysAgo(21), toStr: addDay(todStr), label:'Last 3 weeks' };
+    case '3months':    return { fromStr: daysAgo(91), toStr: addDay(todStr), label:'Last 3 months' };
+    default:           return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+  }
 }
 
 // Parse CSV text → array of objects
@@ -1818,10 +1847,10 @@ async function renderHourlyChart() {
 
   try {
     const rows = await fetchGS(GS_HOURLY);
-    const { from, to, label } = getHourlyDateBounds(_hourlyRange);
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
 
     const matchedRows = rows.map(r=>({...r,_p:parseHourIST(r.hour_ist)}))
-      .filter(r=>r._p && r._p.date>=from && r._p.date<to);
+      .filter(r => r._p && r._p.dateStr >= fromStr && r._p.dateStr < toStr);
 
     if (matchedRows.length === 0) {
       $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
