@@ -1742,20 +1742,33 @@ let _hourlyChart  = null;
 let _gsCache      = {};  // url → { data, ts }
 const GS_TTL      = 5 * 60 * 1000;
 
-// Parse hour_ist — handles both text "12 Jun 2026 23:00" and ISO "2026-06-12 23:00:00"
+// Parse hour_ist → returns { date: Date, hour: number } in IST
+// Extracts hour directly from string to avoid UTC conversion errors
 function parseHourIST(val) {
   if (!val) return null;
   const s = String(val).trim();
-  // Try direct parse first (ISO format works in most browsers)
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d;
-  // Try "12 Jun 2026 23:00" format
-  const m = s.match(/(\d{1,2})\s+(\w+)\s+(\d{4})\s+(\d{2}):(\d{2})/);
-  if (m) return new Date(`${m[2]} ${m[1]} ${m[3]} ${m[4]}:${m[5]}:00 UTC`);
-  // Excel serial number fallback
-  const n = parseFloat(s);
-  if (!isNaN(n) && n > 40000) return new Date(Math.round((n - 25569) * 86400 * 1000));
-  return null;
+
+  // "12 Jun 2026 23:00" or "2026-06-12 23:00:00" — extract hour directly
+  let hour = null, dateStr = null;
+
+  // Format: "12 Jun 2026 23:00"
+  const m1 = s.match(/(\d{1,2})\s+(\w+)\s+(\d{4})\s+(\d{2}):(\d{2})/);
+  if (m1) {
+    hour    = parseInt(m1[4], 10);
+    dateStr = `${m1[3]}-${({'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06','Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'})[m1[2]]||'01'}-${m1[1].padStart(2,'0')}`;
+  }
+
+  // Format: "2026-06-12 23:00:00" or "2026-06-12T23:00"
+  const m2 = !m1 && s.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):/);
+  if (m2) {
+    hour    = parseInt(m2[2], 10);
+    dateStr = m2[1];
+  }
+
+  if (dateStr === null || hour === null) return null;
+  const d = new Date(dateStr + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  return { date: d, hour };
 }
 
 // Parse CSV text → array of objects
@@ -1807,98 +1820,123 @@ async function renderHourlyChart() {
     const rows = await fetchGS(GS_HOURLY);
     const { from, to, label } = getHourlyDateBounds(_hourlyRange);
 
-    const matchedRows = rows.filter(r => {
-      const dt = parseHourIST(r.hour_ist);
-      return dt && dt >= from && dt < to;
-    });
+    const matchedRows = rows.map(r=>({...r,_p:parseHourIST(r.hour_ist)}))
+      .filter(r=>r._p && r._p.date>=from && r._p.date<to);
 
     if (matchedRows.length === 0) {
-      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet — data populates as the day progresses.</span>`;
+      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
       if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+      if (loader) loader.style.display = 'none';
+      canvas.style.opacity = '1';
       return;
     }
+
     const recv    = new Array(24).fill(0);
     const qcDone  = new Array(24).fill(0);
     const backlog = new Array(24).fill(0);
     const bCount  = new Array(24).fill(0);
 
     matchedRows.forEach(r => {
-      const dt = parseHourIST(r.hour_ist);
-      if (!dt) return;
-      const h = dt.getUTCHours();
+      const h = r._p.hour;
       recv[h]    += parseFloat(r.total_in)  || 0;
       qcDone[h]  += parseFloat(r.total_out) || 0;
       backlog[h] += parseFloat(r.backlog)   || 0;
       bCount[h]++;
     });
 
-    // Backlog: average across matched days for each hour
-    const backlogAvg = backlog.map((s, i) => bCount[i] ? Math.round(s / bCount[i]) : 0);
-
-    const labels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+    const backlogAvg = backlog.map((s,i) => bCount[i] ? Math.round(s/bCount[i]) : 0);
+    const labels     = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
     const totalRecv   = recv.reduce((a,b)=>a+b,0);
     const totalQc     = qcDone.reduce((a,b)=>a+b,0);
     const peakBacklog = Math.max(...backlogAvg);
     const endBacklog  = backlogAvg[23];
 
     const PAL = getPal();
+    const isDarkMode = document.documentElement.dataset.theme === 'dark';
+    const pointBorder = isDarkMode ? PAL.ink : '#ffffff';
+    const labelColor  = PAL.bodyText || PAL.ink;
+
+    // Gradient under Received — same as mkTrend
+    const ctx2 = canvas.getContext('2d');
+    function hexToRgba(hex, a){
+      const h = String(hex||'').trim().replace('#','');
+      if (h.length!==6) return `rgba(31,63,114,${a})`;
+      const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    const grad = ctx2.createLinearGradient(0,0,0,canvas.height||320);
+    grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
+    grad.addColorStop(1, hexToRgba(PAL.accent, 0));
 
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
 
-    _hourlyChart = new Chart(canvas.getContext('2d'), {
-      type:'line',
+    _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
       data:{ labels, datasets:[
         { label:'Received', data:recv,
-          borderColor:'#3a5a9e', backgroundColor:'rgba(58,90,158,0.08)',
-          borderWidth:2.5, tension:0.35, fill:true,
-          pointRadius:3, pointHoverRadius:6, pointBackgroundColor:'#3a5a9e',
-          datalabels:{ align:'top', anchor:'end', color:'#3a5a9e',
-            font:{size:9,weight:'700'}, formatter:v=>v>0?v.toLocaleString():'',
-            display: ctx => ctx.dataset.data[ctx.dataIndex]>0 }
+          borderColor:PAL.accent, backgroundColor:grad,
+          borderWidth:2.2, tension:0.35, fill:true,
+          pointRadius:3, pointHoverRadius:6,
+          pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', clamp:true, color:labelColor,
+            font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'', padding:{top:2,bottom:2},
+          },
         },
         { label:'QC Done', data:qcDone,
-          borderColor:'#1D9E75', backgroundColor:'rgba(29,158,117,0.04)',
-          borderWidth:2.5, tension:0.35, fill:false,
-          pointRadius:3, pointHoverRadius:6, pointBackgroundColor:'#1D9E75',
-          datalabels:{ align:'bottom', anchor:'end', color:'#1D9E75',
-            font:{size:9,weight:'700'}, formatter:v=>v>0?v.toLocaleString():'',
-            display: ctx => ctx.dataset.data[ctx.dataIndex]>0 }
+          borderColor:PAL.green, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false,
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.green, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'bottom', anchor:'end', color:PAL.green,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'', padding:{top:1,bottom:1},
+          },
         },
         { label:'Pending for QC', data:backlogAvg,
-          borderColor:'#E8A020', backgroundColor:'rgba(232,160,32,0.07)',
+          borderColor:PAL.amber||'#E8A020', backgroundColor:'transparent',
           borderWidth:2, tension:0.35, fill:false,
-          borderDash:[4,3],
-          pointRadius:2, pointHoverRadius:5, pointBackgroundColor:'#E8A020',
-          datalabels:{ display:false }
+          borderDash:[5,3],
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.amber||'#E8A020', pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.amber||'#E8A020', pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{ display:false },
         },
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
         interaction:{ mode:'index', intersect:false },
-        layout:{ padding:{ top:22 } },
+        layout:{ padding:{ top:18 } },
         plugins:{
           legend:{ display:false },
           tooltip:{
-            backgroundColor:PAL.ink, titleColor:'#fff', bodyColor:'#fff',
+            backgroundColor:PAL.ink,
+            titleColor:isDarkMode?'#0b0b0c':'#fff',
+            bodyColor:isDarkMode?'#0b0b0c':'#fff',
             padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
-            callbacks:{ label: c => `${c.dataset.label}: ${c.parsed.y.toLocaleString()}` }
+            callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` },
           },
         },
         scales:{
-          x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:0} },
+          x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted,autoSkip:true,maxRotation:0} },
           y:{ grid:{color:PAL.line,drawBorder:false}, beginAtZero:true,
-              ticks:{font:{size:10},color:PAL.muted,precision:0,callback:v=>v.toLocaleString()} },
+              ticks:{font:{size:11},color:PAL.muted,precision:0,callback:v=>v.toLocaleString()} },
         },
       },
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDING = FRESH + PRIOR HOUR'S LEFTOVER`;
+    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDING = FRESH + PRIOR HOUR LEFTOVER`;
+    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pending for QC':PAL.amber||'#E8A020' };
     $('hourlyLegend').innerHTML = [
-      { label:'Received',      color:'#3a5a9e', val:`${totalRecv.toLocaleString()}` },
-      { label:'QC Done',       color:'#1D9E75', val:`${totalQc.toLocaleString()}` },
-      { label:'Pending for QC',color:'#E8A020', val:`peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}` },
-    ].map(({label,color,val})=>
-      `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
+      ['Received',       totalRecv.toLocaleString()],
+      ['QC Done',        totalQc.toLocaleString()],
+      ['Pending for QC', `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
+    ].map(([k,v])=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
     ).join('');
 
   } catch(err) {
@@ -1909,6 +1947,7 @@ async function renderHourlyChart() {
     canvas.style.opacity = '1';
   }
 }
+
 
 function mkTrend(canvas, buckets){
   killChart('trend');
