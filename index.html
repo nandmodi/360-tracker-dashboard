@@ -741,6 +741,61 @@
       <div class="trend-legend" id="trendLegend"></div>
     </div>
 
+    <!-- Hourly Throughput — data from Google Sheets -->
+    <div class="panel" data-panel="hourly" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Hourly throughput</h3>
+          <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="trend-tabs" id="hourlyTabs">
+            <button class="trend-tab sel" data-hr="today">Today</button>
+            <button class="trend-tab" data-hr="yesterday">Yesterday</button>
+            <button class="trend-tab" data-hr="this_week">This week</button>
+            <button class="trend-tab" data-hr="this_month">This month</button>
+            <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
+            <button class="trend-tab" data-hr="3months">Last 3 months</button>
+          </div>
+          <div class="edit-controls" data-panel-ctl="hourly"></div>
+        </div>
+      </div>
+      <div id="hourlyLoader" style="display:none;text-align:center;padding:40px;color:var(--muted);font-size:12px">Loading data…</div>
+      <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
+      <div class="trend-legend" id="hourlyLegend"></div>
+    </div>
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>SLA performance</h3>
+          <div class="panel-sub">Within / Out of SLA · click to drill</div>
+        </div>
+        <div class="edit-controls" data-panel-ctl="sla"></div>
+      </div>
+      <div class="sla-content">
+        <div class="sla-cells">
+          <div class="sla-cell sla-in" id="slaCellIn" tabindex="0" role="button">
+            <div class="sla-num green" id="slaNumIn">—</div>
+            <div class="sla-pct" id="slaPctIn">—%</div>
+            <div class="sla-cell-label">Within SLA</div>
+          </div>
+          <div class="sla-cell sla-out" id="slaCellOut" tabindex="0" role="button">
+            <div class="sla-num orange" id="slaNumOut">—</div>
+            <div class="sla-pct" id="slaPctOut">—%</div>
+            <div class="sla-cell-label">Out of SLA</div>
+          </div>
+        </div>
+        <div class="sla-bar">
+          <div class="sla-bar-in" id="slaBarIn"></div>
+          <div class="sla-bar-out" id="slaBarOut"></div>
+        </div>
+        <div class="sla-tick"><span>0%</span><span>100%</span></div>
+        <div class="sla-bottom">
+          <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
+          <span id="slaMeta">—</span>
+        </div>
+      </div>
+    </div>
+
     <div class="panel" data-panel="sla" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
@@ -774,7 +829,7 @@
       </div>
     </div>
 
-    <div class="panel" data-panel="delivery" data-size="third" style="margin:0;grid-column:span 2">
+    <div class="panel" data-panel="delivery" data-size="third" style="margin:0;grid-column:auto">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
@@ -1209,6 +1264,7 @@ const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
 // Layout — saved to localStorage. Bump key to v3 because schema changed (new panels).
 const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full'  },
+  { id:'hourly',   size:'full'  },
   { id:'sla',      size:'third' },
   { id:'delivery', size:'third' },
   { id:'accuracy', size:'third' },
@@ -1220,8 +1276,8 @@ const DEFAULT_LAYOUT = [
   { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v11'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v11',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v12'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v12',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
@@ -1674,6 +1730,168 @@ function getPal(){
   return Object.fromEntries(['ink','muted','line','accent','green','amber','red','orange','purple','teal'].map(k=>[k,s.getPropertyValue('--'+k).trim()]));
 }
 function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
+
+// ── Hourly Throughput (Google Sheets) ────────────────────────────────────────
+const GS_HOURLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=778431494&single=true&output=csv';
+const GS_DAILY   = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=328351304&single=true&output=csv';
+const GS_WEEKLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1345066434&single=true&output=csv';
+const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1153574725&single=true&output=csv';
+
+let _hourlyRange  = 'today';
+let _hourlyChart  = null;
+let _gsCache      = {};  // url → { data, ts }
+const GS_TTL      = 5 * 60 * 1000;
+
+// Convert Excel serial date to JS Date (IST-aware: treat as UTC+5:30)
+function excelSerialToDate(serial) {
+  const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+  return d;
+}
+
+// Parse CSV text → array of objects
+function parseGSCSV(text) {
+  const lines = text.trim().split('\n');
+  if (!lines.length) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim().replace(/"/g,''));
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? ''; });
+    return obj;
+  }).filter(r => r[headers[0]]);
+}
+
+async function fetchGS(url) {
+  const cached = _gsCache[url];
+  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
+  const data = parseGSCSV(await res.text());
+  _gsCache[url] = { data, ts: Date.now() };
+  return data;
+}
+
+function getHourlyDateBounds(range) {
+  const now  = new Date();
+  const tod  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ms1d = 86400000;
+  switch(range) {
+    case 'today':     return { from: tod, to: new Date(tod.getTime() + ms1d), label:'Today' };
+    case 'yesterday': return { from: new Date(tod.getTime()-ms1d), to: tod, label:'Yesterday' };
+    case 'this_week': { const dow=(tod.getDay()||7)-1; return { from:new Date(tod.getTime()-dow*ms1d), to:new Date(tod.getTime()+ms1d), label:'This week' }; }
+    case 'this_month':return { from:new Date(now.getFullYear(),now.getMonth(),1), to:new Date(tod.getTime()+ms1d), label:'This month' };
+    case '3weeks':    return { from:new Date(tod.getTime()-21*ms1d), to:new Date(tod.getTime()+ms1d), label:'Last 3 weeks' };
+    case '3months':   return { from:new Date(tod.getTime()-91*ms1d), to:new Date(tod.getTime()+ms1d), label:'Last 3 months' };
+    default:          return { from: tod, to: new Date(tod.getTime()+ms1d), label:'Today' };
+  }
+}
+
+async function renderHourlyChart() {
+  const loader = $('hourlyLoader');
+  const canvas = $('cHourly');
+  if (!canvas) return;
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+
+  try {
+    const rows = await fetchGS(GS_HOURLY);
+    const { from, to, label } = getHourlyDateBounds(_hourlyRange);
+
+    // Aggregate by hour of day (0–23)
+    const recv    = new Array(24).fill(0);
+    const qcDone  = new Array(24).fill(0);
+    const backlog = new Array(24).fill(0);
+    const bCount  = new Array(24).fill(0);
+
+    rows.forEach(r => {
+      const serial = parseFloat(r.hour_ist);
+      if (isNaN(serial)) return;
+      const dt = excelSerialToDate(serial);
+      if (dt < from || dt >= to) return;
+      const h = dt.getUTCHours();  // hour 0–23
+      recv[h]    += parseFloat(r.total_in)  || 0;
+      qcDone[h]  += parseFloat(r.total_out) || 0;
+      backlog[h] += parseFloat(r.backlog)   || 0;
+      bCount[h]++;
+    });
+
+    // Backlog: average across matched days for each hour
+    const backlogAvg = backlog.map((s, i) => bCount[i] ? Math.round(s / bCount[i]) : 0);
+
+    const labels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+    const totalRecv   = recv.reduce((a,b)=>a+b,0);
+    const totalQc     = qcDone.reduce((a,b)=>a+b,0);
+    const peakBacklog = Math.max(...backlogAvg);
+    const endBacklog  = backlogAvg[23];
+
+    const PAL = getPal();
+
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+
+    _hourlyChart = new Chart(canvas.getContext('2d'), {
+      type:'line',
+      data:{ labels, datasets:[
+        { label:'Received', data:recv,
+          borderColor:'#3a5a9e', backgroundColor:'rgba(58,90,158,0.08)',
+          borderWidth:2.5, tension:0.35, fill:true,
+          pointRadius:3, pointHoverRadius:6, pointBackgroundColor:'#3a5a9e',
+          datalabels:{ align:'top', anchor:'end', color:'#3a5a9e',
+            font:{size:9,weight:'700'}, formatter:v=>v>0?v.toLocaleString():'',
+            display: ctx => ctx.dataset.data[ctx.dataIndex]>0 }
+        },
+        { label:'QC Done', data:qcDone,
+          borderColor:'#1D9E75', backgroundColor:'rgba(29,158,117,0.04)',
+          borderWidth:2.5, tension:0.35, fill:false,
+          pointRadius:3, pointHoverRadius:6, pointBackgroundColor:'#1D9E75',
+          datalabels:{ align:'bottom', anchor:'end', color:'#1D9E75',
+            font:{size:9,weight:'700'}, formatter:v=>v>0?v.toLocaleString():'',
+            display: ctx => ctx.dataset.data[ctx.dataIndex]>0 }
+        },
+        { label:'Pending for QC', data:backlogAvg,
+          borderColor:'#E8A020', backgroundColor:'rgba(232,160,32,0.07)',
+          borderWidth:2, tension:0.35, fill:false,
+          borderDash:[4,3],
+          pointRadius:2, pointHoverRadius:5, pointBackgroundColor:'#E8A020',
+          datalabels:{ display:false }
+        },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        layout:{ padding:{ top:22 } },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            backgroundColor:PAL.ink, titleColor:'#fff', bodyColor:'#fff',
+            padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+            callbacks:{ label: c => `${c.dataset.label}: ${c.parsed.y.toLocaleString()}` }
+          },
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:0} },
+          y:{ grid:{color:PAL.line,drawBorder:false}, beginAtZero:true,
+              ticks:{font:{size:10},color:PAL.muted,precision:0,callback:v=>v.toLocaleString()} },
+        },
+      },
+    });
+
+    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDING = FRESH + PRIOR HOUR'S LEFTOVER`;
+    $('hourlyLegend').innerHTML = [
+      { label:'Received',      color:'#3a5a9e', val:`${totalRecv.toLocaleString()}` },
+      { label:'QC Done',       color:'#1D9E75', val:`${totalQc.toLocaleString()}` },
+      { label:'Pending for QC',color:'#E8A020', val:`peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}` },
+    ].map(({label,color,val})=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
+    ).join('');
+
+  } catch(err) {
+    console.error('[hourly]', err);
+    if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
+  } finally {
+    if (loader) loader.style.display = 'none';
+    canvas.style.opacity = '1';
+  }
+}
 
 function mkTrend(canvas, buckets){
   killChart('trend');
@@ -2255,6 +2473,7 @@ async function syncFromServer({silent=false, force=false}={}){
     setLoadProgress(100, 'Done!');
     await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
     refresh();
+    renderHourlyChart();  // load Google Sheets data independently
   } catch (err) {
     $('errBox').innerHTML = `<div class="err">Failed to load: ${esc(err.message)}</div>`;
   } finally {
@@ -2593,8 +2812,13 @@ document.querySelectorAll('#trendTabs .trend-tab').forEach(btn=>{
   });
 });
 
-
-// ─────────────────────────────────────────────────────────────
+document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    _hourlyRange = btn.dataset.hr;
+    document.querySelectorAll('#hourlyTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    renderHourlyChart();
+  });
+});// ─────────────────────────────────────────────────────────────
 // SLA PANEL → DRILL-DOWN
 // ─────────────────────────────────────────────────────────────
 function bindSlaCells(){
