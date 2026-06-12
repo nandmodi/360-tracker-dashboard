@@ -764,37 +764,6 @@
       <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
       <div class="trend-legend" id="hourlyLegend"></div>
     </div>
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>SLA performance</h3>
-          <div class="panel-sub">Within / Out of SLA · click to drill</div>
-        </div>
-        <div class="edit-controls" data-panel-ctl="sla"></div>
-      </div>
-      <div class="sla-content">
-        <div class="sla-cells">
-          <div class="sla-cell sla-in" id="slaCellIn" tabindex="0" role="button">
-            <div class="sla-num green" id="slaNumIn">—</div>
-            <div class="sla-pct" id="slaPctIn">—%</div>
-            <div class="sla-cell-label">Within SLA</div>
-          </div>
-          <div class="sla-cell sla-out" id="slaCellOut" tabindex="0" role="button">
-            <div class="sla-num orange" id="slaNumOut">—</div>
-            <div class="sla-pct" id="slaPctOut">—%</div>
-            <div class="sla-cell-label">Out of SLA</div>
-          </div>
-        </div>
-        <div class="sla-bar">
-          <div class="sla-bar-in" id="slaBarIn"></div>
-          <div class="sla-bar-out" id="slaBarOut"></div>
-        </div>
-        <div class="sla-tick"><span>0%</span><span>100%</span></div>
-        <div class="sla-bottom">
-          <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
-          <span id="slaMeta">—</span>
-        </div>
-      </div>
-    </div>
 
     <div class="panel" data-panel="sla" data-size="third">
       <div class="panel-header">
@@ -1853,12 +1822,13 @@ async function renderHourlyChart() {
       .filter(r => r._p && r._p.dateStr >= fromStr && r._p.dateStr < toStr);
 
     if (matchedRows.length === 0) {
-      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
+      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet — Google Sheets updates hourly.</span>`;
       if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+      canvas.style.display = 'none';
       if (loader) loader.style.display = 'none';
-      canvas.style.opacity = '1';
       return;
     }
+    canvas.style.display = 'block';
 
     const recv    = new Array(24).fill(0);
     const qcDone  = new Array(24).fill(0);
