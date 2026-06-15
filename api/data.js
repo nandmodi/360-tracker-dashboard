@@ -118,22 +118,12 @@ function mapRow(r) {
 async function fetchFromMetabase() {
   const t0 = Date.now();
 
-  // Timeout fetch after 50s
-  const controller = new AbortController();
-  const timeoutId  = setTimeout(() => controller.abort(), 50000);
-
-  let res;
-  try {
-    res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
-      headers: {
-        'Accept': 'text/csv',
-        'Accept-Encoding': 'gzip, deflate',
-      },
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
+    headers: {
+      'Accept': 'text/csv',
+      'Accept-Encoding': 'gzip, deflate',
+    },
+  });
 
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
 
