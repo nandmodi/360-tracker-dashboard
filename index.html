@@ -1800,20 +1800,6 @@ async function fetchGS(url) {
   return data;
 }
 
-function getHourlyDateBounds(range) {
-  const now  = new Date();
-  const tod  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const ms1d = 86400000;
-  switch(range) {
-    case 'today':     return { from: tod, to: new Date(tod.getTime() + ms1d), label:'Today' };
-    case 'yesterday': return { from: new Date(tod.getTime()-ms1d), to: tod, label:'Yesterday' };
-    case 'this_week': { const dow=(tod.getDay()||7)-1; return { from:new Date(tod.getTime()-dow*ms1d), to:new Date(tod.getTime()+ms1d), label:'This week' }; }
-    case 'this_month':return { from:new Date(now.getFullYear(),now.getMonth(),1), to:new Date(tod.getTime()+ms1d), label:'This month' };
-    case '3weeks':    return { from:new Date(tod.getTime()-21*ms1d), to:new Date(tod.getTime()+ms1d), label:'Last 3 weeks' };
-    case '3months':   return { from:new Date(tod.getTime()-91*ms1d), to:new Date(tod.getTime()+ms1d), label:'Last 3 months' };
-    default:          return { from: tod, to: new Date(tod.getTime()+ms1d), label:'Today' };
-  }
-}
 
 async function renderHourlyChart() {
   const loader = $('hourlyLoader');
