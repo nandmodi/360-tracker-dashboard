@@ -1,9 +1,10 @@
 {
-  "regions": ["bom1"],
+  "regions": [
+    "bom1"
+  ],
   "functions": {
     "api/data.js": {
-      "maxDuration": 60,
-      "runtime": "nodejs18.x"
+      "maxDuration": 60
     }
   }
 }
