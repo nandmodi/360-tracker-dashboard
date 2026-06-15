@@ -1893,14 +1893,19 @@ async function renderHourlyChart() {
             formatter:v=>v>0?v.toLocaleString():'', padding:{top:1,bottom:1},
           },
         },
-        { label:'Pending for QC', data:backlogAvg,
-          borderColor:PAL.amber||'#E8A020', backgroundColor:'transparent',
+        { label:'Pendency', data:backlogAvg,
+          borderColor:PAL.red, backgroundColor:'transparent',
           borderWidth:2, tension:0.35, fill:false,
           borderDash:[5,3],
           pointRadius:2.5, pointHoverRadius:5.5,
-          pointBackgroundColor:PAL.amber||'#E8A020', pointBorderColor:pointBorder, pointBorderWidth:0,
-          pointHoverBackgroundColor:PAL.amber||'#E8A020', pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
-          datalabels:{ display:false },
+          pointBackgroundColor:PAL.red, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.red, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', color:PAL.red,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'',
+            display: ctx => ctx.dataset.data[ctx.dataIndex]>0,
+          },
         },
       ]},
       options:{
@@ -1925,12 +1930,12 @@ async function renderHourlyChart() {
       },
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDING = FRESH + PRIOR HOUR LEFTOVER`;
-    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pending for QC':PAL.amber||'#E8A020' };
+    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDENCY = FRESH + PRIOR HOUR LEFTOVER`;
+    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pendency':PAL.red };
     $('hourlyLegend').innerHTML = [
-      ['Received',       totalRecv.toLocaleString()],
-      ['QC Done',        totalQc.toLocaleString()],
-      ['Pending for QC', `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
+      ['Received',  totalRecv.toLocaleString()],
+      ['QC Done',   totalQc.toLocaleString()],
+      ['Pendency',  `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
     ].map(([k,v])=>
       `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
     ).join('');
