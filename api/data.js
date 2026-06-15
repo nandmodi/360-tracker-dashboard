@@ -1,8 +1,8 @@
 /**
- * api/data.js
- * Uses /query/json (full dataset) instead of /query (2000-row limit).
- * Streams + parses the large JSON response efficiently.
+ * api/data.js — fetches Metabase CSV, compresses response with gzip
+ * Gzip reduces ~20MB JSON → ~2MB, well within Vercel 4.5MB limit
  */
+const zlib = require('zlib');
 
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
@@ -158,6 +158,16 @@ async function fetchFromMetabase() {
   };
 }
 
+// Send gzip-compressed JSON — reduces 20MB → ~2MB, fits Vercel 4.5MB limit
+function sendGzip(res, statusCode, payload) {
+  const json       = JSON.stringify(payload);
+  const compressed = zlib.gzipSync(json);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Encoding', 'gzip');
+  res.setHeader('Content-Length', compressed.length);
+  res.status(statusCode).send(compressed);
+}
+
 // ── Background refresh (fire-and-forget) ─────────────────────────────────────
 let _refreshing = false;
 async function backgroundRefresh() {
@@ -186,7 +196,7 @@ module.exports = async function handler(req, res) {
     console.log(`[api/data] HIT age=${Math.round((now-_cache.ts)/1000)}s`);
     res.setHeader("X-Cache", "HIT");
     res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
-    return res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
+    return sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
   }
 
   // ── Case 2: Stale cache exists — return it, refresh in background ──
@@ -194,7 +204,7 @@ module.exports = async function handler(req, res) {
     console.log(`[api/data] STALE age=${Math.round((now-_cache.ts)/1000)}s — serving stale, refreshing in bg`);
     res.setHeader("X-Cache", "STALE");
     res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=600");
-    res.status(200).json({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
+    sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
     backgroundRefresh(); // fire and forget — no await
     return;
   }
@@ -206,9 +216,9 @@ module.exports = async function handler(req, res) {
     _cache = { ...payload, ts: now };
     res.setHeader("X-Cache", "MISS");
     res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
-    res.status(200).json(payload);
+    sendGzip(res, 200, payload);
   } catch (err) {
     console.error("[api/data] ERROR:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });  // 500 errors are small, no gzip needed
   }
 };
