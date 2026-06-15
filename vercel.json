@@ -4,8 +4,5 @@
     "api/data.js": {
       "maxDuration": 60
     }
-  },
-  "toolbar": {
-    "dashboard": false
   }
 }
