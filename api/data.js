@@ -118,20 +118,22 @@ function mapRow(r) {
 async function fetchFromMetabase() {
   const t0 = Date.now();
 
-  // Timeout fetch after 45s — leaves 15s for processing
+  // Timeout fetch after 50s
   const controller = new AbortController();
-  const timeoutId  = setTimeout(() => controller.abort(), 45000);
+  const timeoutId  = setTimeout(() => controller.abort(), 50000);
 
-  // Use CSV + gzip compression: ~6MB vs 61MB = 10x faster
-  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
-    headers: {
-      "Accept": "text/csv",
-      "Accept-Encoding": "gzip, deflate, br",
-    },
-    compress: true,
-    signal: controller.signal,
-  });
-  clearTimeout(timeoutId);
+  let res;
+  try {
+    res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
+      headers: {
+        'Accept': 'text/csv',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
 
@@ -140,14 +142,14 @@ async function fetchFromMetabase() {
 
   const rawRows = parseCSV(text);
   console.log(`[api/data] parsed ${rawRows.length} rows total=${Date.now()-t0}ms`);
-  if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(", ")}`);
+  if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(', ')}`);
 
   const rows      = rawRows.map(mapRow);
   const delivered = rows.filter(r => (r.final_status||'').trim() === 'Delivered').length;
   const rejected  = rows.filter(r => ['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes((r.final_status||'').trim())).length;
-  const pending   = rows.filter(r => (r.final_status||'').trim() === 'Under Review').length;
+  const pending   = rows.filter(r => (r.crm_status||'').trim() === 'qc_unassigned').length;
 
-  console.log(`[api/data] D:${delivered} R:${rejected} P:${pending}`);
+  console.log(`[api/data] D:${delivered} R:${rejected} P:${pending} time=${Date.now()-t0}ms`);
 
   return {
     rows,
