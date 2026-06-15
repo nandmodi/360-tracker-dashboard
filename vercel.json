@@ -2,8 +2,7 @@
   "regions": ["bom1"],
   "functions": {
     "api/data.js": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     }
   },
   "toolbar": {
