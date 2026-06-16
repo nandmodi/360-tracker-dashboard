@@ -1223,7 +1223,7 @@ const F = {
   preset:'this_month', from:null, to:null,
   ent:null, team:null,
   user:null,
-  verified:null, sla:null, seg:null,
+  verified:null, sla:null, seg:null, rejReason:null,
   rejReason: null,
 };
 
@@ -2147,16 +2147,23 @@ function mkSegBar(id, container, breakMap, opts={}){
   container.appendChild(wrap);
 }
 // ── Reason breakdown card (top N with scroll) ────────────────────────────────
-function mkReasonCard(containerId, countMap, color){
+function mkReasonCard(containerId, countMap, color, drillView){
   const el = $(containerId);
   if (!el) return;
   const entries = Object.entries(countMap).sort((a,b)=>b[1]-a[1]);
   if (!entries.length){ el.innerHTML='<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>'; return; }
   const max = entries[0][1];
   el.innerHTML = entries.map(([label, count]) => {
-    const pct = (count/max)*100;
+    const pct    = (count/max)*100;
+    const active = F.rejReason === label;
     return `
-      <div style="margin-bottom:10px">
+      <div class="reason-row" data-reason="${esc(label)}" data-view="${drillView||''}"
+           style="margin-bottom:10px;cursor:pointer;border-radius:6px;padding:4px;
+                  background:${active?'var(--surface-2)':'transparent'};
+                  outline:${active?'1px solid '+color:'none'};transition:background .15s"
+           onmouseenter="this.style.background='var(--surface-2)'"
+           onmouseleave="this.style.background='${active?'var(--surface-2)':'transparent'}'"
+           title="${active?'Click to clear filter':'Click to filter by this reason'}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:8px">
           <span style="font-size:11px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%"
                 title="${esc(label)}">${esc(label)}</span>
@@ -2167,6 +2174,21 @@ function mkReasonCard(containerId, countMap, color){
         </div>
       </div>`;
   }).join('');
+
+  // Wire up click → filter dashboard by reason
+  el.querySelectorAll('.reason-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const reason = row.dataset.reason;
+      // Toggle: if already filtering by this reason, clear it
+      if (F.rejReason === reason) {
+        F.rejReason = null;
+      } else {
+        F.rejReason = reason;
+      }
+      refreshMsTriggers();
+      setTimeout(()=>refresh(), 0);
+    });
+  });
 }
 
 function mkBar(id, canvas, map, opts={}){
@@ -2360,9 +2382,9 @@ function paint(){
   });
 
   // Reason breakdown cards
-  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red);
-  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange);
-  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber);
+  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc');
+  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val');
+  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech');
   // Trend chart — uses the same filters as the main view BUT ignores date filter
   // and ignores the rejection-reason filter (so the timeline shows full context).
   const trendRows = RAW.filter(r => {
@@ -2694,7 +2716,7 @@ $('resetBtn').addEventListener('click', ()=>{
     preset:'this_month', from:r.from, to:r.to,
     ent:null, team:null,
     user:null,
-    verified:null, sla:null, seg:null,
+    verified:null, sla:null, seg:null, rejReason:null,
     rejReason: null,
   });
   refreshMsTriggers();
@@ -2913,6 +2935,7 @@ function activeFilterChips(){
   setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
   setChip('Segment',    F.seg);
+  setChip('Reason',     F.rejReason ? new Set([F.rejReason]) : null);
   if (F.rejReason) chips.push(`<span class="chip">Reason <strong>filtered</strong></span>`);
   return chips.length?chips.join(''):'<span class="chip">No filters</span>';
 }
