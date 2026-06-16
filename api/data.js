@@ -134,7 +134,16 @@ async function fetchFromMetabase() {
   console.log(`[api/data] parsed ${rawRows.length} rows total=${Date.now()-t0}ms`);
   if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(', ')}`);
 
-  const rows      = rawRows.map(mapRow);
+  const allRows = rawRows.map(mapRow);
+
+  // Keep last 6 months + all qc_unassigned (pending) to stay under Vercel 4.5MB limit
+  const cutoff  = new Date(Date.now() - 183 * 24 * 3600 * 1000).toISOString().slice(0,10);
+  const rows    = allRows.filter(r => {
+    if ((r.crm_status||'') === 'qc_unassigned') return true;  // always keep pending
+    const d = String(r.c||'').slice(0,10);
+    return d >= cutoff;
+  });
+  console.log(`[api/data] total=${allRows.length} after 6mo filter=${rows.length} cutoff=${cutoff}`);
   const delivered = rows.filter(r => (r.final_status||'').trim() === 'Delivered').length;
   const rejected  = rows.filter(r => ['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes((r.final_status||'').trim())).length;
   const pending   = rows.filter(r => (r.crm_status||'').trim() === 'qc_unassigned').length;
