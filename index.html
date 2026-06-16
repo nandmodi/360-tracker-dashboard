@@ -1311,8 +1311,14 @@ function passesFilters(r){
   }
   if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
   if (F.rejReason){
-    if (!isRejected(r)) return false;
-    if (normReason(r.rej) !== F.rejReason) return false;
+    const { label, type } = F.rejReason;
+    if (type === 'qc') {
+      // QC reasons come from issues_by_severity (blocker issues)
+      if (!(r.issues_by_severity||'').includes(label)) return false;
+    } else {
+      // Validation / Tech reasons come from failure_reason (r.rej)
+      if ((r.rej||'').trim() !== label) return false;
+    }
   }
   if (F.from || F.to){
     const ts = r._created || r._updated;
@@ -2155,7 +2161,7 @@ function mkReasonCard(containerId, countMap, color, drillView){
   const max = entries[0][1];
   el.innerHTML = entries.map(([label, count]) => {
     const pct    = (count/max)*100;
-    const active = F.rejReason === label;
+    const active = F.rejReason && F.rejReason.label === label;
     return `
       <div class="reason-row" data-reason="${esc(label)}" data-view="${drillView||''}"
            style="margin-bottom:10px;cursor:pointer;border-radius:6px;padding:4px;
@@ -2179,11 +2185,12 @@ function mkReasonCard(containerId, countMap, color, drillView){
   el.querySelectorAll('.reason-row').forEach(row => {
     row.addEventListener('click', () => {
       const reason = row.dataset.reason;
+      const type   = row.dataset.view;   // 'qc', 'val', 'tech'
       // Toggle: if already filtering by this reason, clear it
-      if (F.rejReason === reason) {
+      if (F.rejReason && F.rejReason.label === reason) {
         F.rejReason = null;
       } else {
-        F.rejReason = reason;
+        F.rejReason = { label: reason, type };
       }
       refreshMsTriggers();
       setTimeout(()=>refresh(), 0);
@@ -2935,7 +2942,7 @@ function activeFilterChips(){
   setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
   setChip('Segment',    F.seg);
-  setChip('Reason',     F.rejReason ? new Set([F.rejReason]) : null);
+  setChip('Reason', F.rejReason ? new Set([F.rejReason.label]) : null);
   if (F.rejReason) chips.push(`<span class="chip">Reason <strong>filtered</strong></span>`);
   return chips.length?chips.join(''):'<span class="chip">No filters</span>';
 }
