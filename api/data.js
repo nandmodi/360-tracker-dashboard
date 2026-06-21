@@ -8,7 +8,7 @@ const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 
 const SLA_THRESHOLD_HOURS = 6;
-const CACHE_TTL_MS        = 8 * 60 * 1000;  // 8 min cache — balance freshness vs cold starts
+const CACHE_TTL_MS        = 15 * 60 * 1000; // 15 min cache
 
 let _cache = null;
 
@@ -137,7 +137,7 @@ async function fetchFromMetabase() {
   const allRows = rawRows.map(mapRow);
 
   // Keep last 6 months + all qc_unassigned (pending) to stay under Vercel 4.5MB limit
-  const cutoff  = new Date(Date.now() - 183 * 24 * 3600 * 1000).toISOString().slice(0,10);
+  const cutoff  = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0,10);
   const rows    = allRows.filter(r => {
     if ((r.crm_status||'') === 'qc_unassigned') return true;  // always keep pending
     const d = String(r.c||'').slice(0,10);
@@ -194,7 +194,7 @@ module.exports = async function handler(req, res) {
   if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
     console.log(`[api/data] HIT age=${Math.round((now-_cache.ts)/1000)}s`);
     res.setHeader("X-Cache", "HIT");
-    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
     return sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
   }
 
@@ -202,7 +202,7 @@ module.exports = async function handler(req, res) {
   if (!force && _cache) {
     console.log(`[api/data] STALE age=${Math.round((now-_cache.ts)/1000)}s — serving stale, refreshing in bg`);
     res.setHeader("X-Cache", "STALE");
-    res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=600");
+    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
     sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
     backgroundRefresh(); // fire and forget — no await
     return;
@@ -214,7 +214,7 @@ module.exports = async function handler(req, res) {
     const payload = await fetchFromMetabase();
     _cache = { ...payload, ts: now };
     res.setHeader("X-Cache", "MISS");
-    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=600");
+    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
     sendGzip(res, 200, payload);
   } catch (err) {
     console.error("[api/data] ERROR:", err.message);
