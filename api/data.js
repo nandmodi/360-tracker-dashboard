@@ -1,22 +1,19 @@
 /**
- * api/data.js — fetches Metabase CSV, compresses response with gzip
- * Gzip reduces ~20MB JSON → ~2MB, well within Vercel 4.5MB limit
+ * Cloudflare Worker — 360 Dashboard API
+ * Deploy at: workers.cloudflare.com
  */
-const zlib = require('zlib');
 
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
-
 const SLA_THRESHOLD_HOURS = 6;
-const CACHE_TTL_MS        = 15 * 60 * 1000; // 15 min cache
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
 
-let _cache = null;
+let _cache = null; // in-memory cache (persists within Worker isolate)
 
-// ── Simple CSV parser ─────────────────────────────────────────────────────────
+// ── CSV Parser ────────────────────────────────────────────────────────────────
 function parseCSV(text) {
   const lines = text.split('\n');
   if (!lines.length) return [];
-  // Parse headers
   const headers = parseCSVLine(lines[0]);
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
@@ -40,9 +37,7 @@ function parseCSVLine(line) {
       else inQ = !inQ;
     } else if (ch === ',' && !inQ) {
       result.push(cur); cur = '';
-    } else {
-      cur += ch;
-    }
+    } else { cur += ch; }
   }
   result.push(cur);
   return result;
@@ -55,119 +50,69 @@ function parseDate(s) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function mapStatus(finalStatus, crmStatus) {
-  const fs = String(finalStatus || "").trim().toLowerCase();
-  const cs = String(crmStatus  || "").trim().toLowerCase();
-  if (fs === "delivered")                      return { crm: "qc_done", ver: "verified" };
-  if (fs === "qc failed" || fs === "rejected") return { crm: "qc_done", ver: "rejected" };
-  if (cs === "qc_done")                        return { crm: "qc_done", ver: "none"     };
-  return                                              { crm: cs || "processing", ver: "none" };
-}
-
 function mapRow(r) {
   const createdAt   = parseDate(r.createdAt);
   const finalTime   = parseDate(r.final_time);
-  const firstQcDone = parseDate(r.first_qc_done);  // preferred for TAT/SLA
-
-  // TAT = first_qc_done - createdAt  (fallback: final_time - createdAt)
+  const firstQcDone = parseDate(r.first_qc_done);
   const tatTime = firstQcDone || finalTime;
   let tat = null;
   if (createdAt && tatTime) {
     const ms = tatTime.getTime() - createdAt.getTime();
-    if (ms > 0) tat = parseFloat((ms / 3_600_000).toFixed(3));
+    if (ms > 0) tat = parseFloat((ms / 3600000).toFixed(3));
   }
-
-  // E2E TAT always uses final_time - createdAt (regardless of first_qc_done)
   let e2e_tat = null;
   if (createdAt && finalTime) {
     const ms2 = finalTime.getTime() - createdAt.getTime();
-    if (ms2 > 0) e2e_tat = parseFloat((ms2 / 3_600_000).toFixed(3));
+    if (ms2 > 0) e2e_tat = parseFloat((ms2 / 3600000).toFixed(3));
   }
-
   const fs = (r.final_status || '').trim();
-
-  // SLA = TAT ≤ 6h, exclude Under Review only
   let sla = null;
   if (tat !== null && fs !== 'Under Review')
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
 
   return {
-    c:      r.createdAt,
-    u:      r.final_time,
-    ent:    r.enterprise_name,
-    team:   r.team_name,
-    qc:     r.qc_user,
+    c: r.createdAt, u: r.final_time,
+    ent: r.enterprise_name, team: r.team_name, qc: r.qc_user,
     sla, tat, e2e_tat,
-    rej:   r.failure_reason || null,
-    vid:      r.mediaId || null,
-    spin_id:  r['ss.spin_id'] || null,
-    vmode:      r["fd.platform"],
+    rej: r.failure_reason || null,
+    vid: r.mediaId || null,
+    spin_id: r['ss.spin_id'] || null,
+    vmode: r["fd.platform"],
     crm_status: r.crm_status || null,
-    seg:   r.customer_segment || null,  // Ent / Mid / SMB / Resellers
+    seg: r.customer_segment || null,
     ttype: r.input_type,
-    vin:   r.vinName,
-    sku:   r.spin_sku_id,
-    final_status:         r.final_status,
-    issues_by_severity:   r.issues_by_severity,
-    manual_editing:       r.manual_editing === true || r.manual_editing === 'true' || r.manual_editing === 1 ? true : false,
-
+    vin: r.vinName, sku: r.spin_sku_id,
+    final_status: r.final_status,
+    issues_by_severity: r.issues_by_severity,
+    manual_editing: r.manual_editing === true || r.manual_editing === 'true' || r.manual_editing === 1,
   };
 }
 
-// ── Fetch full dataset ────────────────────────────────────────────────────────
+// ── Fetch from Metabase ───────────────────────────────────────────────────────
 async function fetchFromMetabase() {
-  const t0 = Date.now();
-
   const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
-    headers: {
-      'Accept': 'text/csv',
-      'Accept-Encoding': 'gzip, deflate',
-    },
+    headers: { 'Accept': 'text/csv', 'Accept-Encoding': 'gzip, deflate' },
   });
-
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
-
   const text = await res.text();
-  console.log(`[api/data] CSV bytes=${text.length} time=${Date.now()-t0}ms`);
 
-  const rawRows = parseCSV(text);
-  console.log(`[api/data] parsed ${rawRows.length} rows total=${Date.now()-t0}ms`);
-  if (rawRows.length) console.log(`[api/data] sample keys: ${Object.keys(rawRows[0]).join(', ')}`);
+  const allRows = parseCSV(text).map(mapRow);
 
-  const allRows = rawRows.map(mapRow);
-
-  // Keep last 6 months + all qc_unassigned (pending) to stay under Vercel 4.5MB limit
-  const cutoff  = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0,10);
-  const rows    = allRows.filter(r => {
-    if ((r.crm_status||'') === 'qc_unassigned') return true;  // always keep pending
-    const d = String(r.c||'').slice(0,10);
-    return d >= cutoff;
+  // Last 30 days + all pending
+  const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const rows = allRows.filter(r => {
+    if ((r.crm_status || '') === 'qc_unassigned') return true;
+    return String(r.c || '').slice(0, 10) >= cutoff;
   });
-  console.log(`[api/data] total=${allRows.length} after 6mo filter=${rows.length} cutoff=${cutoff}`);
+
   const delivered = rows.filter(r => (r.final_status||'').trim() === 'Delivered').length;
   const rejected  = rows.filter(r => ['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes((r.final_status||'').trim())).length;
   const pending   = rows.filter(r => (r.crm_status||'').trim() === 'qc_unassigned').length;
 
-  console.log(`[api/data] D:${delivered} R:${rejected} P:${pending} time=${Date.now()-t0}ms`);
-
-  return {
-    rows,
-    lastSynced: new Date().toISOString(),
-    meta: { total: rows.length, delivered, rejected, pending },
-  };
+  return { rows, lastSynced: new Date().toISOString(), meta: { total: rows.length, delivered, rejected, pending } };
 }
 
-// Send gzip-compressed JSON — reduces 20MB → ~2MB, fits Vercel 4.5MB limit
-function sendGzip(res, statusCode, payload) {
-  const json       = JSON.stringify(payload);
-  const compressed = zlib.gzipSync(json);
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Encoding', 'gzip');
-  res.setHeader('Content-Length', compressed.length);
-  res.status(statusCode).send(compressed);
-}
-
-// ── Background refresh (fire-and-forget) ─────────────────────────────────────
+// ── Background refresh ────────────────────────────────────────────────────────
 let _refreshing = false;
 async function backgroundRefresh() {
   if (_refreshing) return;
@@ -175,49 +120,43 @@ async function backgroundRefresh() {
   try {
     const payload = await fetchFromMetabase();
     _cache = { ...payload, ts: Date.now() };
-    console.log('[api/data] background refresh complete');
-  } catch (err) {
-    console.error('[api/data] background refresh failed:', err.message);
-  } finally {
-    _refreshing = false;
-  }
+  } catch(e) {
+    console.error('bg refresh failed:', e.message);
+  } finally { _refreshing = false; }
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────
-module.exports = async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+// ── Worker Handler ────────────────────────────────────────────────────────────
+export default {
+  async fetch(request, env, ctx) {
+    const url    = new URL(request.url);
+    const force  = url.searchParams.get('force') === '1';
+    const now    = Date.now();
+    const CORS   = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
 
-  const force = req.query?.force === "1";
-  const now   = Date.now();
+    // Case 1: Fresh cache
+    if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
+      return new Response(JSON.stringify({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta }), {
+        headers: { ...CORS, 'Cache-Control': 'public, s-maxage=900', 'X-Cache': 'HIT' }
+      });
+    }
 
-  // ── Case 1: Fresh cache — return immediately ──────────────────
-  if (!force && _cache && (now - _cache.ts) < CACHE_TTL_MS) {
-    console.log(`[api/data] HIT age=${Math.round((now-_cache.ts)/1000)}s`);
-    res.setHeader("X-Cache", "HIT");
-    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
-    return sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
-  }
+    // Case 2: Stale cache — return immediately, refresh in background
+    if (!force && _cache) {
+      ctx.waitUntil(backgroundRefresh());
+      return new Response(JSON.stringify({ rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta }), {
+        headers: { ...CORS, 'Cache-Control': 'public, s-maxage=60', 'X-Cache': 'STALE' }
+      });
+    }
 
-  // ── Case 2: Stale cache exists — return it, refresh in background ──
-  if (!force && _cache) {
-    console.log(`[api/data] STALE age=${Math.round((now-_cache.ts)/1000)}s — serving stale, refreshing in bg`);
-    res.setHeader("X-Cache", "STALE");
-    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
-    sendGzip(res, 200, { rows: _cache.rows, lastSynced: _cache.lastSynced, meta: _cache.meta });
-    backgroundRefresh(); // fire and forget — no await
-    return;
-  }
-
-  // ── Case 3: No cache — must fetch (first load or force) ──────────
-  try {
-    console.log('[api/data] MISS — fetching fresh data');
-    const payload = await fetchFromMetabase();
-    _cache = { ...payload, ts: now };
-    res.setHeader("X-Cache", "MISS");
-    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=3600");
-    sendGzip(res, 200, payload);
-  } catch (err) {
-    console.error("[api/data] ERROR:", err.message);
-    res.status(500).json({ error: err.message });  // 500 errors are small, no gzip needed
+    // Case 3: No cache — fetch fresh
+    try {
+      const payload = await fetchFromMetabase();
+      _cache = { ...payload, ts: now };
+      return new Response(JSON.stringify(payload), {
+        headers: { ...CORS, 'Cache-Control': 'public, s-maxage=900', 'X-Cache': 'MISS' }
+      });
+    } catch(err) {
+      return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: CORS });
+    }
   }
 };
