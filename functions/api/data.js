@@ -1,11 +1,9 @@
 // functions/api/data.js — Cloudflare Pages Function (Workers runtime)
-// Exact port of the original Vercel api/data.js — same field mapping, same filter logic
 
 const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
 const BASE = "https://metabase.spyne.ai";
 const SLA_THRESHOLD_HOURS = 6;
 
-// ── CSV parser (same as original) ─────────────────────────────────────────────
 function parseCSV(text) {
   const lines = text.split('\n');
   if (!lines.length) return [];
@@ -65,7 +63,6 @@ function mapRow(r) {
   }
 
   const fs = (r.final_status || '').trim();
-
   let sla = null;
   if (tat !== null && fs !== 'Under Review')
     sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
@@ -93,9 +90,19 @@ function mapRow(r) {
 }
 
 async function fetchFromMetabase() {
-  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
-    headers: { 'Accept': 'text/csv' },
-  });
+  // 25s timeout — CF Workers limit is 30s
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+
+  let res;
+  try {
+    res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
+      headers: { 'Accept': 'text/csv' },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
 
@@ -149,8 +156,9 @@ export async function onRequestGet(context) {
     });
 
   } catch (err) {
+    // Return error as JSON so we can see what went wrong
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: err.message, type: err.name }),
       {
         status: 500,
         headers: {
