@@ -6,7 +6,7 @@ on:
     - cron: '0 * * * *'
 
 permissions:
-  contents: write        # ← allows git push back to repo
+  contents: write
 
 jobs:
   sync:
@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'             # ← updated from 20 to 22
+          node-version: '22'
 
       - name: Fetch & process Metabase data
         run: node scripts/sync-data.js
@@ -33,5 +33,6 @@ jobs:
           git add public/data.json
           git diff --staged --quiet && echo "No changes, skipping commit" || (
             git commit -m "chore: sync data $(date -u '+%Y-%m-%d %H:%M') [skip ci]"
+            git pull --rebase origin main
             git push
           )
