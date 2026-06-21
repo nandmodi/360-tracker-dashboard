@@ -1,9 +1,12 @@
 name: Sync Metabase data
 
 on:
-  workflow_dispatch:          # triggered by cron-job.org via API
+  workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'      # hourly fallback (in case cron-job.org misses)
+    - cron: '0 * * * *'
+
+permissions:
+  contents: write        # ← allows git push back to repo
 
 jobs:
   sync:
@@ -18,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'             # ← updated from 20 to 22
 
       - name: Fetch & process Metabase data
         run: node scripts/sync-data.js
