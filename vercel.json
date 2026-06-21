@@ -1,6 +1,9 @@
 {
+  "version": 2,
   "regions": ["bom1"],
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "outputDirectory": ".",
+  "routes": [
+    { "src": "/public/(.*)", "dest": "/public/$1" },
+    { "src": "/(.*)", "dest": "/$1" }
   ]
 }
