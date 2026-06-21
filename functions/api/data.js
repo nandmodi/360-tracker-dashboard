@@ -1,55 +1,124 @@
 // functions/api/data.js — Cloudflare Pages Function (Workers runtime)
+// Exact port of the original Vercel api/data.js — same field mapping, same filter logic
 
-const METABASE_UUID = '7f9326d8-9eb9-4cc2-bded-efb1aac967db';
-const METABASE_URL = `https://metabase.spyne.ai/api/public/card/${METABASE_UUID}/query/csv`;
-const CACHE_TTL = 480; // 8 minutes
+const UUID = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
+const BASE = "https://metabase.spyne.ai";
+const SLA_THRESHOLD_HOURS = 6;
 
-const KEEP_FIELDS = new Set([
-  'vin', 'sku_id', 'spin_id', 'enterprise', 'team',
-  'qc_user', 'crm_status', 'final_status', 'sla_status',
-  'first_qc_done', 'final_time', 'created_at',
-  'rejection_reason', 'input_type', 'platform',
-  'customer_segment', 'is_hidden', 'tat', 'e2e_tat', 'within_3h'
-]);
-
-function getCutoffDate() {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 6);
-  return d;
+// ── CSV parser (same as original) ─────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.split('\n');
+  if (!lines.length) return [];
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = parseCSVLine(line);
+    const row = {};
+    headers.forEach((h, idx) => { row[h] = vals[idx] ?? ''; });
+    rows.push(row);
+  }
+  return rows;
 }
 
-function parseCSV(text) {
-  const lines = text.split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
-
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-
-  return lines.slice(1).map(line => {
-    const values = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; continue; }
-      if (ch === ',' && !inQ) { values.push(cur); cur = ''; continue; }
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur); cur = '';
+    } else {
       cur += ch;
     }
-    values.push(cur);
-
-    const row = {};
-    headers.forEach((h, i) => {
-      if (KEEP_FIELDS.has(h)) row[h] = values[i]?.trim() ?? '';
-    });
-    return row;
-  });
+  }
+  result.push(cur);
+  return result;
 }
 
-function applyDateFilter(rows, cutoff) {
-  return rows.filter(row => {
-    if (row.crm_status === 'qc_unassigned') return true;
-    if (!row.created_at) return false;
-    const d = new Date(row.created_at);
-    return !isNaN(d) && d >= cutoff;
+function parseDate(s) {
+  if (!s) return null;
+  const d = new Date(String(s).trim());
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function mapRow(r) {
+  const createdAt   = parseDate(r.createdAt);
+  const finalTime   = parseDate(r.final_time);
+  const firstQcDone = parseDate(r.first_qc_done);
+
+  const tatTime = firstQcDone || finalTime;
+  let tat = null;
+  if (createdAt && tatTime) {
+    const ms = tatTime.getTime() - createdAt.getTime();
+    if (ms > 0) tat = parseFloat((ms / 3600000).toFixed(3));
+  }
+
+  let e2e_tat = null;
+  if (createdAt && finalTime) {
+    const ms2 = finalTime.getTime() - createdAt.getTime();
+    if (ms2 > 0) e2e_tat = parseFloat((ms2 / 3600000).toFixed(3));
+  }
+
+  const fs = (r.final_status || '').trim();
+
+  let sla = null;
+  if (tat !== null && fs !== 'Under Review')
+    sla = tat <= SLA_THRESHOLD_HOURS ? 1 : 0;
+
+  return {
+    c:      r.createdAt,
+    u:      r.final_time,
+    ent:    r.enterprise_name,
+    team:   r.team_name,
+    qc:     r.qc_user,
+    sla, tat, e2e_tat,
+    rej:          r.failure_reason || null,
+    vid:          r.mediaId || null,
+    spin_id:      r['ss.spin_id'] || null,
+    vmode:        r["fd.platform"],
+    crm_status:   r.crm_status || null,
+    seg:          r.customer_segment || null,
+    ttype:        r.input_type,
+    vin:          r.vinName,
+    sku:          r.spin_sku_id,
+    final_status:       r.final_status,
+    issues_by_severity: r.issues_by_severity,
+    manual_editing: r.manual_editing === true || r.manual_editing === 'true' || r.manual_editing === 1,
+  };
+}
+
+async function fetchFromMetabase() {
+  const res = await fetch(`${BASE}/api/public/card/${UUID}/query/csv`, {
+    headers: { 'Accept': 'text/csv' },
   });
+
+  if (!res.ok) throw new Error(`Metabase HTTP ${res.status}`);
+
+  const text = await res.text();
+  const rawRows = parseCSV(text);
+  const allRows = rawRows.map(mapRow);
+
+  const cutoff = new Date(Date.now() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const rows = allRows.filter(r => {
+    if ((r.crm_status || '') === 'qc_unassigned') return true;
+    const d = String(r.c || '').slice(0, 10);
+    return d >= cutoff;
+  });
+
+  const delivered = rows.filter(r => (r.final_status || '').trim() === 'Delivered').length;
+  const rejected  = rows.filter(r => ['QC Failed', 'Validation Failed', 'Tech Failure', 'AI Failed'].includes((r.final_status || '').trim())).length;
+  const pending   = rows.filter(r => (r.crm_status || '').trim() === 'qc_unassigned').length;
+
+  return {
+    rows,
+    lastSynced: new Date().toISOString(),
+    meta: { total: rows.length, delivered, rejected, pending },
+  };
 }
 
 export async function onRequestGet(context) {
@@ -66,31 +135,16 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const upstream = await fetch(METABASE_URL, {
-      headers: { 'Accept': 'text/csv' },
-    });
+    const payload = await fetchFromMetabase();
+    const json = JSON.stringify(payload);
 
-    if (!upstream.ok) {
-      return new Response(
-        JSON.stringify({ error: `Metabase error: ${upstream.status}` }),
-        { status: 502, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } }
-      );
-    }
-
-    const csvText = await upstream.text();
-    const rows = parseCSV(csvText);
-    const cutoff = getCutoffDate();
-    const filtered = applyDateFilter(rows, cutoff);
-    const json = JSON.stringify({ rows: filtered, total: filtered.length });
-
-    // NO manual gzip — Cloudflare handles compression automatically
     return new Response(json, {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': `public, max-age=${CACHE_TTL}`,
+        'Cache-Control': 'public, max-age=480, stale-while-revalidate=600',
         'Access-Control-Allow-Origin': '*',
-        'X-Row-Count': String(filtered.length),
+        'X-Row-Count': String(payload.meta.total),
       },
     });
 
