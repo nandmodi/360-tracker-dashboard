@@ -1,9 +1,3 @@
 {
-  "version": 2,
-  "regions": ["bom1"],
-  "outputDirectory": ".",
-  "routes": [
-    { "src": "/public/(.*)", "dest": "/public/$1" },
-    { "src": "/(.*)", "dest": "/$1" }
-  ]
+  "regions": ["bom1"]
 }
