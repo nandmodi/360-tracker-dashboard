@@ -562,7 +562,7 @@
           QC Performance
         </button>
       </div>
-      <span class="autosync-badge" id="autoSyncBadge">Next sync in —</span>
+      <span class="autosync-badge" id="autoSyncBadge"></span>
       <span class="sync-info" id="syncInfo">—</span>
       <button class="btn-icon" id="editBtn" title="Customize layout">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11.5 1.5l3 3-9 9L2 14l.5-3.5 9-9z"/></svg>
@@ -3538,28 +3538,11 @@ $('editBtn').addEventListener('click', ()=>{
 });
 
 // ─────────────────────────────────────────────────────────────
-// AUTO-SYNC — 30 minutes
+// MANUAL SYNC ONLY — no auto-sync timer
 // ─────────────────────────────────────────────────────────────
-const AUTO_MS = 5 * 60 * 1000;  // 5 min — near-live
-let autoTimer = null, cdTimer = null, nextAt = null;
-function startCD(){
-  if (cdTimer) clearInterval(cdTimer);
-  nextAt = Date.now() + AUTO_MS;
-  cdTimer = setInterval(()=>{
-    const rem = nextAt - Date.now();
-    if (rem <= 0){ $('autoSyncBadge').textContent='Syncing…'; return; }
-    const m = Math.floor(rem/60000), s = Math.floor((rem%60000)/1000);
-    $('autoSyncBadge').textContent = `Next sync in ${m}:${String(s).padStart(2,'0')}`;
-  }, 1000);
-}
-function schedAuto(){
-  if (autoTimer) clearTimeout(autoTimer);
-  startCD();
-  autoTimer = setTimeout(async()=>{ await syncFromServer({silent:true, force:true}); schedAuto(); }, AUTO_MS);
-}
+$('autoSyncBadge').textContent = '';
 $('syncBtn').addEventListener('click', async()=>{
   await syncFromServer({force:true});
-  schedAuto();
 });
 
 function setLoading(on, msg='Loading…'){
@@ -4473,7 +4456,6 @@ bindSlaCells();
 syncDateUI();
 applyLayout();
 syncFromServer();
-schedAuto();
 </script>
 </body>
 </html>
