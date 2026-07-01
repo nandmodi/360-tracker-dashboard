@@ -208,12 +208,13 @@
   .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:10px;}
 
   /* KPI CARDS */
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:28px;}
-  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
+  .kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:28px;}
+  @media(max-width:1200px){.kpis{grid-template-columns:repeat(4,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;min-height:80px;}
   .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--shadow-md);border-color:var(--line-2);}
   .kpi:active{transform:translateY(0);}
   .kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;line-height:1.35;}
-  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:36px;font-weight:600;letter-spacing:-.025em;margin-top:14px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:clamp(18px,2.2vw,32px);font-weight:600;letter-spacing:-.025em;margin-top:10px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
   .kpi-value.green{color:var(--green);}.kpi-value.red{color:var(--red);}.kpi-value.orange{color:var(--orange);}.kpi-value.amber{color:var(--amber);}.kpi-value.blue{color:var(--accent);}.kpi-value.purple{color:var(--purple);}
   .kpi-pct{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);font-weight:500;margin-top:6px;font-variant-numeric:tabular-nums;}
   .kpi-pct.muted{color:var(--muted);}
@@ -562,7 +563,7 @@
           QC Performance
         </button>
       </div>
-      <span class="autosync-badge" id="autoSyncBadge"></span>
+      <span class="autosync-badge" id="autoSyncBadge">Next sync in —</span>
       <span class="sync-info" id="syncInfo">—</span>
       <button class="btn-icon" id="editBtn" title="Customize layout">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11.5 1.5l3 3-9 9L2 14l.5-3.5 9-9z"/></svg>
@@ -3537,9 +3538,7 @@ $('editBtn').addEventListener('click', ()=>{
   if (editMode) renderEditControls();
 });
 
-// ─────────────────────────────────────────────────────────────
-// MANUAL SYNC ONLY — no auto-sync timer
-// ─────────────────────────────────────────────────────────────
+// MANUAL SYNC ONLY
 $('autoSyncBadge').textContent = '';
 $('syncBtn').addEventListener('click', async()=>{
   await syncFromServer({force:true});
