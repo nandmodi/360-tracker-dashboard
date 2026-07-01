@@ -39,7 +39,7 @@
   header h1{margin:0;font-family:'Bricolage Grotesque',serif;font-weight:600;font-size:22px;letter-spacing:-.025em;}
   .tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
   .actions{display:flex;align-items:center;gap:10px;}
-  .sync-info{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .sync-info{display:none;}
   .autosync-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap;}
   .btn-icon{background:var(--surface);color:var(--ink-2);border:1px solid var(--line);padding:7px 14px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;transition:background .15s,color .15s,border-color .15s;display:inline-flex;align-items:center;gap:6px;}
   .btn-icon:hover{background:var(--bg);color:var(--ink);}
@@ -2528,7 +2528,7 @@ async function syncFromServer({silent=false, force=false}={}){
     console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
     if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
     lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
-    $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+    $('syncInfo').textContent = ''; window._lastSynced = RAW.length > 0 ? (window._lastSynced || '') : '';
 
     // Diagnostic: log monthly counts so you can compare against the source CSV.
     // Open the browser console to see it.
@@ -3538,10 +3538,63 @@ $('editBtn').addEventListener('click', ()=>{
   if (editMode) renderEditControls();
 });
 
-// MANUAL SYNC ONLY
+// SYNC BUTTON — triggers GitHub Action then polls for fresh data
 $('autoSyncBadge').textContent = '';
 $('syncBtn').addEventListener('click', async()=>{
-  await syncFromServer({force:true});
+  const btn = $('syncBtn');
+  const badge = $('autoSyncBadge');
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  badge.textContent = 'Triggering sync…';
+
+  try {
+    // Step 1: trigger GitHub Action
+    const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
+    const triggerData = await triggerRes.json();
+
+    if (!triggerData.ok) {
+      badge.textContent = 'Sync failed: ' + (triggerData.error || 'unknown error');
+      btn.disabled = false;
+      btn.textContent = 'Sync';
+      return;
+    }
+
+    badge.textContent = 'Action triggered — waiting for data…';
+
+    // Step 2: poll /data.json every 5s for up to 90s until lastSynced changes
+    const prevSynced = window._lastSynced || '';
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      try {
+        const r = await fetch('/data.json?t=' + Date.now());
+        const d = await r.json();
+        if (d.lastSynced && d.lastSynced !== prevSynced) {
+          clearInterval(poll);
+          window._lastSynced = d.lastSynced;
+          badge.textContent = 'Synced at ' + new Date(d.lastSynced).toLocaleTimeString();
+          btn.disabled = false;
+          btn.textContent = 'Sync';
+          await syncFromServer({ force: true });
+        } else if (attempts >= 18) {
+          clearInterval(poll);
+          badge.textContent = 'Sync took too long — try refreshing';
+          btn.disabled = false;
+          btn.textContent = 'Sync';
+        } else {
+          const secs = (18 - attempts) * 5;
+          badge.textContent = `Waiting for data… (~${secs}s)`;
+        }
+      } catch(e) {
+        // keep polling
+      }
+    }, 5000);
+
+  } catch(err) {
+    badge.textContent = 'Error: ' + err.message;
+    btn.disabled = false;
+    btn.textContent = 'Sync';
+  }
 });
 
 function setLoading(on, msg='Loading…'){
