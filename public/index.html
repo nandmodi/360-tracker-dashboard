@@ -2354,7 +2354,7 @@ function paint(){
   $('kv-team').textContent      = num(k.teamCount);
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
-  $('kv-rejected').textContent  = num(k.totalRejected||0); // QC Failed + Validation Failed only
+  $('kv-rejected').textContent  = num(k.totalRejected||0);
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
