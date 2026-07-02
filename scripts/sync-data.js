@@ -144,8 +144,10 @@ async function main() {
     headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
 
     const isPending = r.crm_status === 'qc_unassigned';
+    const isHidden  = r.is_hidden === '1' || r.is_hidden === 1 || r.is_hidden === true;
     const dateStr   = getDateStr(r.createdAt);
     if (!dateStr)                       { badDate++; continue; }
+    if (isHidden) { skipped++; continue; }
     if (!isPending && dateStr < cutoff) { skipped++;  continue; }
 
     rows.push(mapRow(r));
