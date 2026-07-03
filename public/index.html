@@ -754,13 +754,12 @@
           <div class="trend-tabs" id="hourlyTabs" style="display:flex;">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
-            <button class="trend-tab" data-hr="this_week">This week</button>
-            <button class="trend-tab" data-hr="this_month">This month</button>
-            <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
-            <button class="trend-tab" data-hr="3months">Last 3 months</button>
+            <button class="trend-tab" data-hr="7days">Last 7 Days</button>
+            <button class="trend-tab" data-hr="15days">Last 15 Days</button>
+            <button class="trend-tab" data-hr="30days">Last 30 Days</button>
           </div>
-          <!-- View & type toggles — hidden in forecast mode -->
-          <div id="hlyViewToggle" style="display:flex;align-items:center;gap:6px;margin-left:4px;">
+          <!-- View toggle — hidden for Today/Yesterday, shown for multi-day -->
+          <div id="hlyViewToggle" style="display:none;align-items:center;gap:6px;margin-left:4px;">
             <button id="hlyViewDate" class="trend-tab sel" onclick="setHourlyView('date',this)">Date-wise</button>
             <button id="hlyViewHour" class="trend-tab" onclick="setHourlyView('hour',this)">Hourly avg</button>
           </div>
@@ -1754,15 +1753,28 @@ function setHourlyType(type, btn) {
 
 // ── Roster parser ─────────────────────────────────────────────
 function parseRosterDate(str) {
+  if (!str || !String(str).trim()) return null;
+  str = String(str).trim();
   const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,july:6,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-  const parts = String(str||'').trim().split(/\s+/);
-  if (parts.length < 3) return null;
-  const day = parseInt(parts[0]);
-  const mon = months[parts[1].toLowerCase().slice(0,4)] ?? months[parts[1].toLowerCase().slice(0,3)];
-  let yr = parseInt(parts[2]);
-  if (yr < 100) yr += 2000;
-  if (isNaN(day) || mon === undefined || isNaN(yr)) return null;
-  return new Date(yr, mon, day);
+
+  // YYYY-MM-DD (ISO)
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(parseInt(iso[1]), parseInt(iso[2])-1, parseInt(iso[3]));
+
+  // M/D/YYYY (Google Sheets default export e.g. "7/3/2026")
+  const mdy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (mdy) return new Date(parseInt(mdy[3]), parseInt(mdy[1])-1, parseInt(mdy[2]));
+
+  // D-Mon-YYYY or D Mon YYYY or D Mon YY
+  // e.g. "3-Jul-2026", "06 July 26", "22 june 26"
+  const parts = str.split(/[\s\-]+/);
+  if (parts.length >= 3) {
+    const day = parseInt(parts[0]);
+    const mon = months[parts[1].toLowerCase().slice(0,4)] ?? months[parts[1].toLowerCase().slice(0,3)];
+    let yr = parseInt(parts[2]); if (yr < 100) yr += 2000;
+    if (!isNaN(day) && mon !== undefined && !isNaN(yr)) return new Date(yr, mon, day);
+  }
+  return null;
 }
 
 function parseShiftHour(str) {
@@ -1922,29 +1934,35 @@ function toISTDateStr(d) {
 function getHourlyDateBounds(range) {
   const now  = new Date();
   const ms1d = 86400000;
-  // All dates as IST strings "YYYY-MM-DD"
-  const todStr  = toISTDateStr(now);
-  const yesStr  = toISTDateStr(new Date(now.getTime() - ms1d));
+  const todStr = toISTDateStr(now);
+  const yesStr = toISTDateStr(new Date(now.getTime() - ms1d));
   function daysAgo(n) { return toISTDateStr(new Date(now.getTime() - n * ms1d)); }
   function addDay(str) {
     const d = new Date(str + 'T00:00:00Z');
     return toISTDateStr(new Date(d.getTime() + ms1d));
   }
-  // Get Monday of this week (IST)
-  const dow = new Date(now.getTime() + 5.5*3600000).getUTCDay();
-  const monStr = daysAgo(dow === 0 ? 6 : dow - 1);
-  // First of this month (IST)
-  const istNow = new Date(now.getTime() + 5.5*3600000);
-  const monStart = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth()+1).padStart(2,'0')}-01`;
-
   switch(range) {
-    case 'today':      return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
-    case 'yesterday':  return { fromStr: yesStr,    toStr: todStr,          label:'Yesterday' };
-    case 'this_week':  return { fromStr: monStr,    toStr: addDay(todStr),  label:'This week' };
-    case 'this_month': return { fromStr: monStart,  toStr: addDay(todStr),  label:'This month' };
-    case '3weeks':     return { fromStr: daysAgo(21), toStr: addDay(todStr), label:'Last 3 weeks' };
-    case '3months':    return { fromStr: daysAgo(91), toStr: addDay(todStr), label:'Last 3 months' };
-    default:           return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+    case 'today':      return { fromStr: todStr,      toStr: addDay(todStr), label:'Today',        hourly:true  };
+    case 'yesterday':  return { fromStr: yesStr,      toStr: todStr,         label:'Yesterday',    hourly:true  };
+    case '7days':      return { fromStr: daysAgo(7),  toStr: addDay(todStr), label:'Last 7 Days',  hourly:false };
+    case '15days':     return { fromStr: daysAgo(15), toStr: addDay(todStr), label:'Last 15 Days', hourly:false };
+    case '30days':     return { fromStr: daysAgo(30), toStr: addDay(todStr), label:'Last 30 Days', hourly:false };
+    default:           return { fromStr: todStr,      toStr: addDay(todStr), label:'Today',        hourly:true  };
+  }
+}
+
+// Show/hide view toggle based on selected range
+function updateHourlyViewToggle(range) {
+  const viewToggle = $('hlyViewToggle');
+  if (!viewToggle) return;
+  const isSingleDay = (range === 'today' || range === 'yesterday');
+  if (isSingleDay) {
+    // Force hourly view, hide toggle
+    viewToggle.style.display = 'none';
+    _hourlyViewMode = 'hour';
+  } else {
+    // Show toggle for multi-day ranges
+    viewToggle.style.display = 'flex';
   }
 }
 
@@ -1962,12 +1980,16 @@ function parseGSCSV(text) {
 }
 
 async function fetchGS(url) {
-  const cached = _gsCache[url];
-  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
-  const res = await fetch(url);
+  // Always fetch fresh for hourly + roster sheets (fast, small files)
+  const noCache = (url === GS_HOURLY || url === GS_ROSTER);
+  if (!noCache) {
+    const cached = _gsCache[url];
+    if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  }
+  const res = await fetch(url + (noCache ? '&_t=' + Date.now() : ''));
   if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
   const data = parseGSCSV(await res.text());
-  _gsCache[url] = { data, ts: Date.now() };
+  if (!noCache) _gsCache[url] = { data, ts: Date.now() };
   return data;
 }
 
@@ -1986,14 +2008,16 @@ function toggleHourlyForecast() {
     btn.style.color = '#fff';
     btn.textContent = '✕ Forecast';
     tabs.style.display = 'none';
-    viewToggle.style.display = 'none';
-    typeToggle.style.display = 'none';
+    // Show view toggle in forecast mode too (Date-wise / Hourly avg)
+    viewToggle.style.display = 'flex';
+    typeToggle.style.display = 'flex';
   } else {
     btn.style.background = 'transparent';
     btn.style.color = 'var(--accent)';
     btn.textContent = '📅 Forecast';
     tabs.style.display = 'flex';
-    viewToggle.style.display = 'flex';
+    // Restore view toggle based on current range
+    updateHourlyViewToggle(_hourlyRange);
     typeToggle.style.display = 'flex';
   }
   renderHourlyChart();
@@ -2095,9 +2119,36 @@ async function renderHourlyChart() {
       canvas.style.display = 'block';
       const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',weekday:'short'});
 
-      const labels   = fcDates.map(fmtDate);
-      const projIn   = fcDates.map(d => { const dow=new Date(d+'T00:00:00').getDay(); return avgByDow[dow]||null; });
-      const capData  = fcDates.map(getDayCap);
+      // Forecast supports Date-wise and Hourly avg views
+      let labels, projIn, capData;
+
+      if (_hourlyViewMode === 'hour') {
+        // Hourly avg: show 0-23 hour pattern for upcoming period
+        const hAvgIn  = new Array(24).fill(0);
+        const hAvgCnt = new Array(24).fill(0);
+        // Use historical hourly patterns
+        for (const r of allParsed) {
+          const v = parseFloat(r.total_in) || 0;
+          if (v > 0) { hAvgIn[r._p.hour] += v; hAvgCnt[r._p.hour]++; }
+        }
+        // Avg capacity per hour across forecast dates
+        const hCapSum = new Array(24).fill(0);
+        const hCapCnt = new Array(24).fill(0);
+        for (const d of fcDates) {
+          for (let h=0; h<24; h++) {
+            const c = getHourCap(d, h);
+            if (c !== null) { hCapSum[h] += c; hCapCnt[h]++; }
+          }
+        }
+        labels = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+        projIn = Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round(hAvgIn[i]/hAvgCnt[i]):null);
+        capData= Array.from({length:24},(_,i)=>hCapCnt[i]?Math.round(hCapSum[i]/hCapCnt[i]):null);
+      } else {
+        // Date-wise: one bar per forecast date
+        labels  = fcDates.map(fmtDate);
+        projIn  = fcDates.map(d => { const dow=new Date(d+'T00:00:00').getDay(); return avgByDow[dow]||null; });
+        capData = fcDates.map(getDayCap);
+      }
 
       const totalProjIn = projIn.reduce((s,v)=>s+(v||0),0);
       const totalCap    = capData.reduce((s,v)=>s+(v||0),0);
@@ -2163,7 +2214,7 @@ async function renderHourlyChart() {
         plugins:[ChartDataLabels],
       });
 
-      $('hourlySub').textContent = `FORECAST · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In based on historical day-of-week avg · Capacity from Roster`;
+      $('hourlySub').textContent = `FORECAST · ${_hourlyViewMode==='hour'?'HOURLY AVG':'DATE-WISE'} · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In from historical · Capacity from Roster`;
       $('hourlyLegend').innerHTML = [
         ['Projected Incoming','rgba(59,130,246,0.7)','bar-fade'],
         ['Planned Capacity','#f59e0b','dash'],
@@ -2178,7 +2229,9 @@ async function renderHourlyChart() {
     }
 
     // ── HISTORICAL MODE ───────────────────────────────────────
-    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    const { fromStr, toStr, label, hourly: forceHourly } = getHourlyDateBounds(_hourlyRange);
+    // Today/Yesterday always show hourly view
+    const effectiveViewMode = forceHourly ? 'hour' : _hourlyViewMode;
     const parsed = allParsed.filter(r => r._p.dateStr >= fromStr && r._p.dateStr < toStr);
 
     if (!parsed.length) {
@@ -2193,7 +2246,7 @@ async function renderHourlyChart() {
 
     let labels=[], inData=[], outData=[], backlogData=[], capacityData=[];
 
-    if (_hourlyViewMode === 'date') {
+    if (effectiveViewMode === 'date') {
       // ── Date-wise ──
       const dateMap = {};
       for (const r of parsed) {
@@ -2328,7 +2381,7 @@ async function renderHourlyChart() {
       plugins:[ChartDataLabels],
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · ${_hourlyViewMode==='date'?'DATE-WISE':'HOURLY AVG'} · In · Out · Backlog · Capacity from Roster`;
+    $('hourlySub').textContent = `${label.toUpperCase()} · ${effectiveViewMode==='date'?'DATE-WISE':'HOURLY AVG'} · In · Out · Backlog · Capacity from Roster`;
     $('hourlyLegend').innerHTML = [
       ['New Entered','#3b82f6','sq'],
       ['Completed','#22c55e','sq'],
@@ -3299,9 +3352,12 @@ document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     _hourlyRange = btn.dataset.hr;
     document.querySelectorAll('#hourlyTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    updateHourlyViewToggle(_hourlyRange);
     renderHourlyChart();
   });
-});// ─────────────────────────────────────────────────────────────
+});
+// Set initial state on load
+updateHourlyViewToggle(_hourlyRange);// ─────────────────────────────────────────────────────────────
 // SLA PANEL → DRILL-DOWN
 // ─────────────────────────────────────────────────────────────
 function bindSlaCells(){
@@ -3941,6 +3997,9 @@ $('syncBtn').addEventListener('click', async()=>{
   const badge = $('autoSyncBadge');
   btn.disabled = true;
   btn.textContent = 'Syncing…';
+  // Clear all cached data so fresh data is fetched after sync
+  _gsCache = {};
+  _rosterData = null;
   badge.textContent = 'Triggering sync…';
   try {
     const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
