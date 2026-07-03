@@ -2118,39 +2118,41 @@ async function renderHourlyChart() {
       // Roster is used for capacity calculation only (not to limit dates)
       const today = new Date(); today.setHours(0,0,0,0);
 
-      // ── MoM Growth from RAW Metabase data ──────────────────
-      // RAW = global array of processed rows from /data.json
-      const monthlyDays  = {}; // YYYY-MM → Set of unique dates
-      const monthlyTotal = {}; // YYYY-MM → count of incoming SKUs
-      for (const r of (RAW || [])) {
-        if (!r.c) continue;
-        const ds = String(r.c).slice(0,10); // YYYY-MM-DD
-        const mo = ds.slice(0,7);            // YYYY-MM
-        if (!monthlyDays[mo])  monthlyDays[mo]  = new Set();
-        if (!monthlyTotal[mo]) monthlyTotal[mo] = 0;
-        monthlyDays[mo].add(ds);
-        monthlyTotal[mo]++;
-      }
-      const monthList = Object.keys(monthlyTotal).sort();
-      const monthAvg  = {};
-      for (const mo of monthList) {
-        const days = monthlyDays[mo].size;
-        if (days > 0) monthAvg[mo] = monthlyTotal[mo] / days;
-      }
+      // ── MoM Growth from monthly_summary Google Sheet ──────────
+      // monthly_summary has pre-aggregated full month totals — most accurate
+      const monthlyRows = await fetchGS(GS_MONTHLY);
+      const nowIST = new Date(Date.now() + 19800000);
+      const currentMonth = nowIST.getUTCFullYear() + '-' + String(nowIST.getUTCMonth()+1).padStart(2,'0');
 
-      // Growth = (lastMonth - prevMonth) / prevMonth
+      // Build month → daily avg (total_in / days_in_month)
+      // Exclude current (incomplete) month
+      const moData = monthlyRows
+        .map(r => {
+          const rawDate = r.month_ist || r['month_ist'] || Object.values(r)[0];
+          if (!rawDate) return null;
+          const dt = new Date(String(rawDate).trim());
+          if (isNaN(dt)) return null;
+          const mo = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+          const totalIn = parseFloat(r.total_in || Object.values(r)[1]) || 0;
+          // Days in month
+          const daysInMonth = new Date(dt.getFullYear(), dt.getMonth()+1, 0).getDate();
+          return { mo, totalIn, avgDaily: totalIn / daysInMonth };
+        })
+        .filter(r => r && r.mo < currentMonth && r.totalIn > 0)
+        .sort((a,b) => a.mo.localeCompare(b.mo));
+
       let momGrowth = 0;
       let momLabel  = '';
-      if (monthList.length >= 2) {
-        const lastMo  = monthList[monthList.length - 1];
-        const prevMo  = monthList[monthList.length - 2];
-        const lastAvg = monthAvg[lastMo];
-        const prevAvg = monthAvg[prevMo];
-        if (prevAvg > 0 && lastAvg > 0) {
-          momGrowth = (lastAvg - prevAvg) / prevAvg;
+      if (moData.length >= 2) {
+        const last = moData[moData.length - 1];
+        const prev = moData[moData.length - 2];
+        if (prev.avgDaily > 0 && last.avgDaily > 0) {
+          momGrowth = (last.avgDaily - prev.avgDaily) / prev.avgDaily;
           const pct = (momGrowth * 100).toFixed(1);
-          momLabel = `${momGrowth >= 0 ? '+' : ''}${pct}% (${prevMo} → ${lastMo})`;
+          momLabel = `${momGrowth >= 0 ? '+' : ''}${pct}% (${prev.mo} → ${last.mo})`;
         }
+      } else if (moData.length === 1) {
+        momLabel = 'Only 1 full month of data';
       }
       const growthFactor = 1 + momGrowth;
 
