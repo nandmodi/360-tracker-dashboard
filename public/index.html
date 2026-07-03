@@ -2112,6 +2112,18 @@ async function renderHourlyChart() {
       return getRosterCapacity(rosterData, dt);
     }
 
+    // DEBUG: log roster parsing result
+    console.log('[roster] periods:', rosterData.periods.map(p=>({
+      label:p.label,
+      start:p.start?.toDateString(),
+      end:p.end?.toDateString(),
+      target:p.target,
+      shifts:p.shifts.map(s=>s.label+'('+s.startH+'-'+s.endH+'): '+s.users.join(','))
+    })));
+    console.log('[roster] leaves:', rosterData.leaves);
+    console.log('[getDayCap] 2026-07-04:', getDayCap('2026-07-04'));
+    console.log('[getDayCap] 2026-07-07:', getDayCap('2026-07-07'));
+
     // ── FORECAST MODE ─────────────────────────────────────────
     if (_hourlyForecastMode) {
       // Always show next 15 non-Sunday days from today
