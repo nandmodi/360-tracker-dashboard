@@ -747,10 +747,11 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Hourly throughput</h3>
-          <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
+          <div class="panel-sub" id="hourlySub">actual in · out · backlog · capacity from roster</div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="trend-tabs" id="hourlyTabs">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <!-- Historical range tabs — hidden in forecast mode -->
+          <div class="trend-tabs" id="hourlyTabs" style="display:flex;">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
             <button class="trend-tab" data-hr="this_week">This week</button>
@@ -758,14 +759,21 @@
             <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
             <button class="trend-tab" data-hr="3months">Last 3 months</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+          <!-- View & type toggles — hidden in forecast mode -->
+          <div id="hlyViewToggle" style="display:flex;align-items:center;gap:6px;margin-left:4px;">
             <button id="hlyViewDate" class="trend-tab sel" onclick="setHourlyView('date',this)">Date-wise</button>
             <button id="hlyViewHour" class="trend-tab" onclick="setHourlyView('hour',this)">Hourly avg</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+          <div id="hlyTypeToggle" style="display:flex;align-items:center;gap:6px;">
             <button id="hlyTypeCurve" class="trend-tab" onclick="setHourlyType('curve',this)">~ Curve</button>
             <button id="hlyTypeBar" class="trend-tab sel" onclick="setHourlyType('bar',this)">| Bar</button>
           </div>
+          <!-- Forecast toggle button -->
+          <button id="hlyForecastBtn"
+            style="padding:5px 14px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;transition:.15s;margin-left:4px;"
+            onclick="toggleHourlyForecast()">
+            📅 Forecast
+          </button>
           <div class="edit-controls" data-panel-ctl="hourly"></div>
         </div>
       </div>
@@ -1964,6 +1972,33 @@ async function fetchGS(url) {
 }
 
 
+let _hourlyForecastMode = false; // false = historical, true = forecast
+
+function toggleHourlyForecast() {
+  _hourlyForecastMode = !_hourlyForecastMode;
+  const btn = $('hlyForecastBtn');
+  const tabs = $('hourlyTabs');
+  const viewToggle = $('hlyViewToggle');
+  const typeToggle = $('hlyTypeToggle');
+
+  if (_hourlyForecastMode) {
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    btn.textContent = '✕ Forecast';
+    tabs.style.display = 'none';
+    viewToggle.style.display = 'none';
+    typeToggle.style.display = 'none';
+  } else {
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--accent)';
+    btn.textContent = '📅 Forecast';
+    tabs.style.display = 'flex';
+    viewToggle.style.display = 'flex';
+    typeToggle.style.display = 'flex';
+  }
+  renderHourlyChart();
+}
+
 async function renderHourlyChart() {
   const loader = $('hourlyLoader');
   const canvas = $('cHourly');
@@ -1977,54 +2012,189 @@ async function renderHourlyChart() {
       fetchGS(GS_ROSTER),
     ]);
 
-    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
-    const rosterPeriods = parseRosterData(rosterRows);
+    const rosterData = parseRosterData(rosterRows);
+    const { periods, leaves } = rosterData;
 
-    // All rows for pattern building
-    const allParsed = hourlyRows.map(r => ({ ...r, _p: parseHourIST(r.hour_ist) })).filter(r => r._p);
-    // Filtered for selected range
-    const parsed = allParsed.filter(r => r._p.dateStr >= fromStr && r._p.dateStr < toStr);
-
-    // ── Historical pattern: avg daily total_in by day-of-week ──
-    const dailyByDate = {};
-    for (const r of allParsed) {
-      const ds = r._p.dateStr;
-      if (!dailyByDate[ds]) dailyByDate[ds] = 0;
-      dailyByDate[ds] += parseFloat(r.total_in) || 0;
-    }
-    const dowDailyVals = {};
-    for (const [ds, total] of Object.entries(dailyByDate)) {
-      const dow = new Date(ds + 'T00:00:00').getDay();
-      if (!dowDailyVals[dow]) dowDailyVals[dow] = [];
-      if (total > 0) dowDailyVals[dow].push(total);
-    }
-    const avgByDow = {};
-    for (const [dow, vals] of Object.entries(dowDailyVals)) {
-      avgByDow[dow] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
-    }
-
-    // Last actual date
-    const lastActualDate = Object.keys(dailyByDate).sort().pop() || toISTDateStr(new Date());
-
-    // ── Forecast: next 15 non-Sunday days ──
-    const forecastDates = [];
-    for (let i = 1; i <= 20 && forecastDates.length < 15; i++) {
-      const fd = new Date(lastActualDate + 'T00:00:00');
-      fd.setDate(fd.getDate() + i);
-      if (fd.getDay() !== 0) forecastDates.push(fd.toISOString().slice(0,10));
-    }
+    // All parsed hourly rows
+    const allParsed = hourlyRows
+      .map(r => ({ ...r, _p: parseHourIST(r.hour_ist) }))
+      .filter(r => r._p);
 
     const PAL = getPal();
     const isDark = document.documentElement.dataset.theme === 'dark';
     const useBars = _hourlyChartType === 'bar';
-    const fmt = v => v === null || v === undefined ? '—' : Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+'K' : Math.round(v).toString();
+    const fmt = v => v === null || v === undefined ? '—'
+      : Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+'K'
+      : Math.round(v).toString();
+
+    // ── HELPER: compute capacity for a date (daily total) ──
+    function getDayCap(dateStr) {
+      let total = 0;
+      const dt = new Date(dateStr + 'T00:00:00');
+      for (let h = 0; h < 24; h++) {
+        const hDt = new Date(dt); hDt.setHours(h);
+        const c = getRosterCapacity(rosterData, hDt);
+        if (c !== null && c > 0) total += c;
+      }
+      return total || null;
+    }
+
+    // ── HELPER: compute capacity for a single hour ──
+    function getHourCap(dateStr, hour) {
+      const dt = new Date(dateStr + 'T00:00:00'); dt.setHours(hour);
+      return getRosterCapacity(rosterData, dt);
+    }
+
+    // ── FORECAST MODE ─────────────────────────────────────────
+    if (_hourlyForecastMode) {
+      // Find last roster period end date = forecast horizon
+      const lastRosterEnd = periods
+        .filter(p => p.end)
+        .map(p => p.end)
+        .sort((a,b) => b-a)[0];
+
+      const today = new Date(); today.setHours(0,0,0,0);
+      const horizon = lastRosterEnd || new Date(today.getTime() + 15*86400000);
+
+      // Collect historical daily totals for day-of-week avg
+      const dailyByDate = {};
+      for (const r of allParsed) {
+        const ds = r._p.dateStr;
+        if (!dailyByDate[ds]) dailyByDate[ds] = 0;
+        dailyByDate[ds] += parseFloat(r.total_in) || 0;
+      }
+      const dowVals = {};
+      for (const [ds, total] of Object.entries(dailyByDate)) {
+        const dow = new Date(ds + 'T00:00:00').getDay();
+        if (!dowVals[dow]) dowVals[dow] = [];
+        if (total > 0) dowVals[dow].push(total);
+      }
+      const avgByDow = {};
+      for (const [dow, vals] of Object.entries(dowVals)) {
+        avgByDow[dow] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+      }
+
+      // Build forecast dates: today+1 → horizon, skip Sundays
+      const fcDates = [];
+      const cursor = new Date(today.getTime() + 86400000);
+      while (cursor <= horizon && fcDates.length < 15) {
+        const ds = cursor.toISOString().slice(0,10);
+        if (cursor.getDay() !== 0) fcDates.push(ds);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      if (!fcDates.length) {
+        $('hourlyLegend').innerHTML = '<span style="color:var(--muted);font-size:12px">No upcoming roster dates found. Add future planning to Roster sheet.</span>';
+        if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
+        if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+        canvas.style.display = 'none';
+        if (loader) loader.style.display = 'none';
+        return;
+      }
+
+      canvas.style.display = 'block';
+      const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',weekday:'short'});
+
+      const labels   = fcDates.map(fmtDate);
+      const projIn   = fcDates.map(d => { const dow=new Date(d+'T00:00:00').getDay(); return avgByDow[dow]||null; });
+      const capData  = fcDates.map(getDayCap);
+
+      const totalProjIn = projIn.reduce((s,v)=>s+(v||0),0);
+      const totalCap    = capData.reduce((s,v)=>s+(v||0),0);
+
+      if ($('hourlyStats')) {
+        $('hourlyStats').innerHTML = [
+          ['📅 Forecast days', String(fcDates.length), 'var(--accent)'],
+          ['● Projected In', fmt(totalProjIn), '#3b82f6'],
+          ['● Total Capacity', fmt(totalCap), '#f59e0b'],
+          ['● From', fmtDate(fcDates[0]), 'var(--muted)'],
+          ['● To',   fmtDate(fcDates[fcDates.length-1]), 'var(--muted)'],
+        ].map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
+         .join('<span style="color:var(--line);margin:0 6px">·</span>');
+      }
+
+      if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+
+      _hourlyChart = new Chart(canvas, {
+        data: { labels, datasets: [
+          // Projected In (faded blue bars)
+          { type: useBars?'bar':'line', label:'Projected Incoming', data:projIn,
+            backgroundColor: useBars?'rgba(59,130,246,0.45)':'rgba(59,130,246,0.1)',
+            borderColor:'rgba(59,130,246,0.7)', borderWidth: useBars?1:2,
+            borderDash: useBars?[]:[4,3], borderRadius: useBars?4:0,
+            tension:0.35, fill:!useBars, pointRadius:useBars?0:4, pointHoverRadius:6,
+            order:2,
+            datalabels:{ display:true, anchor:'end', align:'end', clamp:true,
+              color:'#3b82f6', font:{family:"'JetBrains Mono',monospace",size:10,weight:'600'},
+              formatter:v=>v>0?fmt(v):'' }},
+          // Planned Capacity (orange dotted line)
+          { type:'line', label:'Planned Capacity', data:capData,
+            borderColor:'#f59e0b', borderDash:[6,4], borderWidth:2.5,
+            backgroundColor:'transparent', pointRadius:3, pointHoverRadius:5,
+            tension:0, fill:false, order:0,
+            datalabels:{ display:true, anchor:'end', align:'top', clamp:true,
+              color:'#f59e0b', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+              formatter:v=>v>0?fmt(v):'' }},
+        ]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          interaction:{mode:'index',intersect:false},
+          layout:{padding:{top:28}},
+          plugins:{
+            legend:{display:false},
+            tooltip:{
+              backgroundColor:isDark?'#2a2a2e':'#fff',
+              titleColor:isDark?'#f0efe9':'#0b0b0c',
+              bodyColor:isDark?'#b0b0b8':'#404045',
+              borderColor:isDark?'#3a3a3e':'#e8e6df', borderWidth:1,
+              padding:10, displayColors:true, boxPadding:4, cornerRadius:8,
+              callbacks:{
+                label:ctx=>{ const v=ctx.parsed.y; if(!v)return null; return ` ${ctx.dataset.label}: ${fmt(v)}`; }
+              }
+            },
+          },
+          scales:{
+            x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:45} },
+            y:{ position:'left', beginAtZero:true, grid:{color:PAL.line,drawBorder:false},
+                ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
+                title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted} },
+          }
+        },
+        plugins:[ChartDataLabels],
+      });
+
+      $('hourlySub').textContent = `FORECAST · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In based on historical day-of-week avg · Capacity from Roster`;
+      $('hourlyLegend').innerHTML = [
+        ['Projected Incoming','rgba(59,130,246,0.7)','bar-fade'],
+        ['Planned Capacity','#f59e0b','dash'],
+      ].map(([k,c,t])=>{
+        const s = t==='bar-fade'
+          ? `<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle;"></span>`
+          : `<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle;"></span>`;
+        return `<div class="trend-legend-item">${s}<span>${k}</span></div>`;
+      }).join('');
+
+      return; // done with forecast mode
+    }
+
+    // ── HISTORICAL MODE ───────────────────────────────────────
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    const parsed = allParsed.filter(r => r._p.dateStr >= fromStr && r._p.dateStr < toStr);
+
+    if (!parsed.length) {
+      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
+      if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
+      if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+      canvas.style.display = 'none';
+      if (loader) loader.style.display = 'none';
+      return;
+    }
+    canvas.style.display = 'block';
 
     let labels=[], inData=[], outData=[], backlogData=[], capacityData=[];
-    let forecastInData=[], forecastCapData=[];
-    let actualCount=0, forecastCount=0;
 
     if (_hourlyViewMode === 'date') {
-      // ── DATE-WISE: actual + forecast ──
+      // ── Date-wise ──
       const dateMap = {};
       for (const r of parsed) {
         const d = r._p.dateStr;
@@ -2034,56 +2204,38 @@ async function renderHourlyChart() {
         dateMap[d].backlog += parseFloat(r.backlog)   || 0;
         dateMap[d].bCount++;
       }
-      const actualDates = Object.keys(dateMap).sort();
-      actualCount   = actualDates.length;
-      forecastCount = forecastDates.length;
-
+      const dates = Object.keys(dateMap).sort();
       const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
-
-      labels      = [...actualDates.map(fmtDate), ...forecastDates.map(d=>fmtDate(d)+'*')];
-      inData      = [...actualDates.map(d=>Math.round(dateMap[d].in)),      ...new Array(forecastCount).fill(null)];
-      outData     = [...actualDates.map(d=>Math.round(dateMap[d].out)),     ...new Array(forecastCount).fill(null)];
-      backlogData = [...actualDates.map(d=>Math.round(dateMap[d].backlog/(dateMap[d].bCount||1))), ...new Array(forecastCount).fill(null)];
-
-      const getDateCap = d => {
-        const dt=new Date(d+'T00:00:00'); let total=0;
-        for(let h=0;h<24;h++){const hDt=new Date(dt);hDt.setHours(h);const c=getRosterCapacity(rosterPeriods,hDt);if(c!==null)total+=c;}
-        return total||null;
-      };
-      capacityData    = [...actualDates.map(getDateCap),  ...new Array(forecastCount).fill(null)];
-      forecastInData  = [...new Array(actualCount).fill(null), ...forecastDates.map(d=>{const dow=new Date(d+'T00:00:00').getDay();return avgByDow[dow]||null;})];
-      forecastCapData = [...new Array(actualCount).fill(null), ...forecastDates.map(getDateCap)];
+      labels      = dates.map(fmtDate);
+      inData      = dates.map(d => Math.round(dateMap[d].in));
+      outData     = dates.map(d => Math.round(dateMap[d].out));
+      backlogData = dates.map(d => Math.round(dateMap[d].backlog / (dateMap[d].bCount||1)));
+      capacityData= dates.map(getDayCap);
 
     } else {
-      // ── HOURLY AVG: 0-23 slots ──
+      // ── Hourly avg ──
       const hm = {};
-      for(let h=0;h<24;h++) hm[h]={in:0,out:0,backlog:0,bCount:0,cap:0,cCount:0};
-      for(const r of parsed){
-        const h=r._p.hour;
-        hm[h].in+=parseFloat(r.total_in)||0;
-        hm[h].out+=parseFloat(r.total_out)||0;
-        hm[h].backlog+=parseFloat(r.backlog)||0;
+      for (let h=0;h<24;h++) hm[h]={in:0,out:0,backlog:0,bCount:0,cap:0,cCount:0};
+      for (const r of parsed) {
+        const h = r._p.hour;
+        hm[h].in      += parseFloat(r.total_in)  || 0;
+        hm[h].out     += parseFloat(r.total_out) || 0;
+        hm[h].backlog += parseFloat(r.backlog)   || 0;
         hm[h].bCount++;
       }
-      const uDates=[...new Set(parsed.map(r=>r._p.dateStr))];
-      for(const d of uDates){for(let h=0;h<24;h++){const hDt=new Date(d+'T00:00:00');hDt.setHours(h);const c=getRosterCapacity(rosterPeriods,hDt);if(c!==null){hm[h].cap+=c;hm[h].cCount++;}}}
+      const uDates = [...new Set(parsed.map(r=>r._p.dateStr))];
+      for (const d of uDates) {
+        for (let h=0;h<24;h++) {
+          const c = getHourCap(d, h);
+          if (c!==null) { hm[h].cap+=c; hm[h].cCount++; }
+        }
+      }
       labels       = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
       inData       = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].in/hm[i].bCount):0);
       outData      = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].out/hm[i].bCount):0);
       backlogData  = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].backlog/hm[i].bCount):0);
       capacityData = Array.from({length:24},(_,i)=>hm[i].cCount?Math.round(hm[i].cap/hm[i].cCount):null);
     }
-
-    const hasData = inData.some(v=>v!==null&&v>0)||outData.some(v=>v!==null&&v>0);
-    if (!hasData && !forecastInData.some(v=>v!==null&&v>0)) {
-      $('hourlyLegend').innerHTML=`<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
-      if($('hourlyStats'))$('hourlyStats').innerHTML='';
-      if(_hourlyChart){_hourlyChart.destroy();_hourlyChart=null;}
-      canvas.style.display='none';
-      if(loader)loader.style.display='none';
-      return;
-    }
-    canvas.style.display='block';
 
     // Stats
     const totalIn  = inData.reduce((s,v)=>s+(v||0),0);
@@ -2093,8 +2245,8 @@ async function renderHourlyChart() {
     const rawCap   = capacityData.find(c=>c!==null&&c>0);
     const dpCount  = inData.filter(v=>v!==null).length;
 
-    if($('hourlyStats')){
-      $('hourlyStats').innerHTML=[
+    if ($('hourlyStats')) {
+      $('hourlyStats').innerHTML = [
         ['● New Entered', fmt(totalIn),  '#3b82f6'],
         ['● Completed',   fmt(totalOut), '#22c55e'],
         ['● Peak Backlog',fmt(peakBlog), '#ef4444'],
@@ -2107,83 +2259,46 @@ async function renderHourlyChart() {
 
     const showDL = labels.length <= 30;
 
-    // Forecast divider line plugin
-    const dividerPlugin = {
-      id:'forecastDivider',
-      afterDraw(chart){
-        if(!forecastCount||_hourlyViewMode!=='date') return;
-        const {ctx,chartArea,scales}=chart;
-        const x=scales.x.getPixelForValue(actualCount-0.5);
-        if(!x||x<chartArea.left) return;
-        ctx.save();
-        ctx.setLineDash([4,3]);
-        ctx.strokeStyle='#94a3b8';
-        ctx.lineWidth=1.5;
-        ctx.beginPath();ctx.moveTo(x,chartArea.top);ctx.lineTo(x,chartArea.bottom);ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle='#94a3b8';
-        ctx.font='bold 10px JetBrains Mono,monospace';
-        ctx.textAlign='left';
-        ctx.fillText('▶ FORECAST',x+4,chartArea.top+14);
-        ctx.restore();
-      }
-    };
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
 
-    if(_hourlyChart){_hourlyChart.destroy();_hourlyChart=null;}
-
-    _hourlyChart = new Chart(canvas,{
-      data:{labels,datasets:[
-        // Actual: New Entered
-        {type:useBars?'bar':'line',label:'New Entered',data:inData,
-         backgroundColor:useBars?'rgba(59,130,246,0.75)':'rgba(59,130,246,0.12)',
-         borderColor:'#3b82f6',borderWidth:useBars?1:2,borderRadius:useBars?3:0,
-         tension:0.35,fill:!useBars,pointRadius:useBars?0:3,pointHoverRadius:5,order:4,
-         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-           anchor:'end',align:useBars?'end':'top',clamp:true,
-           color:'#3b82f6',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-           formatter:v=>v>0?fmt(v):''}},
-        // Actual: Completed
-        {type:useBars?'bar':'line',label:'Completed',data:outData,
-         backgroundColor:useBars?'rgba(34,197,94,0.75)':'transparent',
-         borderColor:'#22c55e',borderWidth:useBars?1:2,borderRadius:useBars?3:0,
-         tension:0.35,fill:false,pointRadius:useBars?0:2.5,pointHoverRadius:5,order:3,
-         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-           anchor:'end',align:useBars?'end':'bottom',clamp:true,
-           color:'#16a34a',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-           formatter:v=>v>0?fmt(v):''}},
-        // Actual: Backlog
-        {type:'line',label:'Actual Backlog',data:backlogData,
-         borderColor:'#ef4444',backgroundColor:'transparent',
-         borderWidth:2.5,tension:0.3,fill:false,
-         pointRadius:labels.length>35?0:3,pointHoverRadius:5,
-         yAxisID:'yBacklog',order:0,
-         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-           anchor:'end',align:'top',clamp:true,
-           color:'#ef4444',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-           formatter:v=>v>0?fmt(v):''}},
-        // Actual: Capacity (orange dotted)
-        {type:'line',label:'Capacity',data:capacityData,
-         borderColor:'#f59e0b',borderDash:[6,4],borderWidth:2,
-         backgroundColor:'transparent',pointRadius:0,pointHoverRadius:4,
-         tension:0,fill:false,order:1,datalabels:{display:false}},
-        // Forecast: Projected Incoming (faded blue)
-        ...(forecastCount?[{type:useBars?'bar':'line',label:'Projected Incoming',data:forecastInData,
-         backgroundColor:useBars?'rgba(59,130,246,0.25)':'rgba(59,130,246,0.06)',
-         borderColor:'rgba(59,130,246,0.5)',borderWidth:useBars?1:1.5,
-         borderDash:useBars?[]:[4,3],borderRadius:useBars?3:0,
-         tension:0.35,fill:!useBars,pointRadius:0,pointHoverRadius:4,order:5,
-         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-           anchor:'end',align:'end',clamp:true,
-           color:'rgba(59,130,246,0.7)',font:{family:"'JetBrains Mono',monospace",size:9,weight:'500'},
-           formatter:v=>v>0?fmt(v):''}}]:[]),
-        // Forecast: Planned Capacity (orange dotted, continues)
-        ...(forecastCount?[{type:'line',label:'Planned Capacity',data:forecastCapData,
-         borderColor:'#f59e0b',borderDash:[3,2],borderWidth:2,
-         backgroundColor:'transparent',pointRadius:0,pointHoverRadius:4,
-         tension:0,fill:false,order:2,datalabels:{display:false}}]:[]),
+    _hourlyChart = new Chart(canvas, {
+      data:{ labels, datasets:[
+        // In (blue)
+        { type:useBars?'bar':'line', label:'New Entered', data:inData,
+          backgroundColor:useBars?'rgba(59,130,246,0.75)':'rgba(59,130,246,0.12)',
+          borderColor:'#3b82f6', borderWidth:useBars?1:2, borderRadius:useBars?3:0,
+          tension:0.35, fill:!useBars, pointRadius:useBars?0:3, pointHoverRadius:5, order:3,
+          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+            anchor:'end', align:useBars?'end':'top', clamp:true,
+            color:'#3b82f6', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?fmt(v):'' }},
+        // Out (green)
+        { type:useBars?'bar':'line', label:'Completed', data:outData,
+          backgroundColor:useBars?'rgba(34,197,94,0.75)':'transparent',
+          borderColor:'#22c55e', borderWidth:useBars?1:2, borderRadius:useBars?3:0,
+          tension:0.35, fill:false, pointRadius:useBars?0:2.5, pointHoverRadius:5, order:2,
+          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+            anchor:'end', align:useBars?'end':'bottom', clamp:true,
+            color:'#16a34a', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?fmt(v):'' }},
+        // Backlog (red line, right axis)
+        { type:'line', label:'Actual Backlog', data:backlogData,
+          borderColor:'#ef4444', backgroundColor:'transparent',
+          borderWidth:2.5, tension:0.3, fill:false,
+          pointRadius:labels.length>35?0:3, pointHoverRadius:5,
+          yAxisID:'yBacklog', order:0,
+          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+            anchor:'end', align:'top', clamp:true,
+            color:'#ef4444', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?fmt(v):'' }},
+        // Capacity (orange dotted)
+        { type:'line', label:'Capacity', data:capacityData,
+          borderColor:'#f59e0b', borderDash:[6,4], borderWidth:2,
+          backgroundColor:'transparent', pointRadius:0, pointHoverRadius:4,
+          tension:0, fill:false, order:1, datalabels:{display:false} },
       ]},
       options:{
-        responsive:true,maintainAspectRatio:false,
+        responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         layout:{padding:{top:24}},
         plugins:{
@@ -2192,55 +2307,51 @@ async function renderHourlyChart() {
             backgroundColor:isDark?'#2a2a2e':'#fff',
             titleColor:isDark?'#f0efe9':'#0b0b0c',
             bodyColor:isDark?'#b0b0b8':'#404045',
-            borderColor:isDark?'#3a3a3e':'#e8e6df',borderWidth:1,
-            padding:10,displayColors:true,boxPadding:4,cornerRadius:8,
+            borderColor:isDark?'#3a3a3e':'#e8e6df', borderWidth:1,
+            padding:10, displayColors:true, boxPadding:4, cornerRadius:8,
             callbacks:{
-              title:items=>{const l=items[0]?.label||'';return l.endsWith('*')?l+' (Forecast)':l;},
-              label:ctx=>{const v=ctx.parsed.y;if(v===null||v===undefined)return null;return ` ${ctx.dataset.label}: ${fmt(v)}`;}
+              label:ctx=>{ const v=ctx.parsed.y; if(v===null||v===undefined)return null;
+                return ` ${ctx.dataset.label}: ${fmt(v)}`; }
             }
           },
         },
         scales:{
-          x:{grid:{display:false},ticks:{font:{size:10},color:PAL.muted,maxRotation:45,autoSkip:true,maxTicksLimit:32}},
-          y:{position:'left',beginAtZero:true,grid:{color:PAL.line,drawBorder:false},
-             ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
-             title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted}},
-          yBacklog:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},
-             ticks:{font:{size:10},color:'#ef4444',callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
-             title:{display:true,text:'Backlog',font:{size:10},color:'#ef4444'}}
+          x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:45,autoSkip:true,maxTicksLimit:32} },
+          y:{ position:'left', beginAtZero:true, grid:{color:PAL.line,drawBorder:false},
+              ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
+              title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted} },
+          yBacklog:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false},
+              ticks:{font:{size:10},color:'#ef4444',callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
+              title:{display:true,text:'Backlog',font:{size:10},color:'#ef4444'} }
         }
       },
-      plugins:[ChartDataLabels,dividerPlugin],
+      plugins:[ChartDataLabels],
     });
 
-    $('hourlySub').textContent=`${label.toUpperCase()} · ${_hourlyViewMode==='date'?'DATE-WISE — actual + 15-day forecast *':'HOURLY AVG'} · Capacity from Roster`;
-
-    $('hourlyLegend').innerHTML=[
+    $('hourlySub').textContent = `${label.toUpperCase()} · ${_hourlyViewMode==='date'?'DATE-WISE':'HOURLY AVG'} · In · Out · Backlog · Capacity from Roster`;
+    $('hourlyLegend').innerHTML = [
       ['New Entered','#3b82f6','sq'],
       ['Completed','#22c55e','sq'],
       ['Actual Backlog','#ef4444','line'],
       ['Capacity','#f59e0b','dash'],
-      ...(forecastCount?[
-        ['Projected Incoming','rgba(59,130,246,0.5)','sq-fade'],
-        ['Planned Capacity','#f59e0b','dot'],
-      ]:[]),
     ].map(([k,c,t])=>{
-      const s = t==='sq'?`<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
-              : t==='sq-fade'?`<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle;border:1px dashed ${c}"></span>`
-              : t==='line'?`<span style="display:inline-block;width:20px;height:3px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
-              : t==='dash'?`<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle"></span>`
-              : `<span style="display:inline-block;width:20px;height:0;border-top:2px dotted ${c};margin-right:5px;vertical-align:middle"></span>`;
+      const s = t==='sq'
+        ? `<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
+        : t==='line'
+        ? `<span style="display:inline-block;width:20px;height:3px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
+        : `<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle"></span>`;
       return `<div class="trend-legend-item">${s}<span>${k}</span></div>`;
     }).join('');
 
   } catch(err) {
-    console.error('[hourly]',err);
-    if($('hourlyLegend'))$('hourlyLegend').innerHTML=`<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
+    console.error('[hourly]', err);
+    if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
   } finally {
-    if(loader)loader.style.display='none';
-    canvas.style.opacity='1';
+    if (loader) loader.style.display = 'none';
+    canvas.style.opacity = '1';
   }
 }
+
 
 function mkTrend(canvas, buckets){
   killChart('trend');
