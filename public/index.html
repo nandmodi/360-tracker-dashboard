@@ -2119,9 +2119,44 @@ async function renderHourlyChart() {
         .sort((a,b) => b-a)[0];
 
       const today = new Date(); today.setHours(0,0,0,0);
-      const horizon = lastRosterEnd || new Date(today.getTime() + 15*86400000);
 
-      // Collect historical daily totals for day-of-week avg
+      // ── MoM Growth from RAW Metabase data ──────────────────
+      // RAW = global array of processed rows from /data.json
+      const monthlyDays  = {}; // YYYY-MM → Set of unique dates
+      const monthlyTotal = {}; // YYYY-MM → count of incoming SKUs
+      for (const r of (RAW || [])) {
+        if (!r.c) continue;
+        const ds = String(r.c).slice(0,10); // YYYY-MM-DD
+        const mo = ds.slice(0,7);            // YYYY-MM
+        if (!monthlyDays[mo])  monthlyDays[mo]  = new Set();
+        if (!monthlyTotal[mo]) monthlyTotal[mo] = 0;
+        monthlyDays[mo].add(ds);
+        monthlyTotal[mo]++;
+      }
+      const monthList = Object.keys(monthlyTotal).sort();
+      const monthAvg  = {};
+      for (const mo of monthList) {
+        const days = monthlyDays[mo].size;
+        if (days > 0) monthAvg[mo] = monthlyTotal[mo] / days;
+      }
+
+      // Growth = (lastMonth - prevMonth) / prevMonth
+      let momGrowth = 0;
+      let momLabel  = '';
+      if (monthList.length >= 2) {
+        const lastMo  = monthList[monthList.length - 1];
+        const prevMo  = monthList[monthList.length - 2];
+        const lastAvg = monthAvg[lastMo];
+        const prevAvg = monthAvg[prevMo];
+        if (prevAvg > 0 && lastAvg > 0) {
+          momGrowth = (lastAvg - prevAvg) / prevAvg;
+          const pct = (momGrowth * 100).toFixed(1);
+          momLabel = `${momGrowth >= 0 ? '+' : ''}${pct}% (${prevMo} → ${lastMo})`;
+        }
+      }
+      const growthFactor = 1 + momGrowth;
+
+      // ── Historical daily totals for weekday avg ─────────────
       const dailyByDate = {};
       for (const r of allParsed) {
         const ds = r._p.dateStr;
@@ -2134,9 +2169,10 @@ async function renderHourlyChart() {
         if (!dowVals[dow]) dowVals[dow] = [];
         if (total > 0) dowVals[dow].push(total);
       }
+      // Apply MoM growth factor to weekday averages
       const avgByDow = {};
       for (const [dow, vals] of Object.entries(dowVals)) {
-        avgByDow[dow] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+        avgByDow[dow] = Math.round((vals.reduce((a,b)=>a+b,0)/vals.length) * growthFactor);
       }
 
       // Build forecast dates: today+1 → horizon, skip Sundays
@@ -2173,26 +2209,25 @@ async function renderHourlyChart() {
       let labels, projIn, capData;
 
       if (_hourlyViewMode === 'hour') {
-        // Hourly avg: show 0-23 hour pattern for upcoming period
+        // Hourly view: show 0-23 actual capacity per hour
+        // Use first non-Sunday forecast date as representative
+        const repDate = fcDates.find(d => new Date(d+'T00:00:00').getDay() !== 0) || fcDates[0];
+
+        // Historical hourly incoming avg × MoM growth factor
         const hAvgIn  = new Array(24).fill(0);
         const hAvgCnt = new Array(24).fill(0);
-        // Use historical hourly patterns
         for (const r of allParsed) {
           const v = parseFloat(r.total_in) || 0;
           if (v > 0) { hAvgIn[r._p.hour] += v; hAvgCnt[r._p.hour]++; }
         }
-        // Avg capacity per hour across forecast dates
-        const hCapSum = new Array(24).fill(0);
-        const hCapCnt = new Array(24).fill(0);
-        for (const d of fcDates) {
-          for (let h=0; h<24; h++) {
-            const c = getHourCap(d, h);
-            if (c !== null) { hCapSum[h] += c; hCapCnt[h]++; }
-          }
-        }
-        labels = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
-        projIn = Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round(hAvgIn[i]/hAvgCnt[i]):null);
-        capData= Array.from({length:24},(_,i)=>hCapCnt[i]?Math.round(hCapSum[i]/hCapCnt[i]):null);
+
+        // Capacity per hour from roster — use representative date (NOT averaged)
+        labels  = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+        projIn  = Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round((hAvgIn[i]/hAvgCnt[i]) * growthFactor):null);
+        capData = Array.from({length:24},(_,i)=>{
+          const c = getHourCap(repDate, i);
+          return (c !== null && c > 0) ? c : null;
+        });
       } else {
         // Date-wise: one bar per forecast date
         labels  = fcDates.map(fmtDate);
@@ -2204,14 +2239,17 @@ async function renderHourlyChart() {
       const totalCap    = capData.reduce((s,v)=>s+(v||0),0);
 
       if ($('hourlyStats')) {
-        $('hourlyStats').innerHTML = [
+        const statsItems = [
           ['📅 Forecast days', String(fcDates.length), 'var(--accent)'],
           ['● Projected In', fmt(totalProjIn), '#3b82f6'],
           ['● Total Capacity', fmt(totalCap), '#f59e0b'],
           ['● From', fmtDate(fcDates[0]), 'var(--muted)'],
           ['● To',   fmtDate(fcDates[fcDates.length-1]), 'var(--muted)'],
-        ].map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
-         .join('<span style="color:var(--line);margin:0 6px">·</span>');
+        ];
+        if (momLabel) statsItems.push(['📈 Growth', momLabel, momGrowth >= 0 ? '#16a34a' : '#ef4444']);
+        $('hourlyStats').innerHTML = statsItems
+          .map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
+          .join('<span style="color:var(--line);margin:0 6px">·</span>');
       }
 
       if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
@@ -2264,7 +2302,7 @@ async function renderHourlyChart() {
         plugins:[ChartDataLabels],
       });
 
-      $('hourlySub').textContent = `FORECAST · ${_hourlyViewMode==='hour'?'HOURLY AVG':'DATE-WISE'} · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In from historical · Capacity from Roster`;
+      $('hourlySub').textContent = `FORECAST · ${_hourlyViewMode==='hour'?'HOURLY AVG':'DATE-WISE'} · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In = historical weekday avg × growth${momLabel?' ('+momLabel+')':''} · Capacity from Roster`;
       $('hourlyLegend').innerHTML = [
         ['Projected Incoming','rgba(59,130,246,0.7)','bar-fade'],
         ['Planned Capacity','#f59e0b','dash'],
