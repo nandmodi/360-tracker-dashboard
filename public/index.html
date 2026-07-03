@@ -1824,7 +1824,9 @@ function parseRosterData(rows) {
 
     // Date range header e.g. "06 July 26 to 19 July 26"
     if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
-      inLeave = false; headerRow = null; leaveHeaderRow = null;
+      inLeave = false;
+      headerRow = null;      // ← reset shift headers for each new period
+      leaveHeaderRow = null;
       const parts = first.split(/\s+to\s+/i);
       current = { label:first, start:parseRosterDate(parts[0]), end:parseRosterDate(parts[1]), target:35, shifts:[], leaves };
       periods.push(current);
@@ -2060,6 +2062,22 @@ async function renderHourlyChart() {
     ]);
 
     const rosterData = parseRosterRaw(rosterRawText);
+    // DEBUG: log parsed roster
+    console.log('[roster] periods:', rosterData.periods.map(p=>({
+      label: p.label,
+      start: p.start?.toDateString(),
+      end: p.end?.toDateString(),
+      target: p.target,
+      shifts: p.shifts.map(s=>({label:s.label, startH:s.startH, endH:s.endH, users:s.users}))
+    })));
+    console.log('[roster] leaves:', rosterData.leaves);
+    // Test capacity for yesterday at hours 0, 6, 14, 21
+    const testDate = new Date(); testDate.setDate(testDate.getDate()-1); testDate.setHours(0,0,0,0);
+    const testDS = testDate.getFullYear()+'-'+String(testDate.getMonth()+1).padStart(2,'0')+'-'+String(testDate.getDate()).padStart(2,'0');
+    [0,6,12,14,18,21,23].forEach(h => {
+      const hDt = new Date(testDS+'T00:00:00'); hDt.setHours(h);
+      console.log('[capacity] '+testDS+' '+h+':00 =', getRosterCapacity(rosterData, hDt));
+    });
     const { periods, leaves } = rosterData;
 
     // All parsed hourly rows
