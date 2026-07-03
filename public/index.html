@@ -1787,6 +1787,25 @@ function parseShiftHour(str) {
   return h;
 }
 
+function parseRosterRaw(csvText) {
+  // Parse roster from raw CSV text — avoids header-parsing issues
+  const lines = csvText.split('\n');
+  const rows = lines.map(line => {
+    // Simple CSV split (handles quoted fields)
+    const vals = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    vals.push(cur.trim());
+    return vals;
+  });
+  return parseRosterData(rows);
+}
+
 function parseRosterData(rows) {
   const periods = [];
   let current = null;
@@ -1796,7 +1815,10 @@ function parseRosterData(rows) {
   const leaves = []; // shared across all periods: [{name, from, till}]
 
   for (const row of rows) {
-    const vals = Object.values(row).map(v => String(v||'').trim());
+    // Support both array rows (from parseRosterRaw) and object rows (from fetchGS)
+    const vals = Array.isArray(row)
+      ? row.map(v => String(v||'').trim())
+      : Object.values(row).map(v => String(v||'').trim());
     const first = vals[0];
     if (!vals.some(v => v)) continue;
 
@@ -2031,12 +2053,13 @@ async function renderHourlyChart() {
   canvas.style.opacity = '0.3';
 
   try {
-    const [hourlyRows, rosterRows] = await Promise.all([
+    // Fetch hourly (parsed CSV objects) + roster (raw text for custom parsing)
+    const [hourlyRows, rosterRawText] = await Promise.all([
       fetchGS(GS_HOURLY),
-      fetchGS(GS_ROSTER),
+      fetch(GS_ROSTER + '&_t=' + Date.now()).then(r => r.text()),
     ]);
 
-    const rosterData = parseRosterData(rosterRows);
+    const rosterData = parseRosterRaw(rosterRawText);
     const { periods, leaves } = rosterData;
 
     // All parsed hourly rows
