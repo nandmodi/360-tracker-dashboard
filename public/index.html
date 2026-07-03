@@ -1772,30 +1772,51 @@ function parseRosterData(rows) {
   let current = null;
   let headerRow = null;
   let inLeave = false;
-  const leaves = [];
+  let leaveHeaderRow = null;
+  const leaves = []; // shared across all periods: [{name, from, till}]
 
   for (const row of rows) {
     const vals = Object.values(row).map(v => String(v||'').trim());
     const first = vals[0];
     if (!vals.some(v => v)) continue;
 
-    // Date range header
+    // Date range header e.g. "06 July 26 to 19 July 26"
     if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
-      inLeave = false; headerRow = null;
-      const [startStr,,endStr] = first.split(/\s+to\s+/i);
-      current = { label:first, start:parseRosterDate(startStr), end:parseRosterDate(endStr), target:35, shifts:[], leaves };
+      inLeave = false; headerRow = null; leaveHeaderRow = null;
+      const parts = first.split(/\s+to\s+/i);
+      current = { label:first, start:parseRosterDate(parts[0]), end:parseRosterDate(parts[1]), target:35, shifts:[], leaves };
       periods.push(current);
       continue;
     }
 
-    if (first.toLowerCase() === 'leave') { inLeave = true; continue; }
-    if (inLeave) continue; // skip leave rows for now
+    // Leave section header
+    if (first.toLowerCase() === 'leave') { inLeave = true; leaveHeaderRow = null; continue; }
 
-    // Per user target
+    if (inLeave) {
+      // "Name, From, Till" header row
+      if (/^name$/i.test(first)) { leaveHeaderRow = vals; continue; }
+      // User leave row — name must exist; From/Till can be blank (= on duty)
+      if (/[A-Za-z]/.test(first) && !/per user|target/i.test(first)) {
+        const name = vals[0];
+        const fromStr = vals[1] || '';
+        const tillStr = vals[2] || '';
+        // Only add if BOTH from & till are filled (blank = on duty, no leave)
+        if (name && fromStr && tillStr) {
+          const fromDate = parseRosterDate(fromStr);
+          const tillDate = parseRosterDate(tillStr);
+          if (fromDate && tillDate) {
+            leaves.push({ name, from: fromDate, till: tillDate });
+          }
+        }
+      }
+      continue;
+    }
+
+    // Per user target (e.g. 35 or 40)
     const targetVal = vals.find(v => /^\d{2,3}$/.test(v));
     if (current && targetVal) { current.target = parseInt(targetVal); }
 
-    // Shift header row
+    // Shift header row (contains AM/PM times)
     if (current && !headerRow && /AM|PM/i.test(first)) {
       headerRow = vals;
       continue;
@@ -1809,7 +1830,6 @@ function parseRosterData(rows) {
         if (!shiftLabel || !/AM|PM/i.test(shiftLabel)) return;
         let shift = current.shifts.find(s => s.label === shiftLabel);
         if (!shift) {
-          // Parse "02:00 AM to 11:00 AM" or "11:00 AM - 08:00 PM"
           const parts = shiftLabel.split(/\s*(?:to|-)\s*/i);
           let startH = parseShiftHour(parts[0]) ?? 0;
           let endH   = parseShiftHour(parts[1]) ?? 24;
@@ -1821,23 +1841,37 @@ function parseRosterData(rows) {
       });
     }
   }
-  return periods;
+  return { periods, leaves };
 }
 
-function getRosterCapacity(periods, dt) {
+function getRosterCapacity(rosterData, dt) {
   if (dt.getDay() === 0) return 0; // Sunday off
+  const { periods, leaves } = Array.isArray(rosterData)
+    ? { periods: rosterData, leaves: [] }   // backward compat
+    : rosterData;
   const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
   const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
   if (!period) return null;
   const h = dt.getHours();
-  let users = 0;
+  let activeUsers = 0;
   for (const shift of period.shifts) {
     const active = shift.endH > 24
       ? (h >= shift.startH || h < shift.endH - 24)
       : (h >= shift.startH && h < shift.endH);
-    if (active) users += shift.users.length;
+    if (!active) continue;
+    for (const user of shift.users) {
+      // Check if this user is on leave on this date
+      const onLeave = leaves.some(lv => {
+        if (!lv.from || !lv.till) return false;
+        // Case-insensitive name match (partial ok)
+        const nameMatch = lv.name.toLowerCase().includes(user.toLowerCase())
+                       || user.toLowerCase().includes(lv.name.toLowerCase());
+        return nameMatch && d >= lv.from && d <= lv.till;
+      });
+      if (!onLeave) activeUsers++;
+    }
   }
-  return users * period.target;
+  return activeUsers * period.target;
 }
 
 // Parse hour_ist → returns { date: Date, hour: number } in IST
@@ -1938,260 +1972,275 @@ async function renderHourlyChart() {
   canvas.style.opacity = '0.3';
 
   try {
-    // Fetch hourly data + roster in parallel
     const [hourlyRows, rosterRows] = await Promise.all([
       fetchGS(GS_HOURLY),
       fetchGS(GS_ROSTER),
     ]);
 
     const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
-
-    // Parse + filter hourly rows
-    const parsed = hourlyRows
-      .map(r => ({ ...r, _p: parseHourIST(r.hour_ist) }))
-      .filter(r => r._p && r._p.dateStr >= fromStr && r._p.dateStr < toStr);
-
-    if (!parsed.length) {
-      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet — Google Sheets updates hourly.</span>`;
-      if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
-      if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
-      canvas.style.display = 'none';
-      if (loader) loader.style.display = 'none';
-      return;
-    }
-    canvas.style.display = 'block';
-
-    // Parse roster for capacity calculation
     const rosterPeriods = parseRosterData(rosterRows);
 
-    // Build chart data
-    let labels, inData, outData, backlogData, capacityData;
+    // All rows for pattern building
+    const allParsed = hourlyRows.map(r => ({ ...r, _p: parseHourIST(r.hour_ist) })).filter(r => r._p);
+    // Filtered for selected range
+    const parsed = allParsed.filter(r => r._p.dateStr >= fromStr && r._p.dateStr < toStr);
+
+    // ── Historical pattern: avg daily total_in by day-of-week ──
+    const dailyByDate = {};
+    for (const r of allParsed) {
+      const ds = r._p.dateStr;
+      if (!dailyByDate[ds]) dailyByDate[ds] = 0;
+      dailyByDate[ds] += parseFloat(r.total_in) || 0;
+    }
+    const dowDailyVals = {};
+    for (const [ds, total] of Object.entries(dailyByDate)) {
+      const dow = new Date(ds + 'T00:00:00').getDay();
+      if (!dowDailyVals[dow]) dowDailyVals[dow] = [];
+      if (total > 0) dowDailyVals[dow].push(total);
+    }
+    const avgByDow = {};
+    for (const [dow, vals] of Object.entries(dowDailyVals)) {
+      avgByDow[dow] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+    }
+
+    // Last actual date
+    const lastActualDate = Object.keys(dailyByDate).sort().pop() || toISTDateStr(new Date());
+
+    // ── Forecast: next 15 non-Sunday days ──
+    const forecastDates = [];
+    for (let i = 1; i <= 20 && forecastDates.length < 15; i++) {
+      const fd = new Date(lastActualDate + 'T00:00:00');
+      fd.setDate(fd.getDate() + i);
+      if (fd.getDay() !== 0) forecastDates.push(fd.toISOString().slice(0,10));
+    }
+
+    const PAL = getPal();
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const useBars = _hourlyChartType === 'bar';
+    const fmt = v => v === null || v === undefined ? '—' : Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+'K' : Math.round(v).toString();
+
+    let labels=[], inData=[], outData=[], backlogData=[], capacityData=[];
+    let forecastInData=[], forecastCapData=[];
+    let actualCount=0, forecastCount=0;
 
     if (_hourlyViewMode === 'date') {
-      // Date-wise: one bar per date
+      // ── DATE-WISE: actual + forecast ──
       const dateMap = {};
       for (const r of parsed) {
         const d = r._p.dateStr;
-        if (!dateMap[d]) dateMap[d] = { in:0, out:0, backlog:0, bCount:0, dt: new Date(d+'T00:00:00') };
+        if (!dateMap[d]) dateMap[d] = { in:0, out:0, backlog:0, bCount:0 };
         dateMap[d].in      += parseFloat(r.total_in)  || 0;
         dateMap[d].out     += parseFloat(r.total_out) || 0;
         dateMap[d].backlog += parseFloat(r.backlog)   || 0;
         dateMap[d].bCount++;
       }
-      const dates = Object.keys(dateMap).sort();
-      labels      = dates.map(d => { const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short'}); });
-      inData      = dates.map(d => Math.round(dateMap[d].in));
-      outData     = dates.map(d => Math.round(dateMap[d].out));
-      backlogData = dates.map(d => Math.round(dateMap[d].backlog / (dateMap[d].bCount||1)));
-      capacityData= dates.map(d => {
-        // Sum capacity across all hours × users on shift
-        const dt = new Date(d+'T00:00:00');
-        let total = 0;
-        for (let h = 0; h < 24; h++) {
-          const hDt = new Date(dt); hDt.setHours(h);
-          const c = getRosterCapacity(rosterPeriods, hDt);
-          if (c !== null) total += c;
-        }
-        return total || null;
-      });
+      const actualDates = Object.keys(dateMap).sort();
+      actualCount   = actualDates.length;
+      forecastCount = forecastDates.length;
+
+      const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+
+      labels      = [...actualDates.map(fmtDate), ...forecastDates.map(d=>fmtDate(d)+'*')];
+      inData      = [...actualDates.map(d=>Math.round(dateMap[d].in)),      ...new Array(forecastCount).fill(null)];
+      outData     = [...actualDates.map(d=>Math.round(dateMap[d].out)),     ...new Array(forecastCount).fill(null)];
+      backlogData = [...actualDates.map(d=>Math.round(dateMap[d].backlog/(dateMap[d].bCount||1))), ...new Array(forecastCount).fill(null)];
+
+      const getDateCap = d => {
+        const dt=new Date(d+'T00:00:00'); let total=0;
+        for(let h=0;h<24;h++){const hDt=new Date(dt);hDt.setHours(h);const c=getRosterCapacity(rosterPeriods,hDt);if(c!==null)total+=c;}
+        return total||null;
+      };
+      capacityData    = [...actualDates.map(getDateCap),  ...new Array(forecastCount).fill(null)];
+      forecastInData  = [...new Array(actualCount).fill(null), ...forecastDates.map(d=>{const dow=new Date(d+'T00:00:00').getDay();return avgByDow[dow]||null;})];
+      forecastCapData = [...new Array(actualCount).fill(null), ...forecastDates.map(getDateCap)];
+
     } else {
-      // Hourly avg: 0-23 hours, averaged across dates
-      const hourMap = {};
-      for (let h = 0; h < 24; h++) hourMap[h] = { in:0, out:0, backlog:0, bCount:0, cCount:0, cap:0 };
-      for (const r of parsed) {
-        const h = r._p.hour;
-        hourMap[h].in      += parseFloat(r.total_in)  || 0;
-        hourMap[h].out     += parseFloat(r.total_out) || 0;
-        hourMap[h].backlog += parseFloat(r.backlog)   || 0;
-        hourMap[h].bCount++;
+      // ── HOURLY AVG: 0-23 slots ──
+      const hm = {};
+      for(let h=0;h<24;h++) hm[h]={in:0,out:0,backlog:0,bCount:0,cap:0,cCount:0};
+      for(const r of parsed){
+        const h=r._p.hour;
+        hm[h].in+=parseFloat(r.total_in)||0;
+        hm[h].out+=parseFloat(r.total_out)||0;
+        hm[h].backlog+=parseFloat(r.backlog)||0;
+        hm[h].bCount++;
       }
-      // Capacity per hour (avg across days in range)
-      const uniqueDates = [...new Set(parsed.map(r => r._p.dateStr))];
-      for (const d of uniqueDates) {
-        for (let h = 0; h < 24; h++) {
-          const hDt = new Date(d+'T00:00:00'); hDt.setHours(h);
-          const c = getRosterCapacity(rosterPeriods, hDt);
-          if (c !== null) { hourMap[h].cap += c; hourMap[h].cCount++; }
-        }
-      }
+      const uDates=[...new Set(parsed.map(r=>r._p.dateStr))];
+      for(const d of uDates){for(let h=0;h<24;h++){const hDt=new Date(d+'T00:00:00');hDt.setHours(h);const c=getRosterCapacity(rosterPeriods,hDt);if(c!==null){hm[h].cap+=c;hm[h].cCount++;}}}
       labels       = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
-      inData       = Array.from({length:24},(_,i)=> hourMap[i].bCount ? Math.round(hourMap[i].in/hourMap[i].bCount) : 0);
-      outData      = Array.from({length:24},(_,i)=> hourMap[i].bCount ? Math.round(hourMap[i].out/hourMap[i].bCount) : 0);
-      backlogData  = Array.from({length:24},(_,i)=> hourMap[i].bCount ? Math.round(hourMap[i].backlog/hourMap[i].bCount) : 0);
-      capacityData = Array.from({length:24},(_,i)=> hourMap[i].cCount ? Math.round(hourMap[i].cap/hourMap[i].cCount) : null);
+      inData       = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].in/hm[i].bCount):0);
+      outData      = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].out/hm[i].bCount):0);
+      backlogData  = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].backlog/hm[i].bCount):0);
+      capacityData = Array.from({length:24},(_,i)=>hm[i].cCount?Math.round(hm[i].cap/hm[i].cCount):null);
     }
+
+    const hasData = inData.some(v=>v!==null&&v>0)||outData.some(v=>v!==null&&v>0);
+    if (!hasData && !forecastInData.some(v=>v!==null&&v>0)) {
+      $('hourlyLegend').innerHTML=`<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
+      if($('hourlyStats'))$('hourlyStats').innerHTML='';
+      if(_hourlyChart){_hourlyChart.destroy();_hourlyChart=null;}
+      canvas.style.display='none';
+      if(loader)loader.style.display='none';
+      return;
+    }
+    canvas.style.display='block';
 
     // Stats
-    const totalIn   = inData.reduce((s,v)=>s+v,0);
-    const totalOut  = outData.reduce((s,v)=>s+v,0);
-    const peakBlog  = Math.max(...backlogData);
-    const endBlog   = backlogData[backlogData.length-1];
-    const rawCap    = capacityData.find(c=>c!==null&&c>0);
+    const totalIn  = inData.reduce((s,v)=>s+(v||0),0);
+    const totalOut = outData.reduce((s,v)=>s+(v||0),0);
+    const peakBlog = Math.max(0,...backlogData.filter(v=>v!==null));
+    const endBlog  = [...backlogData].reverse().find(v=>v!==null)||0;
+    const rawCap   = capacityData.find(c=>c!==null&&c>0);
+    const dpCount  = inData.filter(v=>v!==null).length;
 
-    const PAL = getPal();
-    const isDark = document.documentElement.dataset.theme==='dark';
-
-    // Stats bar
-    if ($('hourlyStats')) {
-      const fmt = v => v >= 1000 ? (v/1000).toFixed(1)+'K' : String(Math.round(v));
-      $('hourlyStats').innerHTML = [
-        ['New Entered', fmt(totalIn), '#3b82f6'],
-        ['Completed',   fmt(totalOut), PAL.green],
-        ['Peak Backlog',fmt(peakBlog), PAL.red],
-        ['End Backlog', fmt(endBlog),  PAL.amber||'#b27a00'],
-        ['Raw Capacity',rawCap ? fmt(rawCap)+'/hr' : '—', '#f59e0b'],
-      ].map(([k,v,c])=>
-        `<span style="color:var(--muted)">${k}:</span> <strong style="color:${c}">${v}</strong>`
-      ).join('<span style="color:var(--line);margin:0 4px">·</span>');
+    if($('hourlyStats')){
+      $('hourlyStats').innerHTML=[
+        ['● New Entered', fmt(totalIn),  '#3b82f6'],
+        ['● Completed',   fmt(totalOut), '#22c55e'],
+        ['● Peak Backlog',fmt(peakBlog), '#ef4444'],
+        ['● End Backlog', fmt(endBlog),  '#f59e0b'],
+        ['● Raw Capacity',rawCap?fmt(rawCap)+'/hr':'—','#f59e0b'],
+        ['● Actual data points',String(dpCount),'#94a3b8'],
+      ].map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
+       .join('<span style="color:var(--line);margin:0 6px">·</span>');
     }
 
-    // Chart type: bar or curve
-    const useBars = _hourlyChartType === 'bar';
+    const showDL = labels.length <= 30;
 
-    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    // Forecast divider line plugin
+    const dividerPlugin = {
+      id:'forecastDivider',
+      afterDraw(chart){
+        if(!forecastCount||_hourlyViewMode!=='date') return;
+        const {ctx,chartArea,scales}=chart;
+        const x=scales.x.getPixelForValue(actualCount-0.5);
+        if(!x||x<chartArea.left) return;
+        ctx.save();
+        ctx.setLineDash([4,3]);
+        ctx.strokeStyle='#94a3b8';
+        ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.moveTo(x,chartArea.top);ctx.lineTo(x,chartArea.bottom);ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle='#94a3b8';
+        ctx.font='bold 10px JetBrains Mono,monospace';
+        ctx.textAlign='left';
+        ctx.fillText('▶ FORECAST',x+4,chartArea.top+14);
+        ctx.restore();
+      }
+    };
 
-    _hourlyChart = new Chart(canvas, {
-      data: {
-        labels,
-        datasets: [
-          {
-            type: useBars ? 'bar' : 'line',
-            label: 'New Entered',
-            data: inData,
-            backgroundColor: useBars ? 'rgba(59,130,246,0.75)' : 'rgba(59,130,246,0.15)',
-            borderColor: '#3b82f6',
-            borderWidth: useBars ? 1 : 2,
-            borderRadius: useBars ? 3 : 0,
-            tension: 0.35,
-            fill: !useBars,
-            pointRadius: useBars ? 0 : 3,
-            pointHoverRadius: 5,
-            order: 3,
-            datalabels: {
-              display: ctx => !useBars && inData.length <= 20 && ctx.dataset.data[ctx.dataIndex] > 0,
-              anchor:'end', align:'top', color:'#3b82f6',
-              font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-              formatter: v => v > 0 ? (v>=1000?(v/1000).toFixed(1)+'K':v) : '',
-            },
-          },
-          {
-            type: useBars ? 'bar' : 'line',
-            label: 'Completed',
-            data: outData,
-            backgroundColor: useBars ? 'rgba(34,197,94,0.75)' : 'transparent',
-            borderColor: PAL.green,
-            borderWidth: useBars ? 1 : 2,
-            borderRadius: useBars ? 3 : 0,
-            tension: 0.35,
-            fill: false,
-            pointRadius: useBars ? 0 : 2.5,
-            pointHoverRadius: 5,
-            order: 2,
-            datalabels: {
-              display: ctx => !useBars && outData.length <= 20 && ctx.dataset.data[ctx.dataIndex] > 0,
-              anchor:'end', align:'bottom', color:PAL.green,
-              font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-              formatter: v => v > 0 ? (v>=1000?(v/1000).toFixed(1)+'K':v) : '',
-            },
-          },
-          {
-            type: 'line',
-            label: 'Actual Backlog',
-            data: backlogData,
-            borderColor: PAL.red,
-            backgroundColor: 'transparent',
-            borderWidth: 2.5,
-            tension: 0.3,
-            fill: false,
-            pointRadius: backlogData.length > 40 ? 0 : 3,
-            pointHoverRadius: 5,
-            yAxisID: 'yBacklog',
-            order: 0,
-            datalabels: {
-              display: ctx => backlogData.length <= 20 && ctx.dataset.data[ctx.dataIndex] > 0,
-              anchor:'end', align:'top', color:PAL.red,
-              font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-              formatter: v => v > 0 ? (v>=1000?(v/1000).toFixed(1)+'K':v) : '',
-            },
-          },
-          {
-            type: 'line',
-            label: 'Capacity',
-            data: capacityData,
-            borderColor: '#f59e0b',
-            borderDash: [6,4],
-            borderWidth: 2,
-            backgroundColor: 'transparent',
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0,
-            fill: false,
-            order: 1,
-            datalabels: { display: false },
-          },
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode:'index', intersect:false },
-        layout: { padding:{ top:20 } },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: PAL.ink,
-            titleColor: isDark?'#0b0b0c':'#fff',
-            bodyColor: isDark?'#0b0b0c':'#fff',
-            padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
-            callbacks: {
-              label: ctx => {
-                const v = ctx.parsed.y;
-                if (v === null || v === undefined) return null;
-                const fmt = v >= 1000 ? (v/1000).toFixed(1)+'K' : Math.round(v).toString();
-                return ` ${ctx.dataset.label}: ${fmt}`;
-              }
+    if(_hourlyChart){_hourlyChart.destroy();_hourlyChart=null;}
+
+    _hourlyChart = new Chart(canvas,{
+      data:{labels,datasets:[
+        // Actual: New Entered
+        {type:useBars?'bar':'line',label:'New Entered',data:inData,
+         backgroundColor:useBars?'rgba(59,130,246,0.75)':'rgba(59,130,246,0.12)',
+         borderColor:'#3b82f6',borderWidth:useBars?1:2,borderRadius:useBars?3:0,
+         tension:0.35,fill:!useBars,pointRadius:useBars?0:3,pointHoverRadius:5,order:4,
+         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+           anchor:'end',align:useBars?'end':'top',clamp:true,
+           color:'#3b82f6',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+           formatter:v=>v>0?fmt(v):''}},
+        // Actual: Completed
+        {type:useBars?'bar':'line',label:'Completed',data:outData,
+         backgroundColor:useBars?'rgba(34,197,94,0.75)':'transparent',
+         borderColor:'#22c55e',borderWidth:useBars?1:2,borderRadius:useBars?3:0,
+         tension:0.35,fill:false,pointRadius:useBars?0:2.5,pointHoverRadius:5,order:3,
+         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+           anchor:'end',align:useBars?'end':'bottom',clamp:true,
+           color:'#16a34a',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+           formatter:v=>v>0?fmt(v):''}},
+        // Actual: Backlog
+        {type:'line',label:'Actual Backlog',data:backlogData,
+         borderColor:'#ef4444',backgroundColor:'transparent',
+         borderWidth:2.5,tension:0.3,fill:false,
+         pointRadius:labels.length>35?0:3,pointHoverRadius:5,
+         yAxisID:'yBacklog',order:0,
+         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+           anchor:'end',align:'top',clamp:true,
+           color:'#ef4444',font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+           formatter:v=>v>0?fmt(v):''}},
+        // Actual: Capacity (orange dotted)
+        {type:'line',label:'Capacity',data:capacityData,
+         borderColor:'#f59e0b',borderDash:[6,4],borderWidth:2,
+         backgroundColor:'transparent',pointRadius:0,pointHoverRadius:4,
+         tension:0,fill:false,order:1,datalabels:{display:false}},
+        // Forecast: Projected Incoming (faded blue)
+        ...(forecastCount?[{type:useBars?'bar':'line',label:'Projected Incoming',data:forecastInData,
+         backgroundColor:useBars?'rgba(59,130,246,0.25)':'rgba(59,130,246,0.06)',
+         borderColor:'rgba(59,130,246,0.5)',borderWidth:useBars?1:1.5,
+         borderDash:useBars?[]:[4,3],borderRadius:useBars?3:0,
+         tension:0.35,fill:!useBars,pointRadius:0,pointHoverRadius:4,order:5,
+         datalabels:{display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
+           anchor:'end',align:'end',clamp:true,
+           color:'rgba(59,130,246,0.7)',font:{family:"'JetBrains Mono',monospace",size:9,weight:'500'},
+           formatter:v=>v>0?fmt(v):''}}]:[]),
+        // Forecast: Planned Capacity (orange dotted, continues)
+        ...(forecastCount?[{type:'line',label:'Planned Capacity',data:forecastCapData,
+         borderColor:'#f59e0b',borderDash:[3,2],borderWidth:2,
+         backgroundColor:'transparent',pointRadius:0,pointHoverRadius:4,
+         tension:0,fill:false,order:2,datalabels:{display:false}}]:[]),
+      ]},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        layout:{padding:{top:24}},
+        plugins:{
+          legend:{display:false},
+          tooltip:{
+            backgroundColor:isDark?'#2a2a2e':'#fff',
+            titleColor:isDark?'#f0efe9':'#0b0b0c',
+            bodyColor:isDark?'#b0b0b8':'#404045',
+            borderColor:isDark?'#3a3a3e':'#e8e6df',borderWidth:1,
+            padding:10,displayColors:true,boxPadding:4,cornerRadius:8,
+            callbacks:{
+              title:items=>{const l=items[0]?.label||'';return l.endsWith('*')?l+' (Forecast)':l;},
+              label:ctx=>{const v=ctx.parsed.y;if(v===null||v===undefined)return null;return ` ${ctx.dataset.label}: ${fmt(v)}`;}
             }
           },
         },
-        scales: {
-          x: {
-            grid: { display:false },
-            ticks: { font:{size:10}, color:PAL.muted, maxRotation:45, autoSkip:true, maxTicksLimit:24 }
-          },
-          y: {
-            position: 'left',
-            grid: { color:PAL.line, drawBorder:false },
-            beginAtZero: true,
-            ticks: { font:{size:10}, color:PAL.muted, callback: v => v>=1000?(v/1000).toFixed(0)+'K':v },
-            title: { display:true, text:'SKUs/hr', font:{size:10}, color:PAL.muted }
-          },
-          yBacklog: {
-            position: 'right',
-            grid: { drawOnChartArea:false },
-            beginAtZero: true,
-            ticks: { font:{size:10}, color:PAL.red, callback: v => v>=1000?(v/1000).toFixed(0)+'K':v },
-            title: { display:true, text:'Backlog', font:{size:10}, color:PAL.red }
-          }
+        scales:{
+          x:{grid:{display:false},ticks:{font:{size:10},color:PAL.muted,maxRotation:45,autoSkip:true,maxTicksLimit:32}},
+          y:{position:'left',beginAtZero:true,grid:{color:PAL.line,drawBorder:false},
+             ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
+             title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted}},
+          yBacklog:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},
+             ticks:{font:{size:10},color:'#ef4444',callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
+             title:{display:true,text:'Backlog',font:{size:10},color:'#ef4444'}}
         }
       },
-      plugins: [ChartDataLabels],
+      plugins:[ChartDataLabels,dividerPlugin],
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · ${_hourlyViewMode==='date'?'DATE-WISE':'HOURLY AVG'} · New Entered vs Completed vs Backlog vs Capacity`;
+    $('hourlySub').textContent=`${label.toUpperCase()} · ${_hourlyViewMode==='date'?'DATE-WISE — actual + 15-day forecast *':'HOURLY AVG'} · Capacity from Roster`;
 
-    const cols = { 'New Entered':'#3b82f6', 'Completed':PAL.green, 'Actual Backlog':PAL.red, 'Capacity':'#f59e0b' };
-    $('hourlyLegend').innerHTML = Object.entries(cols).map(([k,c])=>
-      `<div class="trend-legend-item"><span class="ldot" style="background:${c}${k==='Capacity'?';border:2px dashed '+c+';background:transparent':''}"></span><span>${k}</span></div>`
-    ).join('');
+    $('hourlyLegend').innerHTML=[
+      ['New Entered','#3b82f6','sq'],
+      ['Completed','#22c55e','sq'],
+      ['Actual Backlog','#ef4444','line'],
+      ['Capacity','#f59e0b','dash'],
+      ...(forecastCount?[
+        ['Projected Incoming','rgba(59,130,246,0.5)','sq-fade'],
+        ['Planned Capacity','#f59e0b','dot'],
+      ]:[]),
+    ].map(([k,c,t])=>{
+      const s = t==='sq'?`<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
+              : t==='sq-fade'?`<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle;border:1px dashed ${c}"></span>`
+              : t==='line'?`<span style="display:inline-block;width:20px;height:3px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
+              : t==='dash'?`<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle"></span>`
+              : `<span style="display:inline-block;width:20px;height:0;border-top:2px dotted ${c};margin-right:5px;vertical-align:middle"></span>`;
+      return `<div class="trend-legend-item">${s}<span>${k}</span></div>`;
+    }).join('');
 
   } catch(err) {
-    console.error('[hourly]', err);
-    if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
+    console.error('[hourly]',err);
+    if($('hourlyLegend'))$('hourlyLegend').innerHTML=`<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
   } finally {
-    if (loader) loader.style.display = 'none';
-    canvas.style.opacity = '1';
+    if(loader)loader.style.display='none';
+    canvas.style.opacity='1';
   }
 }
-
 
 function mkTrend(canvas, buckets){
   killChart('trend');
