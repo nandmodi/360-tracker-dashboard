@@ -2062,22 +2062,6 @@ async function renderHourlyChart() {
     ]);
 
     const rosterData = parseRosterRaw(rosterRawText);
-    // DEBUG: log parsed roster
-    console.log('[roster] periods:', rosterData.periods.map(p=>({
-      label: p.label,
-      start: p.start?.toDateString(),
-      end: p.end?.toDateString(),
-      target: p.target,
-      shifts: p.shifts.map(s=>({label:s.label, startH:s.startH, endH:s.endH, users:s.users}))
-    })));
-    console.log('[roster] leaves:', rosterData.leaves);
-    // Test capacity for yesterday at hours 0, 6, 14, 21
-    const testDate = new Date(); testDate.setDate(testDate.getDate()-1); testDate.setHours(0,0,0,0);
-    const testDS = testDate.getFullYear()+'-'+String(testDate.getMonth()+1).padStart(2,'0')+'-'+String(testDate.getDate()).padStart(2,'0');
-    [0,6,12,14,18,21,23].forEach(h => {
-      const hDt = new Date(testDS+'T00:00:00'); hDt.setHours(h);
-      console.log('[capacity] '+testDS+' '+h+':00 =', getRosterCapacity(rosterData, hDt));
-    });
     const { periods, leaves } = rosterData;
 
     // All parsed hourly rows
@@ -2130,12 +2114,8 @@ async function renderHourlyChart() {
 
     // ── FORECAST MODE ─────────────────────────────────────────
     if (_hourlyForecastMode) {
-      // Find last roster period end date = forecast horizon
-      const lastRosterEnd = periods
-        .filter(p => p.end)
-        .map(p => p.end)
-        .sort((a,b) => b-a)[0];
-
+      // Always show next 15 non-Sunday days from today
+      // Roster is used for capacity calculation only (not to limit dates)
       const today = new Date(); today.setHours(0,0,0,0);
 
       // ── MoM Growth from RAW Metabase data ──────────────────
@@ -2193,8 +2173,7 @@ async function renderHourlyChart() {
         avgByDow[dow] = Math.round((vals.reduce((a,b)=>a+b,0)/vals.length) * growthFactor);
       }
 
-      // Build forecast dates: today+1 → horizon, skip Sundays
-      // Use local date parts (IST safe — avoids UTC toISOString offset issues)
+      // Build next 15 non-Sunday days from tomorrow
       const toLocalDS = d => d.getFullYear() + '-'
         + String(d.getMonth()+1).padStart(2,'0') + '-'
         + String(d.getDate()).padStart(2,'0');
@@ -2202,17 +2181,15 @@ async function renderHourlyChart() {
       const fcDates = [];
       const cursor = new Date(today);
       cursor.setDate(cursor.getDate() + 1); // start from tomorrow
-      const horizonMidnight = lastRosterEnd
-        ? new Date(lastRosterEnd.getFullYear(), lastRosterEnd.getMonth(), lastRosterEnd.getDate())
-        : new Date(today.getTime() + 15 * 86400000);
 
-      while (cursor <= horizonMidnight && fcDates.length < 15) {
+      // Go up to 30 days ahead to collect 15 non-Sunday days
+      for (let i = 0; i < 30 && fcDates.length < 15; i++) {
         if (cursor.getDay() !== 0) fcDates.push(toLocalDS(cursor)); // skip Sundays
         cursor.setDate(cursor.getDate() + 1);
       }
 
       if (!fcDates.length) {
-        $('hourlyLegend').innerHTML = '<span style="color:var(--muted);font-size:12px">No upcoming roster dates found. Add future planning to Roster sheet.</span>';
+        $('hourlyLegend').innerHTML = '<span style="color:var(--muted);font-size:12px">Could not build forecast dates.</span>';
         if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
         if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
         canvas.style.display = 'none';
@@ -2383,6 +2360,13 @@ async function renderHourlyChart() {
         hm[h].bCount++;
       }
       const uDates = [...new Set(parsed.map(r=>r._p.dateStr))];
+      // Use most recent date that has a roster period for capacity reference
+      // This avoids averaging across dates with/without roster coverage
+      const capRefDate = uDates.slice().sort().reverse().find(d => {
+        const dt = new Date(d+'T00:00:00');
+        return dt.getDay() !== 0 && getRosterCapacity(rosterData, dt) !== null;
+      }) || uDates[uDates.length-1];
+
       for (const d of uDates) {
         for (let h=0;h<24;h++) {
           const c = getHourCap(d, h);
@@ -2393,7 +2377,12 @@ async function renderHourlyChart() {
       inData       = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].in/hm[i].bCount):0);
       outData      = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].out/hm[i].bCount):0);
       backlogData  = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].backlog/hm[i].bCount):0);
-      capacityData = Array.from({length:24},(_,i)=>hm[i].cCount?Math.round(hm[i].cap/hm[i].cCount):null);
+      // Use capacity from reference date (most recent date with roster) — not averaged
+      // This shows exact shift coverage without dilution from no-roster dates
+      capacityData = Array.from({length:24},(_,i)=>{
+        const c = getHourCap(capRefDate, i);
+        return (c !== null && c > 0) ? c : null;
+      });
     }
 
     // Stats
