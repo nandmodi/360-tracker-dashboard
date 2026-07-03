@@ -2204,11 +2204,8 @@ async function renderHourlyChart() {
       let labels, projIn, capData;
 
       if (_hourlyViewMode === 'hour') {
-        // Hourly view: show 0-23 actual capacity per hour
-        // Use first non-Sunday forecast date as representative
-        const repDate = fcDates.find(d => new Date(d+'T00:00:00').getDay() !== 0) || fcDates[0];
-
-        // Historical hourly incoming avg × MoM growth factor
+        // Hourly view: avg projected In per hour × growth
+        // Capacity: avg per hour across ALL forecast dates (each uses its own roster period)
         const hAvgIn  = new Array(24).fill(0);
         const hAvgCnt = new Array(24).fill(0);
         for (const r of allParsed) {
@@ -2216,13 +2213,19 @@ async function renderHourlyChart() {
           if (v > 0) { hAvgIn[r._p.hour] += v; hAvgCnt[r._p.hour]++; }
         }
 
-        // Capacity per hour from roster — use representative date (NOT averaged)
+        // Avg capacity per hour across forecast dates (each date uses its own roster period)
+        const hCapSum = new Array(24).fill(0);
+        const hCapCnt = new Array(24).fill(0);
+        for (const d of fcDates) {
+          for (let h = 0; h < 24; h++) {
+            const c = getHourCap(d, h);
+            if (c !== null && c > 0) { hCapSum[h] += c; hCapCnt[h]++; }
+          }
+        }
+
         labels  = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
         projIn  = Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round((hAvgIn[i]/hAvgCnt[i]) * growthFactor):null);
-        capData = Array.from({length:24},(_,i)=>{
-          const c = getHourCap(repDate, i);
-          return (c !== null && c > 0) ? c : null;
-        });
+        capData = Array.from({length:24},(_,i)=>hCapCnt[i]?Math.round(hCapSum[i]/hCapCnt[i]):null);
       } else {
         // Date-wise: one bar per forecast date
         labels  = fcDates.map(fmtDate);
@@ -2362,27 +2365,19 @@ async function renderHourlyChart() {
       const uDates = [...new Set(parsed.map(r=>r._p.dateStr))];
       // Use most recent date that has a roster period for capacity reference
       // This avoids averaging across dates with/without roster coverage
-      const capRefDate = uDates.slice().sort().reverse().find(d => {
-        const dt = new Date(d+'T00:00:00');
-        return dt.getDay() !== 0 && getRosterCapacity(rosterData, dt) !== null;
-      }) || uDates[uDates.length-1];
-
       for (const d of uDates) {
         for (let h=0;h<24;h++) {
           const c = getHourCap(d, h);
-          if (c!==null) { hm[h].cap+=c; hm[h].cCount++; }
+          // Only count hours where roster exists (not null)
+          if (c !== null && c > 0) { hm[h].cap+=c; hm[h].cCount++; }
         }
       }
       labels       = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
       inData       = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].in/hm[i].bCount):0);
       outData      = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].out/hm[i].bCount):0);
       backlogData  = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].backlog/hm[i].bCount):0);
-      // Use capacity from reference date (most recent date with roster) — not averaged
-      // This shows exact shift coverage without dilution from no-roster dates
-      capacityData = Array.from({length:24},(_,i)=>{
-        const c = getHourCap(capRefDate, i);
-        return (c !== null && c > 0) ? c : null;
-      });
+      // Avg capacity per hour across dates that have roster coverage
+      capacityData = Array.from({length:24},(_,i)=>hm[i].cCount?Math.round(hm[i].cap/hm[i].cCount):null);
     }
 
     // Stats
