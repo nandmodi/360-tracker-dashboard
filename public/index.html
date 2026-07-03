@@ -1866,8 +1866,10 @@ function parseRosterData(rows) {
       continue;
     }
 
-    // User rows
-    if (current && headerRow && /[A-Za-z]/.test(first) && !/per user|target/i.test(first)) {
+    // User rows — check ALL columns, not just first
+    // Handles rows like ['', '', 'Bhanu Solanki', 'Girish', ''] where first col is empty
+    const hasAnyName = vals.some(v => v && /[A-Za-z]/.test(v) && !/per user|target|AM|PM/i.test(v) && !/\d{1,2}:\d{2}/.test(v));
+    if (current && headerRow && !inLeave && hasAnyName && !/per user|target/i.test(first)) {
       vals.forEach((name, colIdx) => {
         if (!name || !/[A-Za-z]/.test(name) || /per user|target|\d+/i.test(name)) return;
         const shiftLabel = headerRow[colIdx];
@@ -2111,18 +2113,6 @@ async function renderHourlyChart() {
       const dt = new Date(dateStr + 'T00:00:00'); dt.setHours(hour);
       return getRosterCapacity(rosterData, dt);
     }
-
-    // DEBUG: log roster parsing result
-    console.log('[roster] periods:', rosterData.periods.map(p=>({
-      label:p.label,
-      start:p.start?.toDateString(),
-      end:p.end?.toDateString(),
-      target:p.target,
-      shifts:p.shifts.map(s=>s.label+'('+s.startH+'-'+s.endH+'): '+s.users.join(','))
-    })));
-    console.log('[roster] leaves:', rosterData.leaves);
-    console.log('[getDayCap] 2026-07-04:', getDayCap('2026-07-04'));
-    console.log('[getDayCap] 2026-07-07:', getDayCap('2026-07-07'));
 
     // ── FORECAST MODE ─────────────────────────────────────────
     if (_hourlyForecastMode) {
