@@ -2110,7 +2110,13 @@ async function renderHourlyChart() {
 
     // ── HELPER: compute capacity for a single hour ──
     function getHourCap(dateStr, hour) {
-      const dt = new Date(dateStr + 'T00:00:00'); dt.setHours(hour);
+      // Shift by -1: capacity at hour 3 = users who started at hour 2
+      // Because work done during 02:00-03:00 is counted at 03:00
+      const effectiveHour = hour === 0 ? 23 : hour - 1;
+      const effectiveDate = hour === 0
+        ? (() => { const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })()
+        : dateStr;
+      const dt = new Date(effectiveDate + 'T00:00:00'); dt.setHours(effectiveHour);
       return getRosterCapacity(rosterData, dt);
     }
 
