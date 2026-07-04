@@ -1733,6 +1733,7 @@ const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3Itgzw
 let _hourlyRange     = 'today';
 let _hourlyChart     = null;
 let _gsCache         = {};  // url → { data, ts }
+let _cacheBust       = 0;   // incremented on sync to bust browser HTTP cache
 const GS_TTL         = 5 * 60 * 1000;
 let _hourlyViewMode  = 'date';   // 'date' | 'hour'
 let _hourlyChartType = 'bar';    // 'bar'  | 'curve'
@@ -3037,7 +3038,7 @@ async function syncFromServer({silent=false, force=false}={}){
       if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
     }, 800);
 
-    const res = await fetch('/data.json');
+    const res = await fetch('/data.json' + (_cacheBust ? '?t=' + _cacheBust : ''));
 
     clearInterval(progressInterval);
     setLoadProgress(85, 'Processing rows…');
@@ -4097,9 +4098,10 @@ $('syncBtn').addEventListener('click', async()=>{
   const badge = $('autoSyncBadge');
   btn.disabled = true;
   btn.textContent = 'Syncing…';
-  // Clear all cached data so fresh data is fetched after sync
+  // Clear all cached data — GS cache, roster cache, and force browser cache bust
   _gsCache = {};
   _rosterData = null;
+  _cacheBust = Date.now(); // forces fresh fetch of data.json
   badge.textContent = 'Triggering sync…';
   try {
     const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
