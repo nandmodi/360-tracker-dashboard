@@ -3925,19 +3925,43 @@ $('autoSyncBadge').textContent = '';
 $('syncBtn').addEventListener('click', async()=>{
   const btn = $('syncBtn');
   const badge = $('autoSyncBadge');
+  const bar = $('loadBar');
+  const pct = $('loadPct');
+
   btn.disabled = true;
   btn.textContent = 'Syncing…';
   _gsCache = {};
   _rosterData = null;
   _cacheBust = Date.now();
+
+  // Show progress bar
+  $('loadOverlay').classList.add('show');
+  $('loadMsg').textContent = 'Triggering sync…';
+  bar.style.width = '5%';
+  pct.textContent = '';
+
   badge.textContent = 'Triggering sync…';
+
+  // Animate progress during wait (5% → 80% over ~90s)
+  let progress = 5;
+  const progressInterval = setInterval(() => {
+    if (progress < 80) {
+      progress += (80 - progress) * 0.04;
+      bar.style.width = progress.toFixed(1) + '%';
+    }
+  }, 1000);
+
   try {
     const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
     const triggerData = await triggerRes.json();
     if (!triggerData.ok) {
+      clearInterval(progressInterval);
+      $('loadOverlay').classList.remove('show');
+      bar.style.width = '0%';
       badge.textContent = 'Sync failed: ' + (triggerData.error || 'unknown');
       btn.disabled = false; btn.textContent = 'Sync'; return;
     }
+    $('loadMsg').textContent = 'Waiting for fresh data…';
     badge.textContent = 'Action triggered — waiting for data…';
     const prevSynced = window._lastSynced || '';
     let attempts = 0;
@@ -3948,17 +3972,34 @@ $('syncBtn').addEventListener('click', async()=>{
         const d = await r.json();
         if (d.lastSynced && d.lastSynced !== prevSynced) {
           clearInterval(poll);
+          clearInterval(progressInterval);
+          // Complete the bar
+          bar.style.width = '100%';
+          $('loadMsg').textContent = 'Loading data…';
           window._lastSynced = d.lastSynced;
           badge.textContent = 'Synced at ' + new Date(d.lastSynced).toLocaleTimeString();
           btn.disabled = false; btn.textContent = 'Sync';
           await syncFromServer({ force: true });
+          // Hide overlay after data loads
+          $('loadOverlay').classList.remove('show');
+          bar.style.width = '0%';
         } else if (attempts >= 18) {
-          clearInterval(poll); badge.textContent = 'Sync took too long';
+          clearInterval(poll);
+          clearInterval(progressInterval);
+          $('loadOverlay').classList.remove('show');
+          bar.style.width = '0%';
+          badge.textContent = 'Sync took too long — try refreshing';
           btn.disabled = false; btn.textContent = 'Sync';
-        } else { badge.textContent = `Waiting… (~${(18-attempts)*5}s)`; }
+        } else {
+          $('loadMsg').textContent = `Waiting for data… (~${(18-attempts)*5}s)`;
+          badge.textContent = `Waiting… (~${(18-attempts)*5}s)`;
+        }
       } catch(e) {}
     }, 5000);
   } catch(err) {
+    clearInterval(progressInterval);
+    $('loadOverlay').classList.remove('show');
+    bar.style.width = '0%';
     badge.textContent = 'Error: ' + err.message;
     btn.disabled = false; btn.textContent = 'Sync';
   }
