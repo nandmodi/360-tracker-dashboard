@@ -1759,7 +1759,7 @@ function parseShiftHour(str) {
 }
 
 function parseRosterRaw(csvText) {
-  const lines = csvText.split('\n');
+  const lines = csvText.split(/\r?\n/);
   const rows = lines.map(line => {
     const vals = []; let cur='', inQ=false;
     for (let i=0;i<line.length;i++){
@@ -1775,69 +1775,146 @@ function parseRosterRaw(csvText) {
 }
 
 function parseRosterData(rows) {
-  const periods=[],leaves=[];
-  let current=null,headerRow=null,inLeave=false;
+  const periods = [];
+  // leaveDates: { 'UserName': Set of 'YYYY-MM-DD' dates on leave }
+  const leaveDates = {};
+  let current = null, headerRow = null, inLeave = false;
+  let leaveColDates = []; // date strings for each column in leave grid
+
   for (const row of rows) {
-    const vals = Array.isArray(row)?row.map(v=>String(v||'').trim()):Object.values(row).map(v=>String(v||'').trim());
-    const first=vals[0];
-    if(!vals.some(v=>v)) continue;
-    if(/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)){
-      inLeave=false;headerRow=null;
-      const parts=first.split(/\s+to\s+/i);
-      current={label:first,start:parseRosterDate(parts[0]),end:parseRosterDate(parts[1]),target:35,shifts:[]};
-      periods.push(current);continue;
+    const vals = Array.isArray(row)
+      ? row.map(v => String(v||'').trim())
+      : Object.values(row).map(v => String(v||'').trim());
+    const first = vals[0];
+    if (!vals.some(v => v)) continue;
+
+    // ── Roster period header: "06 July 26 to 19 July 26"
+    if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
+      inLeave = false; headerRow = null; leaveColDates = [];
+      if (/leave/i.test(first)) continue; // skip "Leave(...)" period labels
+      const parts = first.split(/\s+to\s+/i);
+      current = {
+        label: first,
+        start: parseRosterDate(parts[0]),
+        end:   parseRosterDate(parts[1]),
+        target: 35, shifts: []
+      };
+      periods.push(current);
+      continue;
     }
-    if(first.toLowerCase()==='leave'){inLeave=true;continue;}
-    if(inLeave){
-      if(/^name$/i.test(first)){continue;}
-      if(/[A-Za-z]/.test(first)&&!/per user|target/i.test(first)){
-        if(vals[1]&&vals[2]){const f=parseRosterDate(vals[1]),t=parseRosterDate(vals[2]);if(f&&t)leaves.push({name:vals[0],from:f,till:t});}
+
+    // ── Leave section header: "Leave(06 July 26 to 19 July 26)"
+    if (/^leave/i.test(first)) {
+      inLeave = true;
+      leaveColDates = [];
+      continue;
+    }
+
+    if (inLeave) {
+      // Column header row: "Name, 6 July 2026, 7 July 2026, ..."
+      if (/^name$/i.test(first)) {
+        leaveColDates = vals.slice(1).map(v => {
+          const d = parseRosterDate(v);
+          if (!d) return null;
+          return d.getFullYear() + '-' +
+            String(d.getMonth()+1).padStart(2,'0') + '-' +
+            String(d.getDate()).padStart(2,'0');
+        });
+        continue;
+      }
+
+      // User row: "Sarika Rawat, Leave, , , Leave, ..."
+      // Skip if looks like a shift time or period header
+      if (first && /[A-Za-z]/.test(first) &&
+          !/per user|target/i.test(first) &&
+          !/AM|PM/i.test(first) &&
+          !/\d{1,2}\s+\w+.*to.*\d{1,2}\s+\w+/i.test(first)) {
+        const userName = first;
+        if (!leaveDates[userName]) leaveDates[userName] = new Set();
+        vals.slice(1).forEach((cell, ci) => {
+          if (/^leave$/i.test(cell) && leaveColDates[ci]) {
+            leaveDates[userName].add(leaveColDates[ci]);
+          }
+        });
       }
       continue;
     }
-    const targetVal=vals.find(v=>/^\d{2,3}$/.test(v));
-    if(current&&targetVal)current.target=parseInt(targetVal);
-    if(current&&!headerRow&&/AM|PM/i.test(first)){headerRow=vals;continue;}
-    const hasAnyName=vals.some(v=>v&&/[A-Za-z]/.test(v)&&!/per user|target|AM|PM/i.test(v)&&!/\d{1,2}:\d{2}/.test(v));
-    if(current&&headerRow&&!inLeave&&hasAnyName&&!/per user|target/i.test(first)){
-      vals.forEach((name,ci)=>{
-        if(!name||!/[A-Za-z]/.test(name)||/per user|target|\d+/i.test(name))return;
-        const sl=headerRow[ci];if(!sl||!/AM|PM/i.test(sl))return;
-        let shift=current.shifts.find(s=>s.label===sl);
-        if(!shift){
-          const p2=sl.split(/\s*(?:to|-)\s*/i);
-          let sh=parseShiftHour(p2[0])??0,eh=parseShiftHour(p2[1])??24;
-          if(eh<=sh)eh+=24;
-          shift={label:sl,startH:sh,endH:eh,users:[]};current.shifts.push(shift);
+
+    // ── Per user target
+    const targetVal = vals.find(v => /^\d{2,3}$/.test(v));
+    if (current && targetVal) current.target = parseInt(targetVal);
+
+    // ── Shift header row
+    if (current && !headerRow && /AM|PM/i.test(first)) {
+      headerRow = vals; continue;
+    }
+
+    // ── User rows (may have empty first cell for 2nd user in same shift)
+    const hasAnyName = vals.some(v =>
+      v && /[A-Za-z]/.test(v) &&
+      !/per user|target|AM|PM/i.test(v) &&
+      !/\d{1,2}:\d{2}/.test(v)
+    );
+    if (current && headerRow && !inLeave && hasAnyName &&
+        !/per user|target/i.test(first)) {
+      vals.forEach((name, ci) => {
+        if (!name || !/[A-Za-z]/.test(name) ||
+            /per user|target|\d+/i.test(name)) return;
+        const sl = headerRow[ci];
+        if (!sl || !/AM|PM/i.test(sl)) return;
+        let shift = current.shifts.find(s => s.label === sl);
+        if (!shift) {
+          const p2 = sl.split(/\s*(?:to|-)\s*/i);
+          let sh = parseShiftHour(p2[0]) ?? 0;
+          let eh = parseShiftHour(p2[1]) ?? 24;
+          if (eh <= sh) eh += 24;
+          shift = { label:sl, startH:sh, endH:eh, users:[] };
+          current.shifts.push(shift);
         }
-        if(!shift.users.includes(name))shift.users.push(name);
+        if (!shift.users.includes(name)) shift.users.push(name);
       });
     }
   }
-  return {periods,leaves};
+
+  return { periods, leaveDates };
 }
 
 function getRosterCapacity(rosterData, dt) {
-  if(dt.getDay()===0)return 0;
-  const{periods,leaves}=Array.isArray(rosterData)?{periods:rosterData,leaves:[]}:rosterData;
-  const d=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());
-  const period=periods.find(p=>p.start&&p.end&&d>=p.start&&d<=p.end);
-  if(!period)return null;
-  const h=dt.getHours();
-  let users=0;
-  for(const shift of period.shifts){
-    const active=shift.endH>24?(h>=shift.startH||h<shift.endH-24):(h>=shift.startH&&h<shift.endH);
-    if(!active)continue;
-    for(const user of shift.users){
-      const onLeave=leaves.some(lv=>{
-        if(!lv.from||!lv.till)return false;
-        const nm=lv.name.toLowerCase().includes(user.toLowerCase())||user.toLowerCase().includes(lv.name.toLowerCase());
-        return nm&&d>=lv.from&&d<=lv.till;
+  if (dt.getDay() === 0) return 0; // Sunday off
+  const { periods, leaveDates={}, leaves=[] } = Array.isArray(rosterData)
+    ? { periods: rosterData }
+    : rosterData;
+  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const dateStr = dt.getFullYear() + '-' +
+    String(dt.getMonth()+1).padStart(2,'0') + '-' +
+    String(dt.getDate()).padStart(2,'0');
+  const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
+  if (!period) return null;
+  const h = dt.getHours();
+  let users = 0;
+  for (const shift of period.shifts) {
+    const active = shift.endH > 24
+      ? (h >= shift.startH || h < shift.endH - 24)
+      : (h >= shift.startH && h < shift.endH);
+    if (!active) continue;
+    for (const user of shift.users) {
+      // Check new date-grid leave format
+      const onLeaveGrid = Object.entries(leaveDates).some(([name, dates]) => {
+        const nameMatch = name.toLowerCase().includes(user.toLowerCase()) ||
+                         user.toLowerCase().includes(name.toLowerCase());
+        return nameMatch && dates.has(dateStr);
       });
-      if(!onLeave)users++;
+      // Also check old From/Till format for backward compat
+      const onLeaveOld = leaves.some(lv => {
+        if (!lv.from || !lv.till) return false;
+        const nm = lv.name.toLowerCase().includes(user.toLowerCase()) ||
+                   user.toLowerCase().includes(lv.name.toLowerCase());
+        return nm && d >= lv.from && d <= lv.till;
+      });
+      if (!onLeaveGrid && !onLeaveOld) users++;
     }
   }
-  return users*period.target;
+  return users * period.target;
 }
 
 function toggleHourlyForecast(){
@@ -1976,7 +2053,7 @@ async function renderHourlyChart() {
       fetch(GS_ROSTER + '&_t=' + Date.now()).then(r => r.text()),
     ]);
     const rosterData = parseRosterRaw(rosterRawText);
-    const { periods, leaves } = rosterData;
+    const { periods, leaveDates = {}, leaves = [] } = rosterData;
 
     const allParsed = hourlyRows.map(r=>({...r,_p:parseHourIST(r.hour_ist)})).filter(r=>r._p);
     const PAL = getPal();
@@ -1985,52 +2062,56 @@ async function renderHourlyChart() {
     const fmt = v => v===null||v===undefined?'—':Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':Math.round(v).toString();
 
     function getDayCap(dateStr) {
-      if(new Date(dateStr+'T00:00:00').getDay()===0) return 0;
-      const d=new Date(dateStr+'T00:00:00');
-      const period=periods.find(p=>p.start&&p.end&&d>=p.start&&d<=p.end);
-      if(!period) return null;
-      let total=0;
-      for(const shift of period.shifts){
-        const working=(shift.endH-shift.startH)-1;
-        let activeUsers=0;
-        for(const user of shift.users){
-          const onLeave=leaves.some(lv=>{
-            if(!lv.from||!lv.till) return false;
-            const nm=lv.name.toLowerCase().includes(user.toLowerCase())||user.toLowerCase().includes(lv.name.toLowerCase());
-            return nm&&d>=lv.from&&d<=lv.till;
+      if (new Date(dateStr+'T00:00:00').getDay() === 0) return 0;
+      const d = new Date(dateStr+'T00:00:00');
+      const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
+      if (!period) return null;
+      let total = 0;
+      for (const shift of period.shifts) {
+        const working = (shift.endH - shift.startH) - 1;
+        let activeUsers = 0;
+        for (const user of shift.users) {
+          // Check date-grid leave
+          const onLeave = Object.entries(leaveDates).some(([name, dates]) => {
+            const nm = name.toLowerCase().includes(user.toLowerCase()) ||
+                       user.toLowerCase().includes(name.toLowerCase());
+            return nm && dates.has(dateStr);
           });
-          if(!onLeave) activeUsers++;
+          if (!onLeave) activeUsers++;
         }
-        total+=activeUsers*period.target*working;
+        total += activeUsers * period.target * working;
       }
-      return total||null;
+      return total || null;
     }
 
     function getHourCap(dateStr, hour) {
       // +1 offset: capacity shows at completion hour (not start)
-      const effHour = hour===0 ? 23 : hour-1;
-      const effDate = hour===0
-        ? (() => { const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()-1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })()
+      const effHour = hour === 0 ? 23 : hour - 1;
+      const effDate = hour === 0
+        ? (() => { const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()-1);
+            return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })()
         : dateStr;
-      if(new Date(effDate+'T00:00:00').getDay()===0) return null;
-      const d=new Date(effDate+'T00:00:00');
-      const period=periods.find(p=>p.start&&p.end&&d>=p.start&&d<=p.end);
-      if(!period) return null;
-      const h=effHour;
-      let users=0;
-      for(const shift of period.shifts){
-        const active=shift.endH>24?(h>=shift.startH||h<shift.endH-24):(h>=shift.startH&&h<shift.endH);
-        if(!active) continue;
-        for(const user of shift.users){
-          const onLeave=leaves.some(lv=>{
-            if(!lv.from||!lv.till) return false;
-            const nm=lv.name.toLowerCase().includes(user.toLowerCase())||user.toLowerCase().includes(lv.name.toLowerCase());
-            return nm&&d>=lv.from&&d<=lv.till;
+      if (new Date(effDate+'T00:00:00').getDay() === 0) return null;
+      const d = new Date(effDate+'T00:00:00');
+      const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
+      if (!period) return null;
+      const h = effHour;
+      let users = 0;
+      for (const shift of period.shifts) {
+        const active = shift.endH > 24
+          ? (h >= shift.startH || h < shift.endH - 24)
+          : (h >= shift.startH && h < shift.endH);
+        if (!active) continue;
+        for (const user of shift.users) {
+          const onLeave = Object.entries(leaveDates).some(([name, dates]) => {
+            const nm = name.toLowerCase().includes(user.toLowerCase()) ||
+                       user.toLowerCase().includes(name.toLowerCase());
+            return nm && dates.has(effDate);
           });
-          if(!onLeave) users++;
+          if (!onLeave) users++;
         }
       }
-      return users*period.target||null;
+      return users * period.target || null;
     }
 
     // ── FORECAST MODE ──────────────────────────────────────────
