@@ -39,7 +39,7 @@
   header h1{margin:0;font-family:'Bricolage Grotesque',serif;font-weight:600;font-size:22px;letter-spacing:-.025em;}
   .tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
   .actions{display:flex;align-items:center;gap:10px;}
-  .sync-info{display:none;}
+  .sync-info{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
   .autosync-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap;}
   .btn-icon{background:var(--surface);color:var(--ink-2);border:1px solid var(--line);padding:7px 14px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;transition:background .15s,color .15s,border-color .15s;display:inline-flex;align-items:center;gap:6px;}
   .btn-icon:hover{background:var(--bg);color:var(--ink);}
@@ -208,13 +208,12 @@
   .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:10px;}
 
   /* KPI CARDS */
-  .kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:28px;}
-  @media(max-width:1200px){.kpis{grid-template-columns:repeat(4,1fr);}}
-  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;min-height:80px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:28px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
   .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--shadow-md);border-color:var(--line-2);}
   .kpi:active{transform:translateY(0);}
   .kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;line-height:1.35;}
-  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:clamp(18px,2.2vw,32px);font-weight:600;letter-spacing:-.025em;margin-top:10px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:36px;font-weight:600;letter-spacing:-.025em;margin-top:14px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
   .kpi-value.green{color:var(--green);}.kpi-value.red{color:var(--red);}.kpi-value.orange{color:var(--orange);}.kpi-value.amber{color:var(--amber);}.kpi-value.blue{color:var(--accent);}.kpi-value.purple{color:var(--purple);}
   .kpi-pct{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);font-weight:500;margin-top:6px;font-variant-numeric:tabular-nums;}
   .kpi-pct.muted{color:var(--muted);}
@@ -747,37 +746,21 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Hourly throughput</h3>
-          <div class="panel-sub" id="hourlySub">actual in · out · backlog · capacity from roster</div>
+          <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <!-- Historical range tabs — hidden in forecast mode -->
-          <div class="trend-tabs" id="hourlyTabs" style="display:flex;">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
-            <button class="trend-tab" data-hr="7days">Last 7 Days</button>
-            <button class="trend-tab" data-hr="15days">Last 15 Days</button>
-            <button class="trend-tab" data-hr="30days">Last 30 Days</button>
+            <button class="trend-tab" data-hr="this_week">This week</button>
+            <button class="trend-tab" data-hr="this_month">This month</button>
+            <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
+            <button class="trend-tab" data-hr="3months">Last 3 months</button>
           </div>
-          <!-- View toggle — hidden for Today/Yesterday, shown for multi-day -->
-          <div id="hlyViewToggle" style="display:none;align-items:center;gap:6px;margin-left:4px;">
-            <button id="hlyViewDate" class="trend-tab sel" onclick="setHourlyView('date',this)">Date-wise</button>
-            <button id="hlyViewHour" class="trend-tab" onclick="setHourlyView('hour',this)">Hourly avg</button>
-          </div>
-          <div id="hlyTypeToggle" style="display:flex;align-items:center;gap:6px;">
-            <button id="hlyTypeCurve" class="trend-tab" onclick="setHourlyType('curve',this)">~ Curve</button>
-            <button id="hlyTypeBar" class="trend-tab sel" onclick="setHourlyType('bar',this)">| Bar</button>
-          </div>
-          <!-- Forecast toggle button -->
-          <button id="hlyForecastBtn"
-            style="padding:5px 14px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;transition:.15s;margin-left:4px;"
-            onclick="toggleHourlyForecast()">
-            📅 Forecast
-          </button>
           <div class="edit-controls" data-panel-ctl="hourly"></div>
         </div>
       </div>
       <div id="hourlyLoader" style="display:none;text-align:center;padding:40px;color:var(--muted);font-size:12px">Loading data…</div>
-      <div id="hourlyStats" style="display:flex;gap:20px;flex-wrap:wrap;padding:8px 4px 12px;font-size:11px;font-family:'JetBrains Mono',monospace;"></div>
       <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
       <div class="trend-legend" id="hourlyLegend"></div>
     </div>
@@ -1299,6 +1282,22 @@ function presetRange(p){
 // FILTERING & AGGREGATION  (client-side, instant)
 // ─────────────────────────────────────────────────────────────
 const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
+// calcSkuTat: first_qc_done - sku_created_on (field r.sc)
+// r.tat = first_qc_done - createdAt (hrs), r.sc = sku_created_on, r.c = createdAt
+function calcSkuTat(r) {
+  if (r.sc && r.c && typeof r.tat === 'number' && isFinite(r.tat)) {
+    const createdMs     = parseTs(r.c)?.getTime();
+    const skuCreatedMs  = parseTs(r.sc)?.getTime();
+    if (createdMs && skuCreatedMs) {
+      const firstQcDoneMs = createdMs + r.tat * 3600000;
+      const skuTatHrs = (firstQcDoneMs - skuCreatedMs) / 3600000;
+      return skuTatHrs > 0 ? parseFloat(skuTatHrs.toFixed(3)) : null;
+    }
+  }
+  // Fallback: r.tat (first_qc_done - createdAt)
+  return (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0) ? r.tat : null;
+}
+
 function isDelivered(r){       const s=(r.final_status||'').trim(); return s==='Delivered'; }
 function isRejected(r){        const s=(r.final_status||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
 function isValidationFailed(r){const s=(r.final_status||'').trim(); return s==='Validation Failed'; }
@@ -1402,13 +1401,16 @@ function aggregate(rows){
   console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.final_status==='Under Review').length}`);
 
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
-  // Only Delivered rows, qc_user not null, TAT > 0
+  // TAT = first_qc_done - sku_created_on (field 'sc')
+  // Fallback: first_qc_done - createdAt if sc not available
   let tatSum=0, tatCount=0;
   for (const r of rows){
     if (!isDelivered(r)) continue;          // only Delivered
     if (!r.qc) continue;                    // skip null qc_user_id
-    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
-      tatSum += r.tat;
+    // Calculate TAT from sku_created_on → first_qc_done
+    const skuTat = calcSkuTat(r);
+    if (skuTat !== null && skuTat > 0){
+      tatSum += skuTat;
       tatCount++;
     }
   }
@@ -1421,7 +1423,7 @@ function aggregate(rows){
   let autoDelivered=0, manualDelivered=0;
   // New metrics
   let e2eTatSum=0, e2eTatCount=0;
-  let within3h=0, within6h=0, slaDelivCount=0;  // Accuracy: manual_editing false/true on delivered
+  let within6h=0, slaDelivCount=0;  // Accuracy: manual_editing false/true on delivered
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={}, qcBreak={};
@@ -1448,9 +1450,12 @@ function aggregate(rows){
       // E2E TAT (final_time - createdAt)
       if (typeof r.e2e_tat === 'number' && isFinite(r.e2e_tat) && r.e2e_tat > 0){
         e2eTatSum += r.e2e_tat; e2eTatCount++;
+      }
+      // Within 6h: first_qc_done - sku_created_on ≤ 6h
+      const _skuTat6 = calcSkuTat(r);
+      if (_skuTat6 !== null && _skuTat6 > 0){
         slaDelivCount++;
-        if (r.e2e_tat <= 3) within3h++;
-        if (r.e2e_tat <= 6) within6h++;
+        if (_skuTat6 <= 6) within6h++;
       }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
@@ -1476,8 +1481,12 @@ function aggregate(rows){
 
     // SLA — all rows except Under Review
     if (!isPending(r) && r.sla !== null){
-      if      (r.sla === 1) withinSla++;
-      else if (r.sla === 0) outOfSla++;
+      // SLA: first_qc_done - sku_created_on ≤ 6h
+      const _skuTatSla = calcSkuTat(r);
+      if (_skuTatSla !== null) {
+        if (_skuTatSla <= 6) withinSla++;
+        else outOfSla++;
+      }
     }
 
     // Temp Type
@@ -1494,8 +1503,11 @@ function aggregate(rows){
 
     if (r.ent){
       bump(entBreak, r.ent, kind);
-      if (r.sla===1) entBreak[r.ent].withinSla++;
-      else if (r.sla===0) entBreak[r.ent].outOfSla++;
+      const _eSla = calcSkuTat(r);
+      if (_eSla !== null) {
+        if (_eSla <= 6) entBreak[r.ent].withinSla++;
+        else entBreak[r.ent].outOfSla++;
+      }
       if (!entPoc[r.ent]) entPoc[r.ent]={ob:r.poc_ob||'',cs:r.poc_cs||''};
       else {
         if (!entPoc[r.ent].ob && r.poc_ob) entPoc[r.ent].ob=r.poc_ob;
@@ -1504,8 +1516,11 @@ function aggregate(rows){
     }
     if (r.team){
       bump(teamBreak, r.team, kind);
-      if (r.sla===1) teamBreak[r.team].withinSla++;
-      else if (r.sla===0) teamBreak[r.team].outOfSla++;
+      const _tSla = calcSkuTat(r);
+      if (_tSla !== null) {
+        if (_tSla <= 6) teamBreak[r.team].withinSla++;
+        else teamBreak[r.team].outOfSla++;
+      }
       if (!teamPoc[r.team]) teamPoc[r.team]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
       else {
         if (!teamPoc[r.team].ob  && r.poc_ob) teamPoc[r.team].ob =r.poc_ob;
@@ -1579,7 +1594,7 @@ function aggregate(rows){
     slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
-    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
+    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null, // based on first_qc_done - sku_created_on
     tatRecordCount: tatCount,
     enterpriseCount: entIdSet.size,
     teamCount:       teamIdSet.size,
@@ -1593,7 +1608,6 @@ function aggregate(rows){
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     autoDelivered, manualDelivered,
     e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
-    within3hPct: slaDelivCount ? +((within3h/slaDelivCount)*100).toFixed(1) : null,
     within6hPct: slaDelivCount ? +((within6h/slaDelivCount)*100).toFixed(1) : null,
     techAiFailed: (totalTechFailed||0) + (totalAiFailed||0),
   };
@@ -1725,201 +1739,14 @@ function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
 
 // ── Hourly Throughput (Google Sheets) ────────────────────────────────────────
 const GS_HOURLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=778431494&single=true&output=csv';
-const GS_ROSTER  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?output=csv&sheet=Roaster';
 const GS_DAILY   = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=328351304&single=true&output=csv';
 const GS_WEEKLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1345066434&single=true&output=csv';
 const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1153574725&single=true&output=csv';
 
-let _hourlyRange     = 'today';
-let _hourlyChart     = null;
-let _gsCache         = {};  // url → { data, ts }
-let _cacheBust       = 0;   // incremented on sync to bust browser HTTP cache
-const GS_TTL         = 5 * 60 * 1000;
-let _hourlyViewMode  = 'date';   // 'date' | 'hour'
-let _hourlyChartType = 'bar';    // 'bar'  | 'curve'
-
-function setHourlyView(mode, btn) {
-  _hourlyViewMode = mode;
-  document.querySelectorAll('#hlyViewDate,#hlyViewHour').forEach(b => b.classList.remove('sel'));
-  btn.classList.add('sel');
-  renderHourlyChart();
-}
-
-function setHourlyType(type, btn) {
-  _hourlyChartType = type;
-  document.querySelectorAll('#hlyTypeCurve,#hlyTypeBar').forEach(b => b.classList.remove('sel'));
-  btn.classList.add('sel');
-  renderHourlyChart();
-}
-
-// ── Roster parser ─────────────────────────────────────────────
-function parseRosterDate(str) {
-  if (!str || !String(str).trim()) return null;
-  str = String(str).trim();
-  const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,july:6,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-
-  // YYYY-MM-DD (ISO)
-  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return new Date(parseInt(iso[1]), parseInt(iso[2])-1, parseInt(iso[3]));
-
-  // M/D/YYYY (Google Sheets default export e.g. "7/3/2026")
-  const mdy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (mdy) return new Date(parseInt(mdy[3]), parseInt(mdy[1])-1, parseInt(mdy[2]));
-
-  // D-Mon-YYYY or D Mon YYYY or D Mon YY
-  // e.g. "3-Jul-2026", "06 July 26", "22 june 26"
-  const parts = str.split(/[\s\-]+/);
-  if (parts.length >= 3) {
-    const day = parseInt(parts[0]);
-    const mon = months[parts[1].toLowerCase().slice(0,4)] ?? months[parts[1].toLowerCase().slice(0,3)];
-    let yr = parseInt(parts[2]); if (yr < 100) yr += 2000;
-    if (!isNaN(day) && mon !== undefined && !isNaN(yr)) return new Date(yr, mon, day);
-  }
-  return null;
-}
-
-function parseShiftHour(str) {
-  // "02:00 AM" or "11:00 PM"
-  const m = String(str||'').trim().match(/(\d+):(\d+)\s*(AM|PM)/i);
-  if (!m) return null;
-  let h = parseInt(m[1]);
-  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
-  if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
-  return h;
-}
-
-function parseRosterRaw(csvText) {
-  // Parse roster from raw CSV text — avoids header-parsing issues
-  const lines = csvText.split('\n');
-  const rows = lines.map(line => {
-    // Simple CSV split (handles quoted fields)
-    const vals = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; continue; }
-      if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; continue; }
-      cur += ch;
-    }
-    vals.push(cur.trim());
-    return vals;
-  });
-  return parseRosterData(rows);
-}
-
-function parseRosterData(rows) {
-  const periods = [];
-  let current = null;
-  let headerRow = null;
-  let inLeave = false;
-  let leaveHeaderRow = null;
-  const leaves = []; // shared across all periods: [{name, from, till}]
-
-  for (const row of rows) {
-    // Support both array rows (from parseRosterRaw) and object rows (from fetchGS)
-    const vals = Array.isArray(row)
-      ? row.map(v => String(v||'').trim())
-      : Object.values(row).map(v => String(v||'').trim());
-    const first = vals[0];
-    if (!vals.some(v => v)) continue;
-
-    // Date range header e.g. "06 July 26 to 19 July 26"
-    if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
-      inLeave = false;
-      headerRow = null;      // ← reset shift headers for each new period
-      leaveHeaderRow = null;
-      const parts = first.split(/\s+to\s+/i);
-      current = { label:first, start:parseRosterDate(parts[0]), end:parseRosterDate(parts[1]), target:35, shifts:[], leaves };
-      periods.push(current);
-      continue;
-    }
-
-    // Leave section header
-    if (first.toLowerCase() === 'leave') { inLeave = true; leaveHeaderRow = null; continue; }
-
-    if (inLeave) {
-      // "Name, From, Till" header row
-      if (/^name$/i.test(first)) { leaveHeaderRow = vals; continue; }
-      // User leave row — name must exist; From/Till can be blank (= on duty)
-      if (/[A-Za-z]/.test(first) && !/per user|target/i.test(first)) {
-        const name = vals[0];
-        const fromStr = vals[1] || '';
-        const tillStr = vals[2] || '';
-        // Only add if BOTH from & till are filled (blank = on duty, no leave)
-        if (name && fromStr && tillStr) {
-          const fromDate = parseRosterDate(fromStr);
-          const tillDate = parseRosterDate(tillStr);
-          if (fromDate && tillDate) {
-            leaves.push({ name, from: fromDate, till: tillDate });
-          }
-        }
-      }
-      continue;
-    }
-
-    // Per user target (e.g. 35 or 40)
-    const targetVal = vals.find(v => /^\d{2,3}$/.test(v));
-    if (current && targetVal) { current.target = parseInt(targetVal); }
-
-    // Shift header row (contains AM/PM times)
-    if (current && !headerRow && /AM|PM/i.test(first)) {
-      headerRow = vals;
-      continue;
-    }
-
-    // User rows — check ALL columns, not just first
-    // Handles rows like ['', '', 'Bhanu Solanki', 'Girish', ''] where first col is empty
-    const hasAnyName = vals.some(v => v && /[A-Za-z]/.test(v) && !/per user|target|AM|PM/i.test(v) && !/\d{1,2}:\d{2}/.test(v));
-    if (current && headerRow && !inLeave && hasAnyName && !/per user|target/i.test(first)) {
-      vals.forEach((name, colIdx) => {
-        if (!name || !/[A-Za-z]/.test(name) || /per user|target|\d+/i.test(name)) return;
-        const shiftLabel = headerRow[colIdx];
-        if (!shiftLabel || !/AM|PM/i.test(shiftLabel)) return;
-        let shift = current.shifts.find(s => s.label === shiftLabel);
-        if (!shift) {
-          const parts = shiftLabel.split(/\s*(?:to|-)\s*/i);
-          let startH = parseShiftHour(parts[0]) ?? 0;
-          let endH   = parseShiftHour(parts[1]) ?? 24;
-          if (endH <= startH) endH += 24;
-          shift = { label:shiftLabel, startH, endH, users:[] };
-          current.shifts.push(shift);
-        }
-        if (!shift.users.includes(name)) shift.users.push(name);
-      });
-    }
-  }
-  return { periods, leaves };
-}
-
-function getRosterCapacity(rosterData, dt) {
-  if (dt.getDay() === 0) return 0; // Sunday off
-  const { periods, leaves } = Array.isArray(rosterData)
-    ? { periods: rosterData, leaves: [] }   // backward compat
-    : rosterData;
-  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-  const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
-  if (!period) return null;
-  const h = dt.getHours();
-  let activeUsers = 0;
-  for (const shift of period.shifts) {
-    const active = shift.endH > 24
-      ? (h >= shift.startH || h < shift.endH - 24)
-      : (h >= shift.startH && h < shift.endH);
-    if (!active) continue;
-    for (const user of shift.users) {
-      // Check if this user is on leave on this date
-      const onLeave = leaves.some(lv => {
-        if (!lv.from || !lv.till) return false;
-        // Case-insensitive name match (partial ok)
-        const nameMatch = lv.name.toLowerCase().includes(user.toLowerCase())
-                       || user.toLowerCase().includes(lv.name.toLowerCase());
-        return nameMatch && d >= lv.from && d <= lv.till;
-      });
-      if (!onLeave) activeUsers++;
-    }
-  }
-  return activeUsers * period.target;
-}
+let _hourlyRange  = 'today';
+let _hourlyChart  = null;
+let _gsCache      = {};  // url → { data, ts }
+const GS_TTL      = 5 * 60 * 1000;
 
 // Parse hour_ist → returns { date: Date, hour: number } in IST
 // Extracts hour directly from string to avoid UTC conversion errors
@@ -1961,35 +1788,29 @@ function toISTDateStr(d) {
 function getHourlyDateBounds(range) {
   const now  = new Date();
   const ms1d = 86400000;
-  const todStr = toISTDateStr(now);
-  const yesStr = toISTDateStr(new Date(now.getTime() - ms1d));
+  // All dates as IST strings "YYYY-MM-DD"
+  const todStr  = toISTDateStr(now);
+  const yesStr  = toISTDateStr(new Date(now.getTime() - ms1d));
   function daysAgo(n) { return toISTDateStr(new Date(now.getTime() - n * ms1d)); }
   function addDay(str) {
     const d = new Date(str + 'T00:00:00Z');
     return toISTDateStr(new Date(d.getTime() + ms1d));
   }
-  switch(range) {
-    case 'today':      return { fromStr: todStr,      toStr: addDay(todStr), label:'Today',        hourly:true  };
-    case 'yesterday':  return { fromStr: yesStr,      toStr: todStr,         label:'Yesterday',    hourly:true  };
-    case '7days':      return { fromStr: daysAgo(7),  toStr: addDay(todStr), label:'Last 7 Days',  hourly:false };
-    case '15days':     return { fromStr: daysAgo(15), toStr: addDay(todStr), label:'Last 15 Days', hourly:false };
-    case '30days':     return { fromStr: daysAgo(30), toStr: addDay(todStr), label:'Last 30 Days', hourly:false };
-    default:           return { fromStr: todStr,      toStr: addDay(todStr), label:'Today',        hourly:true  };
-  }
-}
+  // Get Monday of this week (IST)
+  const dow = new Date(now.getTime() + 5.5*3600000).getUTCDay();
+  const monStr = daysAgo(dow === 0 ? 6 : dow - 1);
+  // First of this month (IST)
+  const istNow = new Date(now.getTime() + 5.5*3600000);
+  const monStart = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth()+1).padStart(2,'0')}-01`;
 
-// Show/hide view toggle based on selected range
-function updateHourlyViewToggle(range) {
-  const viewToggle = $('hlyViewToggle');
-  if (!viewToggle) return;
-  const isSingleDay = (range === 'today' || range === 'yesterday');
-  if (isSingleDay) {
-    // Force hourly view, hide toggle
-    viewToggle.style.display = 'none';
-    _hourlyViewMode = 'hour';
-  } else {
-    // Show toggle for multi-day ranges
-    viewToggle.style.display = 'flex';
+  switch(range) {
+    case 'today':      return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+    case 'yesterday':  return { fromStr: yesStr,    toStr: todStr,          label:'Yesterday' };
+    case 'this_week':  return { fromStr: monStr,    toStr: addDay(todStr),  label:'This week' };
+    case 'this_month': return { fromStr: monStart,  toStr: addDay(todStr),  label:'This month' };
+    case '3weeks':     return { fromStr: daysAgo(21), toStr: addDay(todStr), label:'Last 3 weeks' };
+    case '3months':    return { fromStr: daysAgo(91), toStr: addDay(todStr), label:'Last 3 months' };
+    default:           return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
   }
 }
 
@@ -2007,48 +1828,15 @@ function parseGSCSV(text) {
 }
 
 async function fetchGS(url) {
-  // Always fetch fresh for hourly + roster sheets (fast, small files)
-  const noCache = (url === GS_HOURLY || url === GS_ROSTER);
-  if (!noCache) {
-    const cached = _gsCache[url];
-    if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
-  }
-  const res = await fetch(url + (noCache ? '&_t=' + Date.now() : ''));
+  const cached = _gsCache[url];
+  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
   const data = parseGSCSV(await res.text());
-  if (!noCache) _gsCache[url] = { data, ts: Date.now() };
+  _gsCache[url] = { data, ts: Date.now() };
   return data;
 }
 
-
-let _hourlyForecastMode = false; // false = historical, true = forecast
-
-function toggleHourlyForecast() {
-  _hourlyForecastMode = !_hourlyForecastMode;
-  const btn = $('hlyForecastBtn');
-  const tabs = $('hourlyTabs');
-  const viewToggle = $('hlyViewToggle');
-  const typeToggle = $('hlyTypeToggle');
-
-  if (_hourlyForecastMode) {
-    btn.style.background = 'var(--accent)';
-    btn.style.color = '#fff';
-    btn.textContent = '✕ Forecast';
-    tabs.style.display = 'none';
-    // Show view toggle in forecast mode too (Date-wise / Hourly avg)
-    viewToggle.style.display = 'flex';
-    typeToggle.style.display = 'flex';
-  } else {
-    btn.style.background = 'transparent';
-    btn.style.color = 'var(--accent)';
-    btn.textContent = '📅 Forecast';
-    tabs.style.display = 'flex';
-    // Restore view toggle based on current range
-    updateHourlyViewToggle(_hourlyRange);
-    typeToggle.style.display = 'flex';
-  }
-  renderHourlyChart();
-}
 
 async function renderHourlyChart() {
   const loader = $('hourlyLoader');
@@ -2058,282 +1846,17 @@ async function renderHourlyChart() {
   canvas.style.opacity = '0.3';
 
   try {
-    // Fetch hourly (parsed CSV objects) + roster (raw text for custom parsing)
-    const [hourlyRows, rosterRawText] = await Promise.all([
-      fetchGS(GS_HOURLY),
-      fetch(GS_ROSTER + '&_t=' + Date.now()).then(r => r.text()),
-    ]);
+    const rows = await fetchGS(GS_HOURLY);
+    console.log(`[hourly] fetched ${rows.length} rows. First:`, rows[0]);
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    console.log(`[hourly] range=${_hourlyRange} fromStr=${fromStr} toStr=${toStr}`);
 
-    const rosterData = parseRosterRaw(rosterRawText);
-    const { periods, leaves } = rosterData;
+    const matchedRows = rows.map(r=>({...r,_p:parseHourIST(r.hour_ist)}))
+      .filter(r => r._p && r._p.dateStr >= fromStr && r._p.dateStr < toStr);
+    console.log(`[hourly] matchedRows=${matchedRows.length}`, matchedRows.map(r=>r.hour_ist+' → '+JSON.stringify(r._p)));
 
-    // All parsed hourly rows
-    const allParsed = hourlyRows
-      .map(r => ({ ...r, _p: parseHourIST(r.hour_ist) }))
-      .filter(r => r._p);
-
-    const PAL = getPal();
-    const isDark = document.documentElement.dataset.theme === 'dark';
-    const useBars = _hourlyChartType === 'bar';
-    const fmt = v => v === null || v === undefined ? '—'
-      : Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+'K'
-      : Math.round(v).toString();
-
-    // ── HELPER: compute capacity for a date (daily total) ──
-    function getDayCap(dateStr) {
-      // Calculate daily capacity using working hours only (shift duration - 1 break hour)
-      if (new Date(dateStr + 'T00:00:00').getDay() === 0) return 0; // Sunday off
-      const { periods, leaves } = Array.isArray(rosterData)
-        ? { periods: rosterData, leaves: [] } : rosterData;
-      const d = new Date(dateStr + 'T00:00:00');
-      const period = periods.find(p => p.start && p.end && d >= p.start && d <= p.end);
-      if (!period) return null;
-
-      let total = 0;
-      for (const shift of period.shifts) {
-        // Working hours = shift duration - 1 (break)
-        const shiftDuration = shift.endH - shift.startH; // e.g. 9 for 02-11
-        const workingHours = Math.max(shiftDuration - 1, 1); // 8 working hours
-        let activeUsers = 0;
-        for (const user of shift.users) {
-          const onLeave = leaves.some(lv => {
-            if (!lv.from || !lv.till) return false;
-            const nm = lv.name.toLowerCase().includes(user.toLowerCase())
-                    || user.toLowerCase().includes(lv.name.toLowerCase());
-            return nm && d >= lv.from && d <= lv.till;
-          });
-          if (!onLeave) activeUsers++;
-        }
-        total += activeUsers * period.target * workingHours;
-      }
-      return total || null;
-    }
-
-    // ── HELPER: compute capacity for a single hour ──
-    function getHourCap(dateStr, hour) {
-      // Shift by -1: capacity at hour 3 = users who started at hour 2
-      // Because work done during 02:00-03:00 is counted at 03:00
-      const effectiveHour = hour === 0 ? 23 : hour - 1;
-      const effectiveDate = hour === 0
-        ? (() => { const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })()
-        : dateStr;
-      const dt = new Date(effectiveDate + 'T00:00:00'); dt.setHours(effectiveHour);
-      return getRosterCapacity(rosterData, dt);
-    }
-
-    // ── FORECAST MODE ─────────────────────────────────────────
-    if (_hourlyForecastMode) {
-      // Always show next 15 non-Sunday days from today
-      // Roster is used for capacity calculation only (not to limit dates)
-      const today = new Date(); today.setHours(0,0,0,0);
-
-      // ── MoM Growth from monthly_summary Google Sheet ──────────
-      // monthly_summary has pre-aggregated full month totals — most accurate
-      const monthlyRows = await fetchGS(GS_MONTHLY);
-      const nowIST = new Date(Date.now() + 19800000);
-      const currentMonth = nowIST.getUTCFullYear() + '-' + String(nowIST.getUTCMonth()+1).padStart(2,'0');
-
-      // Build month → daily avg (total_in / days_in_month)
-      // Exclude current (incomplete) month
-      const moData = monthlyRows
-        .map(r => {
-          const rawDate = r.month_ist || r['month_ist'] || Object.values(r)[0];
-          if (!rawDate) return null;
-          const dt = new Date(String(rawDate).trim());
-          if (isNaN(dt)) return null;
-          const mo = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
-          const totalIn = parseFloat(r.total_in || Object.values(r)[1]) || 0;
-          // Days in month
-          const daysInMonth = new Date(dt.getFullYear(), dt.getMonth()+1, 0).getDate();
-          return { mo, totalIn, avgDaily: totalIn / daysInMonth };
-        })
-        .filter(r => r && r.mo < currentMonth && r.totalIn > 0)
-        .sort((a,b) => a.mo.localeCompare(b.mo));
-
-      let momGrowth = 0;
-      let momLabel  = '';
-      if (moData.length >= 2) {
-        const last = moData[moData.length - 1];
-        const prev = moData[moData.length - 2];
-        if (prev.avgDaily > 0 && last.avgDaily > 0) {
-          momGrowth = (last.avgDaily - prev.avgDaily) / prev.avgDaily;
-          const pct = (momGrowth * 100).toFixed(1);
-          momLabel = `${momGrowth >= 0 ? '+' : ''}${pct}% (${prev.mo} → ${last.mo})`;
-        }
-      } else if (moData.length === 1) {
-        momLabel = 'Only 1 full month of data';
-      }
-      const growthFactor = 1 + momGrowth;
-
-      // ── Historical daily totals for weekday avg ─────────────
-      const dailyByDate = {};
-      for (const r of allParsed) {
-        const ds = r._p.dateStr;
-        if (!dailyByDate[ds]) dailyByDate[ds] = 0;
-        dailyByDate[ds] += parseFloat(r.total_in) || 0;
-      }
-      const dowVals = {};
-      for (const [ds, total] of Object.entries(dailyByDate)) {
-        const dow = new Date(ds + 'T00:00:00').getDay();
-        if (!dowVals[dow]) dowVals[dow] = [];
-        if (total > 0) dowVals[dow].push(total);
-      }
-      // Apply MoM growth factor to weekday averages
-      const avgByDow = {};
-      for (const [dow, vals] of Object.entries(dowVals)) {
-        avgByDow[dow] = Math.round((vals.reduce((a,b)=>a+b,0)/vals.length) * growthFactor);
-      }
-
-      // Build next 15 non-Sunday days from tomorrow
-      const toLocalDS = d => d.getFullYear() + '-'
-        + String(d.getMonth()+1).padStart(2,'0') + '-'
-        + String(d.getDate()).padStart(2,'0');
-
-      const fcDates = [];
-      const cursor = new Date(today);
-      cursor.setDate(cursor.getDate() + 1); // start from tomorrow
-
-      // Go up to 30 days ahead to collect 15 non-Sunday days
-      for (let i = 0; i < 30 && fcDates.length < 15; i++) {
-        if (cursor.getDay() !== 0) fcDates.push(toLocalDS(cursor)); // skip Sundays
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      if (!fcDates.length) {
-        $('hourlyLegend').innerHTML = '<span style="color:var(--muted);font-size:12px">Could not build forecast dates.</span>';
-        if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
-        if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
-        canvas.style.display = 'none';
-        if (loader) loader.style.display = 'none';
-        return;
-      }
-
-      canvas.style.display = 'block';
-      const fmtDate = d => { const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-IN',{weekday:'short',day:'2-digit',month:'short'}); };
-
-      // Forecast supports Date-wise and Hourly avg views
-      let labels, projIn, capData;
-
-      if (_hourlyViewMode === 'hour') {
-        // Hourly view: avg projected In per hour × growth
-        // Capacity: avg per hour across ALL forecast dates (each uses its own roster period)
-        const hAvgIn  = new Array(24).fill(0);
-        const hAvgCnt = new Array(24).fill(0);
-        for (const r of allParsed) {
-          const v = parseFloat(r.total_in) || 0;
-          if (v > 0) { hAvgIn[r._p.hour] += v; hAvgCnt[r._p.hour]++; }
-        }
-
-        // Avg capacity per hour across forecast dates (each date uses its own roster period)
-        const hCapSum = new Array(24).fill(0);
-        const hCapCnt = new Array(24).fill(0);
-        for (const d of fcDates) {
-          for (let h = 0; h < 24; h++) {
-            const c = getHourCap(d, h);
-            if (c !== null && c > 0) { hCapSum[h] += c; hCapCnt[h]++; }
-          }
-        }
-
-        labels  = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
-        projIn  = Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round((hAvgIn[i]/hAvgCnt[i]) * growthFactor):null);
-        capData = Array.from({length:24},(_,i)=>hCapCnt[i]?Math.round(hCapSum[i]/hCapCnt[i]):null);
-      } else {
-        // Date-wise: one bar per forecast date
-        labels  = fcDates.map(fmtDate);
-        projIn  = fcDates.map(d => { const dow=new Date(d+'T00:00:00').getDay(); return avgByDow[dow]||null; });
-        capData = fcDates.map(getDayCap);
-      }
-
-      const totalProjIn = projIn.reduce((s,v)=>s+(v||0),0);
-      const totalCap    = capData.reduce((s,v)=>s+(v||0),0);
-
-      if ($('hourlyStats')) {
-        const statsItems = [
-          ['📅 Forecast days', String(fcDates.length), 'var(--accent)'],
-          ['● Projected In', fmt(totalProjIn), '#3b82f6'],
-          ['● Total Capacity', fmt(totalCap), '#f59e0b'],
-          ['● From', fmtDate(fcDates[0]), 'var(--muted)'],
-          ['● To',   fmtDate(fcDates[fcDates.length-1]), 'var(--muted)'],
-        ];
-        if (momLabel) statsItems.push(['📈 Growth', momLabel, momGrowth >= 0 ? '#16a34a' : '#ef4444']);
-        $('hourlyStats').innerHTML = statsItems
-          .map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
-          .join('<span style="color:var(--line);margin:0 6px">·</span>');
-      }
-
-      if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
-
-      _hourlyChart = new Chart(canvas, {
-        data: { labels, datasets: [
-          // Projected In (faded blue bars)
-          { type: useBars?'bar':'line', label:'Projected Incoming', data:projIn,
-            backgroundColor: useBars?'rgba(59,130,246,0.45)':'rgba(59,130,246,0.1)',
-            borderColor:'rgba(59,130,246,0.7)', borderWidth: useBars?1:2,
-            borderDash: useBars?[]:[4,3], borderRadius: useBars?4:0,
-            tension:0.35, fill:!useBars, pointRadius:useBars?0:4, pointHoverRadius:6,
-            order:2,
-            datalabels:{ display:true, anchor:'end', align:'end', clamp:true,
-              color:'#3b82f6', font:{family:"'JetBrains Mono',monospace",size:10,weight:'600'},
-              formatter:v=>v>0?fmt(v):'' }},
-          // Planned Capacity (orange dotted line)
-          { type:'line', label:'Planned Capacity', data:capData,
-            borderColor:'#f59e0b', borderDash:[6,4], borderWidth:2.5,
-            backgroundColor:'transparent', pointRadius:3, pointHoverRadius:5,
-            tension:0, fill:false, order:0,
-            datalabels:{ display:true, anchor:'end', align:'top', clamp:true,
-              color:'#f59e0b', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-              formatter:v=>v>0?fmt(v):'' }},
-        ]},
-        options:{
-          responsive:true, maintainAspectRatio:false,
-          interaction:{mode:'index',intersect:false},
-          layout:{padding:{top:28}},
-          plugins:{
-            legend:{display:false},
-            tooltip:{
-              backgroundColor:isDark?'#2a2a2e':'#fff',
-              titleColor:isDark?'#f0efe9':'#0b0b0c',
-              bodyColor:isDark?'#b0b0b8':'#404045',
-              borderColor:isDark?'#3a3a3e':'#e8e6df', borderWidth:1,
-              padding:10, displayColors:true, boxPadding:4, cornerRadius:8,
-              callbacks:{
-                label:ctx=>{ const v=ctx.parsed.y; if(!v)return null; return ` ${ctx.dataset.label}: ${fmt(v)}`; }
-              }
-            },
-          },
-          scales:{
-            x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:45} },
-            y:{ position:'left', beginAtZero:true, grid:{color:PAL.line,drawBorder:false},
-                ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
-                title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted} },
-          }
-        },
-        plugins:[ChartDataLabels],
-      });
-
-      $('hourlySub').textContent = `FORECAST · ${_hourlyViewMode==='hour'?'HOURLY AVG':'DATE-WISE'} · ${fcDates[0]} → ${fcDates[fcDates.length-1]} · Projected In = historical weekday avg × growth${momLabel?' ('+momLabel+')':''} · Capacity from Roster`;
-      $('hourlyLegend').innerHTML = [
-        ['Projected Incoming','rgba(59,130,246,0.7)','bar-fade'],
-        ['Planned Capacity','#f59e0b','dash'],
-      ].map(([k,c,t])=>{
-        const s = t==='bar-fade'
-          ? `<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle;"></span>`
-          : `<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle;"></span>`;
-        return `<div class="trend-legend-item">${s}<span>${k}</span></div>`;
-      }).join('');
-
-      return; // done with forecast mode
-    }
-
-    // ── HISTORICAL MODE ───────────────────────────────────────
-    const { fromStr, toStr, label, hourly: forceHourly } = getHourlyDateBounds(_hourlyRange);
-    // Today/Yesterday always show hourly view
-    const effectiveViewMode = forceHourly ? 'hour' : _hourlyViewMode;
-    const parsed = allParsed.filter(r => r._p.dateStr >= fromStr && r._p.dateStr < toStr);
-
-    if (!parsed.length) {
-      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet.</span>`;
-      if ($('hourlyStats')) $('hourlyStats').innerHTML = '';
+    if (matchedRows.length === 0) {
+      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet — Google Sheets updates hourly.</span>`;
       if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
       canvas.style.display = 'none';
       if (loader) loader.style.display = 'none';
@@ -2341,161 +1864,118 @@ async function renderHourlyChart() {
     }
     canvas.style.display = 'block';
 
-    let labels=[], inData=[], outData=[], backlogData=[], capacityData=[];
+    const recv    = new Array(24).fill(0);
+    const qcDone  = new Array(24).fill(0);
+    const backlog = new Array(24).fill(0);
+    const bCount  = new Array(24).fill(0);
 
-    if (effectiveViewMode === 'date') {
-      // ── Date-wise ──
-      const dateMap = {};
-      for (const r of parsed) {
-        const d = r._p.dateStr;
-        if (!dateMap[d]) dateMap[d] = { in:0, out:0, backlog:0, bCount:0 };
-        dateMap[d].in      += parseFloat(r.total_in)  || 0;
-        dateMap[d].out     += parseFloat(r.total_out) || 0;
-        dateMap[d].backlog += parseFloat(r.backlog)   || 0;
-        dateMap[d].bCount++;
-      }
-      const dates = Object.keys(dateMap).sort();
-      const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
-      labels      = dates.map(fmtDate);
-      inData      = dates.map(d => Math.round(dateMap[d].in));
-      outData     = dates.map(d => Math.round(dateMap[d].out));
-      backlogData = dates.map(d => Math.round(dateMap[d].backlog / (dateMap[d].bCount||1)));
-      capacityData= dates.map(getDayCap);
+    matchedRows.forEach(r => {
+      const h = r._p.hour;
+      recv[h]    += parseFloat(r.total_in)  || 0;
+      qcDone[h]  += parseFloat(r.total_out) || 0;
+      backlog[h] += parseFloat(r.backlog)   || 0;
+      bCount[h]++;
+    });
 
-    } else {
-      // ── Hourly avg ──
-      const hm = {};
-      for (let h=0;h<24;h++) hm[h]={in:0,out:0,backlog:0,bCount:0,cap:0,cCount:0};
-      for (const r of parsed) {
-        const h = r._p.hour;
-        hm[h].in      += parseFloat(r.total_in)  || 0;
-        hm[h].out     += parseFloat(r.total_out) || 0;
-        hm[h].backlog += parseFloat(r.backlog)   || 0;
-        hm[h].bCount++;
-      }
-      const uDates = [...new Set(parsed.map(r=>r._p.dateStr))];
-      // Use most recent date that has a roster period for capacity reference
-      // This avoids averaging across dates with/without roster coverage
-      for (const d of uDates) {
-        for (let h=0;h<24;h++) {
-          const c = getHourCap(d, h);
-          // Only count hours where roster exists (not null)
-          if (c !== null && c > 0) { hm[h].cap+=c; hm[h].cCount++; }
-        }
-      }
-      labels       = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
-      inData       = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].in/hm[i].bCount):0);
-      outData      = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].out/hm[i].bCount):0);
-      backlogData  = Array.from({length:24},(_,i)=>hm[i].bCount?Math.round(hm[i].backlog/hm[i].bCount):0);
-      // Avg capacity per hour across dates that have roster coverage
-      capacityData = Array.from({length:24},(_,i)=>hm[i].cCount?Math.round(hm[i].cap/hm[i].cCount):null);
+    const backlogAvg = backlog.map((s,i) => bCount[i] ? Math.round(s/bCount[i]) : 0);
+    const labels     = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+    const totalRecv   = recv.reduce((a,b)=>a+b,0);
+    const totalQc     = qcDone.reduce((a,b)=>a+b,0);
+    const peakBacklog = Math.max(...backlogAvg);
+    const endBacklog  = backlogAvg[23];
+
+    const PAL = getPal();
+    const isDarkMode = document.documentElement.dataset.theme === 'dark';
+    const pointBorder = isDarkMode ? PAL.ink : '#ffffff';
+    const labelColor  = PAL.bodyText || PAL.ink;
+
+    // Gradient under Received — same as mkTrend
+    const ctx2 = canvas.getContext('2d');
+    function hexToRgba(hex, a){
+      const h = String(hex||'').trim().replace('#','');
+      if (h.length!==6) return `rgba(31,63,114,${a})`;
+      const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+      return `rgba(${r},${g},${b},${a})`;
     }
-
-    // Stats
-    const totalIn  = inData.reduce((s,v)=>s+(v||0),0);
-    const totalOut = outData.reduce((s,v)=>s+(v||0),0);
-    const peakBlog = Math.max(0,...backlogData.filter(v=>v!==null));
-    const endBlog  = [...backlogData].reverse().find(v=>v!==null)||0;
-    const rawCap   = capacityData.find(c=>c!==null&&c>0);
-    const dpCount  = inData.filter(v=>v!==null).length;
-
-    if ($('hourlyStats')) {
-      $('hourlyStats').innerHTML = [
-        ['● New Entered', fmt(totalIn),  '#3b82f6'],
-        ['● Completed',   fmt(totalOut), '#22c55e'],
-        ['● Peak Backlog',fmt(peakBlog), '#ef4444'],
-        ['● End Backlog', fmt(endBlog),  '#f59e0b'],
-        ['● Raw Capacity',rawCap?fmt(rawCap)+'/hr':'—','#f59e0b'],
-        ['● Actual data points',String(dpCount),'#94a3b8'],
-      ].map(([k,v,c])=>`<span style="color:${c};font-weight:600">${k}:</span> <span style="color:var(--ink-2)">${v}</span>`)
-       .join('<span style="color:var(--line);margin:0 6px">·</span>');
-    }
-
-    const showDL = labels.length <= 30;
+    const grad = ctx2.createLinearGradient(0,0,0,canvas.height||320);
+    grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
+    grad.addColorStop(1, hexToRgba(PAL.accent, 0));
 
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
 
     _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
       data:{ labels, datasets:[
-        // In (blue)
-        { type:useBars?'bar':'line', label:'New Entered', data:inData,
-          backgroundColor:useBars?'rgba(59,130,246,0.75)':'rgba(59,130,246,0.12)',
-          borderColor:'#3b82f6', borderWidth:useBars?1:2, borderRadius:useBars?3:0,
-          tension:0.35, fill:!useBars, pointRadius:useBars?0:3, pointHoverRadius:5, order:3,
-          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-            anchor:'end', align:useBars?'end':'top', clamp:true,
-            color:'#3b82f6', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v>0?fmt(v):'' }},
-        // Out (green)
-        { type:useBars?'bar':'line', label:'Completed', data:outData,
-          backgroundColor:useBars?'rgba(34,197,94,0.75)':'transparent',
-          borderColor:'#22c55e', borderWidth:useBars?1:2, borderRadius:useBars?3:0,
-          tension:0.35, fill:false, pointRadius:useBars?0:2.5, pointHoverRadius:5, order:2,
-          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-            anchor:'end', align:useBars?'end':'bottom', clamp:true,
-            color:'#16a34a', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v>0?fmt(v):'' }},
-        // Backlog (red line, right axis)
-        { type:'line', label:'Actual Backlog', data:backlogData,
-          borderColor:'#ef4444', backgroundColor:'transparent',
-          borderWidth:2.5, tension:0.3, fill:false,
-          pointRadius:labels.length>35?0:3, pointHoverRadius:5,
-          yAxisID:'yBacklog', order:0,
-          datalabels:{ display:ctx=>showDL&&(ctx.dataset.data[ctx.dataIndex]||0)>0,
-            anchor:'end', align:'top', clamp:true,
-            color:'#ef4444', font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v>0?fmt(v):'' }},
-        // Capacity (orange dotted)
-        { type:'line', label:'Capacity', data:capacityData,
-          borderColor:'#f59e0b', borderDash:[6,4], borderWidth:2,
-          backgroundColor:'transparent', pointRadius:0, pointHoverRadius:4,
-          tension:0, fill:false, order:1, datalabels:{display:false} },
+        { label:'Received', data:recv,
+          borderColor:PAL.accent, backgroundColor:grad,
+          borderWidth:2.2, tension:0.35, fill:true,
+          pointRadius:3, pointHoverRadius:6,
+          pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', clamp:true, color:labelColor,
+            font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'', padding:{top:2,bottom:2},
+          },
+        },
+        { label:'QC Done', data:qcDone,
+          borderColor:PAL.green, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false,
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.green, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'bottom', anchor:'end', color:PAL.green,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'', padding:{top:1,bottom:1},
+          },
+        },
+        { label:'Pendency', data:backlogAvg,
+          borderColor:PAL.red, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false,
+          borderDash:[5,3],
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.red, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.red, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', color:PAL.red,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'',
+            display: ctx => ctx.dataset.data[ctx.dataIndex]>0,
+          },
+        },
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
-        interaction:{mode:'index',intersect:false},
-        layout:{padding:{top:24}},
+        interaction:{ mode:'index', intersect:false },
+        layout:{ padding:{ top:18 } },
         plugins:{
-          legend:{display:false},
+          legend:{ display:false },
           tooltip:{
-            backgroundColor:isDark?'#2a2a2e':'#fff',
-            titleColor:isDark?'#f0efe9':'#0b0b0c',
-            bodyColor:isDark?'#b0b0b8':'#404045',
-            borderColor:isDark?'#3a3a3e':'#e8e6df', borderWidth:1,
-            padding:10, displayColors:true, boxPadding:4, cornerRadius:8,
-            callbacks:{
-              label:ctx=>{ const v=ctx.parsed.y; if(v===null||v===undefined)return null;
-                return ` ${ctx.dataset.label}: ${fmt(v)}`; }
-            }
+            backgroundColor:PAL.ink,
+            titleColor:isDarkMode?'#0b0b0c':'#fff',
+            bodyColor:isDarkMode?'#0b0b0c':'#fff',
+            padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+            callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` },
           },
         },
         scales:{
-          x:{ grid:{display:false}, ticks:{font:{size:10},color:PAL.muted,maxRotation:45,autoSkip:true,maxTicksLimit:32} },
-          y:{ position:'left', beginAtZero:true, grid:{color:PAL.line,drawBorder:false},
-              ticks:{font:{size:10},color:PAL.muted,callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
-              title:{display:true,text:'SKUs/day',font:{size:10},color:PAL.muted} },
-          yBacklog:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false},
-              ticks:{font:{size:10},color:'#ef4444',callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},
-              title:{display:true,text:'Backlog',font:{size:10},color:'#ef4444'} }
-        }
+          x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted,autoSkip:true,maxRotation:0} },
+          y:{ grid:{color:PAL.line,drawBorder:false}, beginAtZero:true,
+              ticks:{font:{size:11},color:PAL.muted,precision:0,callback:v=>v.toLocaleString()} },
+        },
       },
-      plugins:[ChartDataLabels],
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · ${effectiveViewMode==='date'?'DATE-WISE':'HOURLY AVG'} · In · Out · Backlog · Capacity from Roster`;
+    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDENCY = FRESH + PRIOR HOUR LEFTOVER`;
+    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pendency':PAL.red };
     $('hourlyLegend').innerHTML = [
-      ['New Entered','#3b82f6','sq'],
-      ['Completed','#22c55e','sq'],
-      ['Actual Backlog','#ef4444','line'],
-      ['Capacity','#f59e0b','dash'],
-    ].map(([k,c,t])=>{
-      const s = t==='sq'
-        ? `<span style="display:inline-block;width:11px;height:11px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
-        : t==='line'
-        ? `<span style="display:inline-block;width:20px;height:3px;background:${c};border-radius:2px;margin-right:5px;vertical-align:middle"></span>`
-        : `<span style="display:inline-block;width:20px;height:0;border-top:2.5px dashed ${c};margin-right:5px;vertical-align:middle"></span>`;
-      return `<div class="trend-legend-item">${s}<span>${k}</span></div>`;
-    }).join('');
+      ['Received',  totalRecv.toLocaleString()],
+      ['QC Done',   totalQc.toLocaleString()],
+      ['Pendency',  `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
+    ].map(([k,v])=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
+    ).join('');
 
   } catch(err) {
     console.error('[hourly]', err);
@@ -2904,7 +2384,7 @@ function paint(){
   $('kv-team').textContent      = num(k.teamCount);
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
-  $('kv-rejected').textContent  = num(k.totalRejected||0);
+  $('kv-rejected').textContent  = num((k.totalRejected||0) + (k.totalTechFailed||0) + (k.totalAiFailed||0));
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
@@ -2919,7 +2399,6 @@ function paint(){
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
-  $('kv-w3h')     && ($('kv-w3h').textContent     = k.within3hPct!=null ? k.within3hPct.toFixed(1)+'%' : '—');
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
 
   // SLA + Delivery panels
@@ -3038,7 +2517,7 @@ async function syncFromServer({silent=false, force=false}={}){
       if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
     }, 800);
 
-    const res = await fetch('/data.json' + (_cacheBust ? '?t=' + _cacheBust : ''));
+    const res = await fetch('/api/data' + (force ? '?force=1' : ''));
 
     clearInterval(progressInterval);
     setLoadProgress(85, 'Processing rows…');
@@ -3078,7 +2557,7 @@ async function syncFromServer({silent=false, force=false}={}){
     console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
     if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
     lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
-    $('syncInfo').textContent = ''; window._lastSynced = RAW.length > 0 ? (window._lastSynced||'') : '';
+    $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
 
     // Diagnostic: log monthly counts so you can compare against the source CSV.
     // Open the browser console to see it.
@@ -3453,12 +2932,9 @@ document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     _hourlyRange = btn.dataset.hr;
     document.querySelectorAll('#hourlyTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
-    updateHourlyViewToggle(_hourlyRange);
     renderHourlyChart();
   });
-});
-// Set initial state on load
-updateHourlyViewToggle(_hourlyRange);// ─────────────────────────────────────────────────────────────
+});// ─────────────────────────────────────────────────────────────
 // SLA PANEL → DRILL-DOWN
 // ─────────────────────────────────────────────────────────────
 function bindSlaCells(){
@@ -3512,8 +2988,7 @@ function drillSubset(rows, view){
     case 'processing':    return rows.filter(r => (r.final_status||'').trim()==='Processing');
     case 'tech_ai':       return rows.filter(r => r.final_status==='Tech Failure'||r.final_status==='AI Failed');
     case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e_tat > 0);
-    case 'within_3h':     return rows.filter(r => isDelivered(r) && r.e2e_tat <= 3);
-    case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e_tat <= 6);
+    case 'within_6h':     return rows.filter(r => isDelivered(r) && calcSkuTat(r) !== null && calcSkuTat(r) <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
     default:              return rows;
   }
@@ -4091,52 +3566,29 @@ $('editBtn').addEventListener('click', ()=>{
   if (editMode) renderEditControls();
 });
 
-// SYNC BUTTON — triggers GitHub Action then polls for fresh data
-$('autoSyncBadge').textContent = '';
+// ─────────────────────────────────────────────────────────────
+// AUTO-SYNC — 30 minutes
+// ─────────────────────────────────────────────────────────────
+const AUTO_MS = 5 * 60 * 1000;  // 5 min — near-live
+let autoTimer = null, cdTimer = null, nextAt = null;
+function startCD(){
+  if (cdTimer) clearInterval(cdTimer);
+  nextAt = Date.now() + AUTO_MS;
+  cdTimer = setInterval(()=>{
+    const rem = nextAt - Date.now();
+    if (rem <= 0){ $('autoSyncBadge').textContent='Syncing…'; return; }
+    const m = Math.floor(rem/60000), s = Math.floor((rem%60000)/1000);
+    $('autoSyncBadge').textContent = `Next sync in ${m}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+}
+function schedAuto(){
+  if (autoTimer) clearTimeout(autoTimer);
+  startCD();
+  autoTimer = setTimeout(async()=>{ await syncFromServer({silent:true, force:true}); schedAuto(); }, AUTO_MS);
+}
 $('syncBtn').addEventListener('click', async()=>{
-  const btn = $('syncBtn');
-  const badge = $('autoSyncBadge');
-  btn.disabled = true;
-  btn.textContent = 'Syncing…';
-  // Clear all cached data — GS cache, roster cache, and force browser cache bust
-  _gsCache = {};
-  _rosterData = null;
-  _cacheBust = Date.now(); // forces fresh fetch of data.json
-  badge.textContent = 'Triggering sync…';
-  try {
-    const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
-    const triggerData = await triggerRes.json();
-    if (!triggerData.ok) {
-      badge.textContent = 'Sync failed: ' + (triggerData.error || 'unknown error');
-      btn.disabled = false; btn.textContent = 'Sync'; return;
-    }
-    badge.textContent = 'Action triggered — waiting for data…';
-    const prevSynced = window._lastSynced || '';
-    let attempts = 0;
-    const poll = setInterval(async () => {
-      attempts++;
-      try {
-        const r = await fetch('/data.json?t=' + Date.now());
-        const d = await r.json();
-        if (d.lastSynced && d.lastSynced !== prevSynced) {
-          clearInterval(poll);
-          window._lastSynced = d.lastSynced;
-          badge.textContent = 'Synced at ' + new Date(d.lastSynced).toLocaleTimeString();
-          btn.disabled = false; btn.textContent = 'Sync';
-          await syncFromServer({ force: true });
-        } else if (attempts >= 18) {
-          clearInterval(poll);
-          badge.textContent = 'Sync took too long — try refreshing';
-          btn.disabled = false; btn.textContent = 'Sync';
-        } else {
-          badge.textContent = `Waiting for data… (~${(18-attempts)*5}s)`;
-        }
-      } catch(e) {}
-    }, 5000);
-  } catch(err) {
-    badge.textContent = 'Error: ' + err.message;
-    btn.disabled = false; btn.textContent = 'Sync';
-  }
+  await syncFromServer({force:true});
+  schedAuto();
 });
 
 function setLoading(on, msg='Loading…'){
@@ -4517,7 +3969,7 @@ function bucketizeUserRows(rows, buckets){
         b.received++;
         if (isDelivered(r)){
           b.delivered++;
-          if (r.sla === 1) b.withinSla++;
+          const _bSla = calcSkuTat(r); if (_bSla !== null && _bSla <= 6) b.withinSla++;
           else if (r.sla === 0) b.outOfSla++;
         } else if (isRejected(r)){
           b.rejected++;
@@ -4826,7 +4278,7 @@ function renderPerfEntTable(rows){
     e.total++;
     if (isDelivered(r)){
       e.delivered++;
-      if (r.sla === 1) e.withinSla++;
+      const _eSla2 = calcSkuTat(r); if (_eSla2 !== null && _eSla2 <= 6) e.withinSla++;
       else if (r.sla === 0) e.outOfSla++;
     } else if (isRejected(r)) e.rejected++;
     else e.pending++;
@@ -5050,6 +4502,7 @@ bindSlaCells();
 syncDateUI();
 applyLayout();
 syncFromServer();
+schedAuto();
 </script>
 </body>
 </html>
