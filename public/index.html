@@ -39,7 +39,7 @@
   header h1{margin:0;font-family:'Bricolage Grotesque',serif;font-weight:600;font-size:22px;letter-spacing:-.025em;}
   .tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
   .actions{display:flex;align-items:center;gap:10px;}
-  .sync-info{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .sync-info{display:none;}
   .autosync-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap;}
   .btn-icon{background:var(--surface);color:var(--ink-2);border:1px solid var(--line);padding:7px 14px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;transition:background .15s,color .15s,border-color .15s;display:inline-flex;align-items:center;gap:6px;}
   .btn-icon:hover{background:var(--bg);color:var(--ink);}
@@ -208,12 +208,13 @@
   .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:10px;}
 
   /* KPI CARDS */
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:28px;}
-  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
+  .kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:28px;}
+  @media(max-width:1200px){.kpis{grid-template-columns:repeat(4,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;min-height:80px;}
   .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--shadow-md);border-color:var(--line-2);}
   .kpi:active{transform:translateY(0);}
   .kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;line-height:1.35;}
-  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:36px;font-weight:600;letter-spacing:-.025em;margin-top:14px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:clamp(18px,2.2vw,32px);font-weight:600;letter-spacing:-.025em;margin-top:10px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
   .kpi-value.green{color:var(--green);}.kpi-value.red{color:var(--red);}.kpi-value.orange{color:var(--orange);}.kpi-value.amber{color:var(--amber);}.kpi-value.blue{color:var(--accent);}.kpi-value.purple{color:var(--purple);}
   .kpi-pct{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);font-weight:500;margin-top:6px;font-variant-numeric:tabular-nums;}
   .kpi-pct.muted{color:var(--muted);}
@@ -1282,19 +1283,18 @@ function presetRange(p){
 // FILTERING & AGGREGATION  (client-side, instant)
 // ─────────────────────────────────────────────────────────────
 const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
-// calcSkuTat: first_qc_done - sku_created_on (field r.sc)
-// r.tat = first_qc_done - createdAt (hrs), r.sc = sku_created_on, r.c = createdAt
 function calcSkuTat(r) {
+  // TAT = first_qc_done - sku_created_on
+  // r.tat = first_qc_done - createdAt (hrs), r.sc = sku_created_on, r.c = createdAt
   if (r.sc && r.c && typeof r.tat === 'number' && isFinite(r.tat)) {
-    const createdMs     = parseTs(r.c)?.getTime();
-    const skuCreatedMs  = parseTs(r.sc)?.getTime();
+    const createdMs    = parseTs(r.c)?.getTime();
+    const skuCreatedMs = parseTs(r.sc)?.getTime();
     if (createdMs && skuCreatedMs) {
       const firstQcDoneMs = createdMs + r.tat * 3600000;
       const skuTatHrs = (firstQcDoneMs - skuCreatedMs) / 3600000;
       return skuTatHrs > 0 ? parseFloat(skuTatHrs.toFixed(3)) : null;
     }
   }
-  // Fallback: r.tat (first_qc_done - createdAt)
   return (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0) ? r.tat : null;
 }
 
@@ -1401,18 +1401,13 @@ function aggregate(rows){
   console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.final_status==='Under Review').length}`);
 
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
-  // TAT = first_qc_done - sku_created_on (field 'sc')
-  // Fallback: first_qc_done - createdAt if sc not available
+  // Only Delivered rows, qc_user not null, TAT > 0
   let tatSum=0, tatCount=0;
   for (const r of rows){
-    if (!isDelivered(r)) continue;          // only Delivered
-    if (!r.qc) continue;                    // skip null qc_user_id
-    // Calculate TAT from sku_created_on → first_qc_done
+    if (!isDelivered(r)) continue;
+    if (!r.qc) continue;
     const skuTat = calcSkuTat(r);
-    if (skuTat !== null && skuTat > 0){
-      tatSum += skuTat;
-      tatCount++;
-    }
+    if (skuTat !== null && skuTat > 0){ tatSum += skuTat; tatCount++; }
   }
 
   // ── Step 3: Unique set counts ─────────────────────────────────
@@ -1451,12 +1446,9 @@ function aggregate(rows){
       if (typeof r.e2e_tat === 'number' && isFinite(r.e2e_tat) && r.e2e_tat > 0){
         e2eTatSum += r.e2e_tat; e2eTatCount++;
       }
-      // Within 6h: first_qc_done - sku_created_on ≤ 6h
-      const _skuTat6 = calcSkuTat(r);
-      if (_skuTat6 !== null && _skuTat6 > 0){
-        slaDelivCount++;
-        if (_skuTat6 <= 6) within6h++;
-      }
+      // Within 6h: first_qc_done - sku_created_on
+      const _w6 = calcSkuTat(r);
+      if (_w6 !== null && _w6 > 0){ slaDelivCount++; if (_w6 <= 6) within6h++; }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
       if (isValidationFailed(r)) totalValidationFailed++;
@@ -1481,12 +1473,8 @@ function aggregate(rows){
 
     // SLA — all rows except Under Review
     if (!isPending(r) && r.sla !== null){
-      // SLA: first_qc_done - sku_created_on ≤ 6h
-      const _skuTatSla = calcSkuTat(r);
-      if (_skuTatSla !== null) {
-        if (_skuTatSla <= 6) withinSla++;
-        else outOfSla++;
-      }
+      const _sla = calcSkuTat(r);
+      if (_sla !== null) { if (_sla <= 6) withinSla++; else outOfSla++; }
     }
 
     // Temp Type
@@ -1503,11 +1491,7 @@ function aggregate(rows){
 
     if (r.ent){
       bump(entBreak, r.ent, kind);
-      const _eSla = calcSkuTat(r);
-      if (_eSla !== null) {
-        if (_eSla <= 6) entBreak[r.ent].withinSla++;
-        else entBreak[r.ent].outOfSla++;
-      }
+      const _es=calcSkuTat(r); if(_es!==null){if(_es<=6)entBreak[r.ent].withinSla++;else entBreak[r.ent].outOfSla++;}
       if (!entPoc[r.ent]) entPoc[r.ent]={ob:r.poc_ob||'',cs:r.poc_cs||''};
       else {
         if (!entPoc[r.ent].ob && r.poc_ob) entPoc[r.ent].ob=r.poc_ob;
@@ -1516,11 +1500,7 @@ function aggregate(rows){
     }
     if (r.team){
       bump(teamBreak, r.team, kind);
-      const _tSla = calcSkuTat(r);
-      if (_tSla !== null) {
-        if (_tSla <= 6) teamBreak[r.team].withinSla++;
-        else teamBreak[r.team].outOfSla++;
-      }
+      const _ts=calcSkuTat(r); if(_ts!==null){if(_ts<=6)teamBreak[r.team].withinSla++;else teamBreak[r.team].outOfSla++;}
       if (!teamPoc[r.team]) teamPoc[r.team]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
       else {
         if (!teamPoc[r.team].ob  && r.poc_ob) teamPoc[r.team].ob =r.poc_ob;
@@ -1594,7 +1574,7 @@ function aggregate(rows){
     slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
-    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null, // based on first_qc_done - sku_created_on
+    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
     tatRecordCount: tatCount,
     enterpriseCount: entIdSet.size,
     teamCount:       teamIdSet.size,
@@ -1693,7 +1673,6 @@ const KPIS = [
   { id:'sla',       label:'SLA Compliance',    sub:'within 6h (first_qc_done)', color:'green', kind:'records', view:'within_sla' },
   { id:'tat',       label:'Avg TAT',           sub:'first_qc_done - createdAt', color:'blue', kind:'records',  view:'tat'        },
   { id:'e2e-tat',   label:'E2E TAT',           sub:'final_time - createdAt', color:'blue',   kind:'records',   view:'e2e_tat'    },
-  { id:'w3h',       label:'Within 3h %',       sub:'delivered ≤ 3h',         color:'green',  kind:'records',   view:'within_3h'  },
   { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
 ];
 
@@ -1746,6 +1725,7 @@ const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3Itgzw
 let _hourlyRange  = 'today';
 let _hourlyChart  = null;
 let _gsCache      = {};  // url → { data, ts }
+let _cacheBust    = 0;   // busts browser HTTP cache on sync
 const GS_TTL      = 5 * 60 * 1000;
 
 // Parse hour_ist → returns { date: Date, hour: number } in IST
@@ -2384,7 +2364,7 @@ function paint(){
   $('kv-team').textContent      = num(k.teamCount);
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
-  $('kv-rejected').textContent  = num((k.totalRejected||0) + (k.totalTechFailed||0) + (k.totalAiFailed||0));
+  $('kv-rejected').textContent  = num(k.totalRejected||0);
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
@@ -2517,7 +2497,7 @@ async function syncFromServer({silent=false, force=false}={}){
       if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
     }, 800);
 
-    const res = await fetch('/api/data' + (force ? '?force=1' : ''));
+    const res = await fetch('/data.json' + (_cacheBust ? '?t=' + _cacheBust : ''));
 
     clearInterval(progressInterval);
     setLoadProgress(85, 'Processing rows…');
@@ -2557,7 +2537,7 @@ async function syncFromServer({silent=false, force=false}={}){
     console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
     if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
     lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
-    $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+    $('syncInfo').textContent = ''; window._lastSynced = new Date().toISOString();
 
     // Diagnostic: log monthly counts so you can compare against the source CSV.
     // Open the browser console to see it.
@@ -3566,29 +3546,51 @@ $('editBtn').addEventListener('click', ()=>{
   if (editMode) renderEditControls();
 });
 
-// ─────────────────────────────────────────────────────────────
-// AUTO-SYNC — 30 minutes
-// ─────────────────────────────────────────────────────────────
-const AUTO_MS = 5 * 60 * 1000;  // 5 min — near-live
-let autoTimer = null, cdTimer = null, nextAt = null;
-function startCD(){
-  if (cdTimer) clearInterval(cdTimer);
-  nextAt = Date.now() + AUTO_MS;
-  cdTimer = setInterval(()=>{
-    const rem = nextAt - Date.now();
-    if (rem <= 0){ $('autoSyncBadge').textContent='Syncing…'; return; }
-    const m = Math.floor(rem/60000), s = Math.floor((rem%60000)/1000);
-    $('autoSyncBadge').textContent = `Next sync in ${m}:${String(s).padStart(2,'0')}`;
-  }, 1000);
-}
-function schedAuto(){
-  if (autoTimer) clearTimeout(autoTimer);
-  startCD();
-  autoTimer = setTimeout(async()=>{ await syncFromServer({silent:true, force:true}); schedAuto(); }, AUTO_MS);
-}
+// MANUAL SYNC ONLY — triggers GitHub Action
+$('autoSyncBadge').textContent = '';
 $('syncBtn').addEventListener('click', async()=>{
-  await syncFromServer({force:true});
-  schedAuto();
+  const btn = $('syncBtn');
+  const badge = $('autoSyncBadge');
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  _gsCache = {};
+  _rosterData = null;
+  _cacheBust = Date.now();
+  badge.textContent = 'Triggering sync…';
+  try {
+    const triggerRes = await fetch('/api/trigger-sync', { method: 'POST' });
+    const triggerData = await triggerRes.json();
+    if (!triggerData.ok) {
+      badge.textContent = 'Sync failed: ' + (triggerData.error || 'unknown error');
+      btn.disabled = false; btn.textContent = 'Sync'; return;
+    }
+    badge.textContent = 'Action triggered — waiting for data…';
+    const prevSynced = window._lastSynced || '';
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      try {
+        const r = await fetch('/data.json?t=' + Date.now());
+        const d = await r.json();
+        if (d.lastSynced && d.lastSynced !== prevSynced) {
+          clearInterval(poll);
+          window._lastSynced = d.lastSynced;
+          badge.textContent = 'Synced at ' + new Date(d.lastSynced).toLocaleTimeString();
+          btn.disabled = false; btn.textContent = 'Sync';
+          await syncFromServer({ force: true });
+        } else if (attempts >= 18) {
+          clearInterval(poll);
+          badge.textContent = 'Sync took too long — try refreshing';
+          btn.disabled = false; btn.textContent = 'Sync';
+        } else {
+          badge.textContent = `Waiting for data… (~${(18 - attempts) * 5}s)`;
+        }
+      } catch(e) {}
+    }, 5000);
+  } catch(err) {
+    badge.textContent = 'Error: ' + err.message;
+    btn.disabled = false; btn.textContent = 'Sync';
+  }
 });
 
 function setLoading(on, msg='Loading…'){
@@ -3969,7 +3971,7 @@ function bucketizeUserRows(rows, buckets){
         b.received++;
         if (isDelivered(r)){
           b.delivered++;
-          const _bSla = calcSkuTat(r); if (_bSla !== null && _bSla <= 6) b.withinSla++;
+          if (r.sla === 1) b.withinSla++;
           else if (r.sla === 0) b.outOfSla++;
         } else if (isRejected(r)){
           b.rejected++;
@@ -4278,7 +4280,7 @@ function renderPerfEntTable(rows){
     e.total++;
     if (isDelivered(r)){
       e.delivered++;
-      const _eSla2 = calcSkuTat(r); if (_eSla2 !== null && _eSla2 <= 6) e.withinSla++;
+      if (r.sla === 1) e.withinSla++;
       else if (r.sla === 0) e.outOfSla++;
     } else if (isRejected(r)) e.rejected++;
     else e.pending++;
@@ -4502,7 +4504,6 @@ bindSlaCells();
 syncDateUI();
 applyLayout();
 syncFromServer();
-schedAuto();
 </script>
 </body>
 </html>
