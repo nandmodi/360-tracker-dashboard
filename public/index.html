@@ -1905,7 +1905,7 @@ function getRosterCapacity(rosterData, dt) {
       String(prevDay.getDate()).padStart(2,'0');
 
     // If this is a carry-over from previous day AND previous day was Sunday → no capacity
-    if (isNextDayCarryover && prevDay.getDay() === 0) continue; // shift started on Sunday → skip
+    if (isNextDayCarryover && prevDay.getDay() === 0) continue; // shift started on Sunday → skip (v2)
 
     // Check leave: user absent if on leave on current date OR on shift-start date (prev day for carry-over)
     const checkDates = isNextDayCarryover ? [dateStr, prevDateStr] : [dateStr];
