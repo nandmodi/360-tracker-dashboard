@@ -78,9 +78,18 @@ function mapRow(r) {
   }
 
   const fs = (r.final_status || '').trim();
+  // SLA uses first_qc_done - sku_created_on (not createdAt)
   let sla = null;
-  if (tat !== null && fs !== 'Under Review')
-    sla = tat <= SLA_H ? 1 : 0;
+  if (fq && r.sku_created_on) {
+    const skuCreated = parseDate(r.sku_created_on);
+    if (skuCreated) {
+      const skuTat = (fq - skuCreated) / 3600000;
+      if (fs !== 'Under Review' && skuTat > 0)
+        sla = skuTat <= SLA_H ? 1 : 0;
+    }
+  } else if (tat !== null && fs !== 'Under Review') {
+    sla = tat <= SLA_H ? 1 : 0; // fallback
+  }
 
   // Only include non-null/non-empty fields to minimize JSON size
   const row = {};
@@ -103,6 +112,7 @@ function mapRow(r) {
   set('ttype',      r.input_type);
   set('vin',        r.vinName);
   set('sku',        r.spin_sku_id);
+  set('sc',         r.sku_created_on); // sku_created_on for TAT calculation
   set('final_status',       r.final_status);
   set('issues_by_severity', r.issues_by_severity);
   if (r.manual_editing === 'true' || r.manual_editing === '1' || r.manual_editing === true)
