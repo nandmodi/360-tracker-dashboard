@@ -2114,16 +2114,33 @@ async function renderHourlyChart() {
       const h = effHour;
       let users = 0;
       for (const shift of period.shifts) {
-        const active = shift.endH > 24
+        const isOvernight = shift.endH > 24;
+        const active = isOvernight
           ? (h >= shift.startH || h < shift.endH - 24)
           : (h >= shift.startH && h < shift.endH);
         if (!active) continue;
+
+        // For overnight shifts: carry-over hours need to check leave on shift START date
+        const isCarryover = isOvernight && h < shift.endH - 24;
+        const prevDay = new Date(d); prevDay.setDate(prevDay.getDate() - 1);
+        const prevDateStr = prevDay.getFullYear() + '-' +
+          String(prevDay.getMonth()+1).padStart(2,'0') + '-' +
+          String(prevDay.getDate()).padStart(2,'0');
+
+        // If carry-over from Sunday → no capacity
+        if (isCarryover && prevDay.getDay() === 0) continue;
+
+        // Check leave on both current date AND shift-start date (for carry-over)
+        const checkDates = isCarryover ? [effDate, prevDateStr] : [effDate];
+
         for (const user of shift.users) {
-          const onLeave = Object.entries(leaveDates).some(([name, dates]) => {
-            const nm = name.toLowerCase().includes(user.toLowerCase()) ||
-                       user.toLowerCase().includes(name.toLowerCase());
-            return nm && dates.has(effDate);
-          });
+          const onLeave = checkDates.some(cd =>
+            Object.entries(leaveDates).some(([name, dates]) => {
+              const nm = name.toLowerCase().includes(user.toLowerCase()) ||
+                         user.toLowerCase().includes(name.toLowerCase());
+              return nm && dates.has(cd);
+            })
+          );
           if (!onLeave) users++;
         }
       }
