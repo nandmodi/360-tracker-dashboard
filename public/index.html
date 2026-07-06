@@ -1775,11 +1775,10 @@ function parseRosterRaw(csvText) {
 }
 
 function parseRosterData(rows) {
-  const periods = [];
-  // leaveDates: { 'UserName': Set of 'YYYY-MM-DD' dates on leave }
-  const leaveDates = {};
-  let current = null, headerRow = null, inLeave = false;
-  let leaveColDates = []; // date strings for each column in leave grid
+  const periods  = [];
+  const leaveDates = {}; // { 'UserName': Set<'YYYY-MM-DD'> }
+  let current = null, shiftHeaderRow = null;
+  let inLeave = false, leaveColDates = [];
 
   for (const row of rows) {
     const vals = Array.isArray(row)
@@ -1788,30 +1787,31 @@ function parseRosterData(rows) {
     const first = vals[0];
     if (!vals.some(v => v)) continue;
 
-    // ── Roster period header: "06 July 26 to 19 July 26"
-    if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
-      inLeave = false; headerRow = null; leaveColDates = [];
-      if (/leave/i.test(first)) continue; // skip "Leave(...)" period labels
-      const parts = first.split(/\s+to\s+/i);
-      current = {
-        label: first,
-        start: parseRosterDate(parts[0]),
-        end:   parseRosterDate(parts[1]),
-        target: 35, shifts: []
-      };
-      periods.push(current);
-      continue;
-    }
-
-    // ── Leave section header: "Leave(06 July 26 to 19 July 26)"
+    // ── Leave section: "Leave" or "Leave(date range)"
+    // Must check BEFORE period header so "Leave(06 July...)" is caught here
     if (/^leave/i.test(first)) {
       inLeave = true;
       leaveColDates = [];
       continue;
     }
 
+    // ── Roster period header: "06 July 26 to 19 July 26"
+    if (/\d{1,2}\s+\w+\s+\d{2,4}\s+to\s+\d{1,2}\s+\w+\s+\d{2,4}/i.test(first)) {
+      inLeave = false; shiftHeaderRow = null; leaveColDates = [];
+      const parts = first.split(/\s+to\s+/i);
+      current = {
+        label: first,
+        start: parseRosterDate(parts[0].trim()),
+        end:   parseRosterDate(parts[1].trim()),
+        target: 35, shifts: []
+      };
+      periods.push(current);
+      continue;
+    }
+
+    // ── Inside Leave section
     if (inLeave) {
-      // Column header row: "Name, 6 July 2026, 7 July 2026, ..."
+      // "Name, 6 July 2026, 7 July 2026, ..." — column header
       if (/^name$/i.test(first)) {
         leaveColDates = vals.slice(1).map(v => {
           const d = parseRosterDate(v);
@@ -1822,45 +1822,39 @@ function parseRosterData(rows) {
         });
         continue;
       }
-
-      // User row: "Sarika Rawat, Leave, , , Leave, ..."
-      // Skip if looks like a shift time or period header
-      if (first && /[A-Za-z]/.test(first) &&
-          !/per user|target/i.test(first) &&
-          !/AM|PM/i.test(first) &&
-          !/\d{1,2}\s+\w+.*to.*\d{1,2}\s+\w+/i.test(first)) {
-        const userName = first;
-        if (!leaveDates[userName]) leaveDates[userName] = new Set();
+      // User leave row — only if leaveColDates parsed
+      if (leaveColDates.length && first && /[A-Za-z]/.test(first)) {
+        if (!leaveDates[first]) leaveDates[first] = new Set();
         vals.slice(1).forEach((cell, ci) => {
-          if (/^leave$/i.test(cell) && leaveColDates[ci]) {
-            leaveDates[userName].add(leaveColDates[ci]);
+          if (/^leave$/i.test(cell.trim()) && leaveColDates[ci]) {
+            leaveDates[first].add(leaveColDates[ci]);
           }
         });
       }
       continue;
     }
 
-    // ── Per user target
+    // ── Normal shift rows (only when NOT in leave section)
+    // Per user target
     const targetVal = vals.find(v => /^\d{2,3}$/.test(v));
     if (current && targetVal) current.target = parseInt(targetVal);
 
-    // ── Shift header row
-    if (current && !headerRow && /AM|PM/i.test(first)) {
-      headerRow = vals; continue;
+    // Shift header row (contains AM/PM times)
+    if (current && !shiftHeaderRow && /AM|PM/i.test(first)) {
+      shiftHeaderRow = vals; continue;
     }
 
-    // ── User rows (may have empty first cell for 2nd user in same shift)
+    // User rows — check all columns (2nd user row may have empty first cell)
     const hasAnyName = vals.some(v =>
       v && /[A-Za-z]/.test(v) &&
       !/per user|target|AM|PM/i.test(v) &&
       !/\d{1,2}:\d{2}/.test(v)
     );
-    if (current && headerRow && !inLeave && hasAnyName &&
-        !/per user|target/i.test(first)) {
+    if (current && shiftHeaderRow && hasAnyName && !/per user|target/i.test(first)) {
       vals.forEach((name, ci) => {
         if (!name || !/[A-Za-z]/.test(name) ||
             /per user|target|\d+/i.test(name)) return;
-        const sl = headerRow[ci];
+        const sl = shiftHeaderRow[ci];
         if (!sl || !/AM|PM/i.test(sl)) return;
         let shift = current.shifts.find(s => s.label === sl);
         if (!shift) {
