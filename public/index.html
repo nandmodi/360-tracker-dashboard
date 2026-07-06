@@ -1874,7 +1874,9 @@ function parseRosterData(rows) {
 }
 
 function getRosterCapacity(rosterData, dt) {
-  if (dt.getDay() === 0) return 0; // Sunday off
+  if (dt.getDay() === 0) return 0; // Sunday off — whole day
+  // Also: carry-over from Sunday night into Monday early hours = 0
+  // e.g. shift 21:00 Sun → 06:00 Mon: Monday 00:00-05:00 should be 0 (shift started on Sunday)
   const { periods, leaveDates={}, leaves=[] } = Array.isArray(rosterData)
     ? { periods: rosterData }
     : rosterData;
@@ -1887,23 +1889,43 @@ function getRosterCapacity(rosterData, dt) {
   const h = dt.getHours();
   let users = 0;
   for (const shift of period.shifts) {
-    const active = shift.endH > 24
+    const isOvernight = shift.endH > 24;
+    const active = isOvernight
       ? (h >= shift.startH || h < shift.endH - 24)
       : (h >= shift.startH && h < shift.endH);
     if (!active) continue;
+
+    // For overnight shifts: check leave on BOTH the current date AND previous date
+    // e.g. shift 21:00(Jul6)-06:00(Jul7): if user is on leave Jul 6, absent all night
+    // e.g. same shift at 01:00 Jul 7: carry-over from Jul 6 start → check Jul 6 leave
+    const isNextDayCarryover = isOvernight && h < shift.endH - 24;
+    const prevDay = new Date(d); prevDay.setDate(prevDay.getDate() - 1);
+    const prevDateStr = prevDay.getFullYear() + '-' +
+      String(prevDay.getMonth()+1).padStart(2,'0') + '-' +
+      String(prevDay.getDate()).padStart(2,'0');
+
+    // If this is a carry-over from previous day AND previous day was Sunday → no capacity
+    if (isNextDayCarryover && prevDay.getDay() === 0) continue; // shift started on Sunday → skip
+
+    // Check leave: user absent if on leave on current date OR on shift-start date (prev day for carry-over)
+    const checkDates = isNextDayCarryover ? [dateStr, prevDateStr] : [dateStr];
+
     for (const user of shift.users) {
-      // Check new date-grid leave format
-      const onLeaveGrid = Object.entries(leaveDates).some(([name, dates]) => {
-        const nameMatch = name.toLowerCase().includes(user.toLowerCase()) ||
-                         user.toLowerCase().includes(name.toLowerCase());
-        return nameMatch && dates.has(dateStr);
-      });
-      // Also check old From/Till format for backward compat
-      const onLeaveOld = leaves.some(lv => {
-        if (!lv.from || !lv.till) return false;
-        const nm = lv.name.toLowerCase().includes(user.toLowerCase()) ||
-                   user.toLowerCase().includes(lv.name.toLowerCase());
-        return nm && d >= lv.from && d <= lv.till;
+      const onLeaveGrid = checkDates.some(cd =>
+        Object.entries(leaveDates).some(([name, dates]) => {
+          const nameMatch = name.toLowerCase().includes(user.toLowerCase()) ||
+                           user.toLowerCase().includes(name.toLowerCase());
+          return nameMatch && dates.has(cd);
+        })
+      );
+      const onLeaveOld = checkDates.some(cd => {
+        const cdt = new Date(cd+'T00:00:00');
+        return leaves.some(lv => {
+          if (!lv.from || !lv.till) return false;
+          const nm = lv.name.toLowerCase().includes(user.toLowerCase()) ||
+                     user.toLowerCase().includes(lv.name.toLowerCase());
+          return nm && cdt >= lv.from && cdt <= lv.till;
+        });
       });
       if (!onLeaveGrid && !onLeaveOld) users++;
     }
