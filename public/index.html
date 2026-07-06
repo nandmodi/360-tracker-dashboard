@@ -1860,8 +1860,21 @@ function updateHourlyViewToggle(range){
   else{vt.style.display='flex';}
 }
 
-let _hourlyRange  = 'today';
-let _hourlyChart  = null;
+let _hourlyRange     = 'today';
+let _hourlyChart     = null;
+let _hourlyChartType = 'bar';   // 'bar' or 'curve'
+let _hourlyViewMode  = 'hour';  // 'hour' or 'date'
+
+function setHourlyType(type, btn) {
+  _hourlyChartType = type;
+  document.querySelectorAll('#hlyTypeToggle .trend-tab').forEach(b => b.classList.toggle('sel', b === btn));
+  renderHourlyChart();
+}
+function setHourlyView(mode, btn) {
+  _hourlyViewMode = mode;
+  document.querySelectorAll('#hlyViewToggle .trend-tab').forEach(b => b.classList.toggle('sel', b === btn));
+  renderHourlyChart();
+}
 let _gsCache      = {};  // url → { data, ts }
 let _cacheBust    = 0;
 const GS_TTL      = 5 * 60 * 1000;
