@@ -2186,7 +2186,14 @@ async function renderHourlyChart() {
         const hAvgIn=new Array(24).fill(0),hAvgCnt=new Array(24).fill(0);
         for(const r of allParsed){const v=parseFloat(r.total_in)||0;if(v>0){hAvgIn[r._p.hour]+=v;hAvgCnt[r._p.hour]++;}}
         const hCapSum=new Array(24).fill(0),hCapCnt=new Array(24).fill(0);
-        for(const d of fcDates){for(let h=0;h<24;h++){const cap=getHourCap(d,h);if(cap!==null&&cap>0){hCapSum[h]+=cap;hCapCnt[h]++;}}}
+        for(const d of fcDates){
+          for(let h=0;h<24;h++){
+            // For forecast: use direct hour (no -1 offset — offset is for historical view only)
+            const dt=new Date(d+'T00:00:00'); dt.setHours(h);
+            const cap=getRosterCapacity(rosterData,dt);
+            if(cap!==null&&cap>0){hCapSum[h]+=cap;hCapCnt[h]++;}
+          }
+        }
         labels=Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
         projIn=Array.from({length:24},(_,i)=>hAvgCnt[i]?Math.round((hAvgIn[i]/hAvgCnt[i])*growthFactor):null);
         capData=Array.from({length:24},(_,i)=>hCapCnt[i]?Math.round(hCapSum[i]/hCapCnt[i]):null);
