@@ -1370,7 +1370,7 @@ function aggregate(rows){
               ? r.sku.trim()
               : (r.vid  && r.vid.trim())
               ? `mid:${r.vid.trim()}`
-              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.team||'')}|${(r.vin||'')}`;
+              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.tm||'')}|${(r.vin||'')}`;
 
     const existing = dedupMap[key];
     if (!existing){
@@ -1471,7 +1471,7 @@ function aggregate(rows){
     else                                   ttOtherCount++;
 
     if (r.ent)  entCount[r.ent]  = (entCount[r.ent]||0)+1;
-    if (r.tm) teamCount[r.team]= (teamCount[r.team]||0)+1;
+    if (r.tm) teamCount[r.tm]= (teamCount[r.tm]||0)+1;
     if (r.qc)   qcCount[r.qc]   = (qcCount[r.qc]||0)+1;
     if (r.qc)   bump(qcBreak, r.qc, kind);
 
@@ -1486,14 +1486,14 @@ function aggregate(rows){
       }
     }
     if (r.tm){
-      bump(teamBreak, r.team, kind);
-      if (r.sla===1) teamBreak[r.team].withinSla++;
-      else if (r.sla===0) teamBreak[r.team].outOfSla++;
-      if (!teamPoc[r.team]) teamPoc[r.team]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
+      bump(teamBreak, r.tm, kind);
+      if (r.sla===1) teamBreak[r.tm].withinSla++;
+      else if (r.sla===0) teamBreak[r.tm].outOfSla++;
+      if (!teamPoc[r.tm]) teamPoc[r.tm]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
       else {
-        if (!teamPoc[r.team].ob  && r.poc_ob) teamPoc[r.team].ob =r.poc_ob;
-        if (!teamPoc[r.team].cs  && r.poc_cs) teamPoc[r.team].cs =r.poc_cs;
-        if (!teamPoc[r.team].ent && r.ent)    teamPoc[r.team].ent=r.ent;
+        if (!teamPoc[r.tm].ob  && r.poc_ob) teamPoc[r.tm].ob =r.poc_ob;
+        if (!teamPoc[r.tm].cs  && r.poc_cs) teamPoc[r.tm].cs =r.poc_cs;
+        if (!teamPoc[r.tm].ent && r.ent)    teamPoc[r.tm].ent=r.ent;
       }
     }
   }
@@ -2450,7 +2450,7 @@ function paint(){
           <td class="mono">${esc(r.sku||'—')}</td>
           <td class="mono">${esc(r.sid||'—')}</td>
           <td>${esc(r.ent||'—')}</td>
-          <td>${esc(r.team||'—')}</td>
+          <td>${esc(r.tm||'—')}</td>
           <td>${esc(r.qc||'—')}</td>
           <td>${pill}</td>
           <td>${slaPill}</td>
@@ -3076,7 +3076,7 @@ function renderRecordsModal(){
           <td class="mono">${esc(r.sku||'—')}</td>
           <td class="mono">${esc(r.sid||'—')}</td>
           <td>${esc(r.ent||'—')}</td>
-          <td>${esc(r.team||'—')}</td>
+          <td>${esc(r.tm||'—')}</td>
           <td>${esc(r.qc||'—')}</td>
           <td>${pill}</td>
           <td>${slaPill}</td>
@@ -3249,7 +3249,7 @@ function extractRecordsForExport(){
     r.sku      || '',
     r.sid  || '',
     r.ent      || '',
-    r.team     || '',
+    r.tm     || '',
     r.qc       || '',
     statusOf(r),
     slaOf(r),
