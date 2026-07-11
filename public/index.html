@@ -2487,7 +2487,7 @@ async function syncFromServer({silent=false, force=false}={}){
       if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
     }, 800);
 
-    const res = await fetch('/api/data' + (force ? '?force=1' : ''));
+    const res = await fetch('/data.json' + (force ? '?force=1' : ''));
 
     clearInterval(progressInterval);
     setLoadProgress(85, 'Processing rows…');
