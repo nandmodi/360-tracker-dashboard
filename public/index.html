@@ -531,6 +531,9 @@
     .modal-stats{ gap:12px; padding:10px 14px; }
     .modal-stat-value{ font-size:18px; }
   }
+
+  .hly-tog{padding:4px 10px;border-radius:20px;background:transparent;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:all .15s;opacity:0.45;}
+  .hly-tog.sel{opacity:1;}
 </style>
 </head>
 <body>
@@ -757,15 +760,24 @@
             <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
             <button class="trend-tab" data-hr="3months">Last 3 months</button>
           </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+            <button id="btnHlyHour" class="trend-tab sel" onclick="setHlyView('hour',this)" style="font-size:11px">Hour-wise</button>
+            <button id="btnHlyDay"  class="trend-tab"     onclick="setHlyView('day',this)"  style="font-size:11px">Day-wise</button>
+          </div>
           <button id="btnHlyForecast" onclick="toggleHourlyForecast()"
             style="margin-left:6px;padding:4px 12px;border-radius:20px;border:1.5px solid var(--accent);
                    background:transparent;color:var(--accent);font-size:11px;font-weight:600;
-                   cursor:pointer;letter-spacing:.3px;transition:all .2s"
-            title="Show 14-day projected throughput based on same-weekday averages">
+                   cursor:pointer;letter-spacing:.3px;transition:all .2s">
             📈 Forecast
           </button>
           <div class="edit-controls" data-panel-ctl="hourly"></div>
         </div>
+      </div>
+      <div id="hourlyToggles" style="display:flex;gap:8px;padding:8px 0 4px;flex-wrap:wrap">
+        <button class="hly-tog sel" data-ds="recv"    onclick="toggleHlyDs('recv',this)"   style="border:1.5px solid var(--accent);color:var(--accent)">● Received</button>
+        <button class="hly-tog sel" data-ds="qcdone"  onclick="toggleHlyDs('qcdone',this)" style="border:1.5px solid var(--green);color:var(--green)">● QC Done</button>
+        <button class="hly-tog sel" data-ds="backlog" onclick="toggleHlyDs('backlog',this)" style="border:1.5px solid var(--amber);color:var(--amber)">● Pendency</button>
+        <button class="hly-tog"     data-ds="cap"     onclick="toggleHlyDs('cap',this)"     style="border:1.5px solid var(--orange);color:var(--orange)">● Capacity</button>
       </div>
       <div id="hourlyLoader" style="display:none;text-align:center;padding:40px;color:var(--muted);font-size:12px">Loading data…</div>
       <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
@@ -1722,6 +1734,8 @@ const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3Itgzw
 let _hourlyRange  = 'today';
 let _hourlyChart  = null;
 let _hourlyForecast = false;  // forecast mode toggle
+let _hlyView     = 'hour';    // 'hour' or 'day'
+let _hlyVisible  = { recv:true, qcdone:true, backlog:true, cap:false };
 let _gsCache      = {};  // url → { data, ts }
 const GS_TTL      = 5 * 60 * 1000;
 
@@ -1961,6 +1975,24 @@ function getDayCapacity(date, periods) {
   });
   return Math.round(cap);
 }
+function setHlyView(mode, btn) {
+  _hlyView = mode;
+  document.querySelectorAll('#btnHlyHour,#btnHlyDay').forEach(b => b.classList.remove('sel'));
+  if (btn) btn.classList.add('sel');
+  if (_hourlyForecast) renderForecastChart();
+  else renderHourlyChart();
+}
+
+function toggleHlyDs(ds, btn) {
+  _hlyVisible[ds] = !_hlyVisible[ds];
+  if (btn) btn.classList.toggle('sel', _hlyVisible[ds]);
+  if (_hourlyChart) {
+    const map = { recv:'Received', qcdone:'QC Done', backlog:'Pendency', cap:'Capacity' };
+    const target = _hourlyChart.data.datasets.find(d => d.label === map[ds]);
+    if (target) { target.hidden = !_hlyVisible[ds]; _hourlyChart.update(); }
+  }
+}
+
 function toggleHourlyForecast() {
   _hourlyForecast = !_hourlyForecast;
   const btn = $('btnHlyForecast');
@@ -2152,6 +2184,35 @@ async function renderHourlyChart() {
     grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
     grad.addColorStop(1, hexToRgba(PAL.accent, 0));
 
+    // ── Compute capacity per hour from roster ────────────────────
+    let capPerHour = new Array(24).fill(null);
+    try {
+      const rosterRaw = await fetchGSRaw(GS_ROSTER);
+      const periods   = parseRosterPeriods(rosterRaw);
+      const { fromStr } = getHourlyDateBounds(_hourlyRange);
+      const midDate = new Date(fromStr); midDate.setHours(12,0,0,0);
+      if (midDate.getDay() !== 0) {
+        const period = periods.find(p => {
+          if (!p.start||!p.end) return false;
+          return midDate >= new Date(p.start) && midDate <= new Date(p.end);
+        });
+        if (period) {
+          const dStr = midDate.toISOString().slice(0,10);
+          const onLeave = period.leaves[dStr]||[];
+          for (let h=0; h<24; h++) {
+            let cap = 0;
+            (period.shifts||[]).forEach(sh => {
+              if (!sh) return;
+              const { start, end } = parseShiftHours(sh.label);
+              const inShift = end>start ? (h>=start&&h<end) : (h>=start||h<end);
+              if (inShift) cap += sh.users.filter(u=>!onLeave.includes(u)).length * period.target;
+            });
+            capPerHour[h] = cap || null;
+          }
+        }
+      }
+    } catch(e) { console.warn('[cap]', e.message); }
+
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
 
     _hourlyChart = new Chart(canvas, {
@@ -2194,6 +2255,14 @@ async function renderHourlyChart() {
             formatter:v=>v>0?v.toLocaleString():'',
             display: ctx => ctx.dataset.data[ctx.dataIndex]>0,
           },
+        },
+        // Capacity from roster (dashed orange line)
+        { label:'Capacity', data:capPerHour, hidden:!_hlyVisible.cap,
+          borderColor:'#E8820A', backgroundColor:'transparent',
+          borderWidth:2.2, borderDash:[6,4], tension:0, fill:false,
+          pointRadius:3, pointHoverRadius:5,
+          pointBackgroundColor:'#E8820A', pointBorderColor:'#E8820A',
+          datalabels:{ display:false },
         },
       ]},
       options:{
