@@ -757,6 +757,13 @@
             <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
             <button class="trend-tab" data-hr="3months">Last 3 months</button>
           </div>
+          <button id="btnHlyForecast" onclick="toggleHourlyForecast()"
+            style="margin-left:6px;padding:4px 12px;border-radius:20px;border:1.5px solid var(--accent);
+                   background:transparent;color:var(--accent);font-size:11px;font-weight:600;
+                   cursor:pointer;letter-spacing:.3px;transition:all .2s"
+            title="Show 14-day projected throughput based on same-weekday averages">
+            📈 Forecast
+          </button>
           <div class="edit-controls" data-panel-ctl="hourly"></div>
         </div>
       </div>
@@ -1714,6 +1721,7 @@ const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3Itgzw
 
 let _hourlyRange  = 'today';
 let _hourlyChart  = null;
+let _hourlyForecast = false;  // forecast mode toggle
 let _gsCache      = {};  // url → { data, ts }
 const GS_TTL      = 5 * 60 * 1000;
 
@@ -1807,6 +1815,146 @@ async function fetchGS(url) {
 }
 
 
+// ── Forecast toggle ───────────────────────────────────────────────────────────
+function toggleHourlyForecast() {
+  _hourlyForecast = !_hourlyForecast;
+  const btn = $('btnHlyForecast');
+  if (btn) {
+    btn.style.background  = _hourlyForecast ? 'var(--accent)' : 'transparent';
+    btn.style.color       = _hourlyForecast ? '#fff'          : 'var(--accent)';
+  }
+  const tabs = $('hourlyTabs');
+  if (tabs) tabs.style.opacity = _hourlyForecast ? '0.4' : '1';
+  if (_hourlyForecast) {
+    renderForecastChart();
+  } else {
+    renderHourlyChart();
+  }
+}
+
+// ── Forecast chart — next 14 days using same-weekday average from GS_DAILY ───
+async function renderForecastChart() {
+  const loader = $('hourlyLoader');
+  const canvas = $('cHourly');
+  if (!canvas) return;
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+
+  try {
+    const daily = await fetchGS(GS_DAILY);
+    // Parse date + in/out from daily rows
+    // columns expected: date, total_in, total_out, backlog (or similar)
+    const parsed = [];
+    daily.forEach(r => {
+      const dateVal = r.date || r.Date || r['date'] || Object.values(r)[0];
+      const inVal   = parseFloat(r.total_in  || r['Total In']  || r.in  || 0);
+      const outVal  = parseFloat(r.total_out || r['Total Out'] || r.out || 0);
+      if (!dateVal) return;
+      const d = new Date(String(dateVal).trim());
+      if (isNaN(d)) return;
+      parsed.push({ d, dow: d.getDay(), inV: inVal, outV: outVal });
+    });
+
+    // Build same-weekday averages (last 8 weeks of each day)
+    const dowSum = Array.from({length:7},()=>({in:0,out:0,n:0}));
+    parsed.forEach(p => {
+      dowSum[p.dow].in  += p.inV;
+      dowSum[p.dow].out += p.outV;
+      dowSum[p.dow].n++;
+    });
+    const dowAvg = dowSum.map(s => ({
+      in:  s.n ? Math.round(s.in  / s.n) : 0,
+      out: s.n ? Math.round(s.out / s.n) : 0,
+    }));
+
+    // Build next 14 days labels + projected values
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const labels = [], projIn = [], projOut = [];
+    const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const dow = d.getDay();
+      const label = `${DAY_NAMES[dow]} ${d.getDate()}/${d.getMonth()+1}`;
+      labels.push(label);
+      projIn.push(dow === 0 ? 0 : dowAvg[dow].in);   // Sunday = 0
+      projOut.push(dow === 0 ? 0 : dowAvg[dow].out);
+    }
+
+    const PAL = getPal();
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+
+    canvas.style.display  = 'block';
+    canvas.style.opacity  = '1';
+    if (loader) loader.style.display = 'none';
+
+    _hourlyChart = new Chart(canvas, {
+      type: 'bar',
+      plugins: [ChartDataLabels],
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Projected Received',
+            data: projIn,
+            backgroundColor: PAL.accent + '99',
+            borderColor: PAL.accent,
+            borderWidth: 1.5,
+            borderRadius: 4,
+            datalabels: {
+              anchor:'end', align:'end', color: PAL.accent,
+              font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+              formatter: v => v > 0 ? v.toLocaleString() : '',
+            },
+          },
+          {
+            label: 'Projected QC Done',
+            data: projOut,
+            backgroundColor: PAL.green + '99',
+            borderColor: PAL.green,
+            borderWidth: 1.5,
+            borderRadius: 4,
+            datalabels: {
+              anchor:'end', align:'start', color: PAL.green,
+              font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+              formatter: v => v > 0 ? v.toLocaleString() : '',
+            },
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+          legend: { display: true, position:'top',
+            labels:{ color: PAL.bodyText||PAL.ink, font:{size:11}, padding:16, usePointStyle:true }},
+          tooltip: { mode:'index', intersect:false },
+          datalabels: { display: true },
+        },
+        scales: {
+          x: { grid:{display:false}, ticks:{ color: PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:45 }},
+          y: { beginAtZero:true, grid:{color: PAL.line||'#e8e6e3'},
+               ticks:{ color: PAL.bodyText||PAL.ink, font:{size:10} }},
+        },
+      },
+    });
+
+    // Update sub-title and legend
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = `14-day projection · same-weekday average from ${parsed.length} days of history`;
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">Projected based on average of same weekday · Sundays = 0</span>`;
+
+  } catch(err) {
+    console.error('[forecast]', err);
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="color:var(--red);font-size:12px">Forecast failed: ${err.message}</span>`;
+    if (loader) loader.style.display = 'none';
+    canvas.style.opacity = '1';
+  }
+}
+
 async function renderHourlyChart() {
   const loader = $('hourlyLoader');
   const canvas = $('cHourly');
@@ -1815,6 +1963,8 @@ async function renderHourlyChart() {
   canvas.style.opacity = '0.3';
 
   try {
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = 'summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover';
     const rows = await fetchGS(GS_HOURLY);
     console.log(`[hourly] fetched ${rows.length} rows. First:`, rows[0]);
     const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
