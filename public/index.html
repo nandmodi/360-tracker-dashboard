@@ -1286,7 +1286,7 @@ function isDelivered(r){       const s=(r.fs||'').trim(); return s==='Delivered'
 function isRejected(r){        const s=(r.fs||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
 function isValidationFailed(r){const s=(r.fs||'').trim(); return s==='Validation Failed'; }
 function isQcFailed(r){        const s=(r.fs||'').trim(); return s==='QC Failed'; }
-function isPending(r){         return (r.cs||'').trim() === 'qc_unassigned'; }
+function isPending(r){         const cs=(r.cs||'').trim(); return cs==='qc_unassigned'||cs==='qc_inprogress'; }
 function isCompleted(r){       const s=(r.fs||'').trim(); return COMPLETED_STATUSES.includes(s); }
 
 // Helper: normalize a rejection reason for comparison (lowercase, collapsed whitespace)
@@ -1404,7 +1404,6 @@ function aggregate(rows){
   let autoDelivered=0, manualDelivered=0;
   // New metrics
   let e2eTatSum=0, e2eTatCount=0;
-  let within3h=0, within6h=0, slaDelivCount=0;  // Accuracy: manual_editing false/true on delivered
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={}, qcBreak={};
@@ -1426,14 +1425,12 @@ function aggregate(rows){
     if (isDelivered(r)){
       totalDelivered++; kind='delivered';
       // Accuracy: is_assisted_by_qc — false=AUTO, true=MANUALLY EDITED
-      if (r.aq === true)  manualDelivered++;
+      if (r.aq == 1)  manualDelivered++;
       else                               autoDelivered++;
       // E2E TAT (final_time - createdAt)
       if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
         e2eTatSum += r.e2e; e2eTatCount++;
-        slaDelivCount++;
-        if (r.e2e <= 3) within3h++;
-        if (r.e2e <= 6) within6h++;
+        slaDelivCount++;        if (typeof r.tat === "number" && r.tat <= 6) within6h++;
       }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
@@ -1576,7 +1573,6 @@ function aggregate(rows){
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     autoDelivered, manualDelivered,
     e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
-    within3hPct: slaDelivCount ? +((within3h/slaDelivCount)*100).toFixed(1) : null,
     within6hPct: slaDelivCount ? +((within6h/slaDelivCount)*100).toFixed(1) : null,
     techAiFailed: (totalTechFailed||0) + (totalAiFailed||0),
   };
@@ -1658,11 +1654,10 @@ const KPIS = [
   { id:'delivered',  label:'Delivered',      sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
   { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
   { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
-  { id:'pending',   label:'Pending',           sub:'Under Review',           color:'amber',  kind:'records',   view:'pending'    },
+  { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
   { id:'sla',       label:'SLA Compliance',    sub:'within 6h (first_qc_done)', color:'green', kind:'records', view:'within_sla' },
-  { id:'tat',       label:'Avg TAT',           sub:'first_qc_done - createdAt', color:'blue', kind:'records',  view:'tat'        },
-  { id:'e2e-tat',   label:'E2E TAT',           sub:'final_time - createdAt', color:'blue',   kind:'records',   view:'e2e_tat'    },
-  { id:'w3h',       label:'Within 3h %',       sub:'delivered ≤ 3h',         color:'green',  kind:'records',   view:'within_3h'  },
+  { id:'tat',       label:'Avg TAT',           sub:'sku_created_on → first_qc_done', color:'blue', kind:'records',  view:'tat'        },
+  { id:'e2e-tat',   label:'E2E TAT',           sub:'createdAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
   { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
 ];
 
@@ -2353,7 +2348,7 @@ function paint(){
   $('kv-team').textContent      = num(k.teamCount);
   $('kv-received').textContent  = num(k.totalReceived);
   $('kv-delivered').textContent = num(k.totalDelivered);
-  $('kv-rejected').textContent  = num((k.totalRejected||0) + (k.totalTechFailed||0) + (k.totalAiFailed||0));
+  $('kv-rejected').textContent  = num(k.totalRejected||0);  // QC Failed + Validation Failed only
   const rejTip = $('kv-rejected-tooltip');
   if (rejTip) rejTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
@@ -2368,7 +2363,6 @@ function paint(){
   $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
-  $('kv-w3h')     && ($('kv-w3h').textContent     = k.within3hPct!=null ? k.within3hPct.toFixed(1)+'%' : '—');
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
 
   // SLA + Delivery panels
@@ -2958,7 +2952,6 @@ function drillSubset(rows, view){
     case 'processing':    return rows.filter(r => (r.fs||'').trim()==='Processing');
     case 'tech_ai':       return rows.filter(r => r.fs==='Tech Failure'||r.fs==='AI Failed');
     case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e > 0);
-    case 'within_3h':     return rows.filter(r => isDelivered(r) && r.e2e <= 3);
     case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
     default:              return rows;
