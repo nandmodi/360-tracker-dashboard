@@ -2185,32 +2185,31 @@ async function renderHourlyChart() {
     grad.addColorStop(1, hexToRgba(PAL.accent, 0));
 
     // ── Compute capacity per hour from roster ────────────────────
-    let capPerHour = new Array(24).fill(null);
+    let capPerHour = new Array(24).fill(0);
     try {
       const rosterRaw = await fetchGSRaw(GS_ROSTER);
       const periods   = parseRosterPeriods(rosterRaw);
       const { fromStr } = getHourlyDateBounds(_hourlyRange);
       const midDate = new Date(fromStr); midDate.setHours(12,0,0,0);
-      if (midDate.getDay() !== 0) {
-        const period = periods.find(p => {
-          if (!p.start||!p.end) return false;
-          return midDate >= new Date(p.start) && midDate <= new Date(p.end);
-        });
-        if (period) {
-          const dStr = midDate.toISOString().slice(0,10);
-          const onLeave = period.leaves[dStr]||[];
-          for (let h=0; h<24; h++) {
-            let cap = 0;
-            (period.shifts||[]).forEach(sh => {
-              if (!sh) return;
-              const { start, end } = parseShiftHours(sh.label);
-              const inShift = end>start ? (h>=start&&h<end) : (h>=start||h<end);
-              if (inShift) cap += sh.users.filter(u=>!onLeave.includes(u)).length * period.target;
-            });
-            capPerHour[h] = cap || null;
-          }
+      const period = periods.find(p => {
+        if (!p.start||!p.end) return false;
+        return midDate >= new Date(p.start) && midDate <= new Date(p.end);
+      });
+      if (period && midDate.getDay() !== 0) { // weekdays only
+        const dStr = midDate.toISOString().slice(0,10);
+        const onLeave = period.leaves[dStr]||[];
+        for (let h=0; h<24; h++) {
+          let cap = 0;
+          (period.shifts||[]).forEach(sh => {
+            if (!sh) return;
+            const { start, end } = parseShiftHours(sh.label);
+            const inShift = end>start ? (h>=start&&h<end) : (h>=start||h<end);
+            if (inShift) cap += sh.users.filter(u=>!onLeave.includes(u)).length * period.target;
+          });
+          capPerHour[h] = cap;
         }
       }
+      // Sunday = 0 (already set by fill(0))
     } catch(e) { console.warn('[cap]', e.message); }
 
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
