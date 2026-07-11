@@ -1404,6 +1404,7 @@ function aggregate(rows){
   let autoDelivered=0, manualDelivered=0;
   // New metrics
   let e2eTatSum=0, e2eTatCount=0;
+  let slaDelivCount=0, within6h=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
   const entBreak={}, teamBreak={}, qcBreak={};
@@ -1430,7 +1431,11 @@ function aggregate(rows){
       // E2E TAT (final_time - createdAt)
       if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
         e2eTatSum += r.e2e; e2eTatCount++;
-        slaDelivCount++;        if (typeof r.tat === "number" && r.tat <= 6) within6h++;
+      }
+      // SLA / Within 6h: based on TAT (sku_created_on → first_qc_done)
+      if (typeof r.tat === 'number' && r.tat > 0){
+        slaDelivCount++;
+        if (r.tat <= 6) within6h++;
       }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
