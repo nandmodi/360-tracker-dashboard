@@ -1804,6 +1804,28 @@ function parseGSCSV(text) {
   }).filter(r => r[headers[0]]);
 }
 
+async function fetchGSRaw(url) {
+  // Returns raw 2D array (no header row treatment)
+  const cached = _gsCache[url + '_raw'];
+  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
+  const text = await res.text();
+  const data = text.trim().split('\n').map(line => {
+    const vals = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch==='"') { if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+      else if (ch===','&&!inQ) { vals.push(cur.trim()); cur=''; }
+      else cur+=ch;
+    }
+    vals.push(cur.trim());
+    return vals;
+  });
+  _gsCache[url + '_raw'] = { data, ts: Date.now() };
+  return data;
+}
+
 async function fetchGS(url) {
   const cached = _gsCache[url];
   if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
@@ -1836,25 +1858,30 @@ function parseShiftHours(label) {
 }
 
 // Parse the raw Roster CSV rows → array of periods
-function parseRosterPeriods(rows) {
+function parseRosterPeriods(rawRows) {
   const periods = [];
   let i = 0;
-  while (i < rows.length) {
-    const vals = Object.values(rows[i]);
+  while (i < rawRows.length) {
+    const vals = rawRows[i];
     const first = (vals[0]||'').trim();
     // Period date-range header row
-    if (first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first)) {
+    if (first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first) && !/AM|PM/i.test(first)) {
       const period = { header:first, start:null, end:null, shifts:[], leaves:{}, target:30 };
       // Parse period start/end
       const dm = first.match(/(\d[\d\w\s]+?)\s+to\s+([\d\w\s]+?)(?:\s*$)/i);
-      if (dm) { period.start = new Date(dm[1]); period.end = new Date(dm[2]); }
+      if (dm) {
+        // Handle "06 July 26" → "06 July 2026"
+        const fixYr = s => s.trim().replace(/(\d{2})$/, '20$1');
+        period.start = new Date(fixYr(dm[1]));
+        period.end   = new Date(fixYr(dm[2]));
+      }
       i++;
       // Skip blank
-      while (i < rows.length && !Object.values(rows[i]).some(v=>v?.trim())) i++;
-      if (i >= rows.length) break;
+      while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
+      if (i >= rawRows.length) break;
 
       // Shift headers row
-      const shiftVals = Object.values(rows[i]);
+      const shiftVals = rawRows[i];
       const targetIdx = shiftVals.findIndex(v => /per user target/i.test(v||''));
       const numShifts = targetIdx >= 0 ? targetIdx : 4;
       for (let s=0; s<numShifts; s++) {
@@ -1864,8 +1891,8 @@ function parseRosterPeriods(rows) {
       i++;
 
       // User rows (until blank or Leave row)
-      while (i < rows.length) {
-        const uvals = Object.values(rows[i]);
+      while (i < rawRows.length) {
+        const uvals = rawRows[i];
         if (!uvals.some(v=>v?.trim())) break;
         if (/leave/i.test(uvals[0]||'')) break;
         const tgt = parseFloat(uvals[targetIdx]);
@@ -1881,18 +1908,18 @@ function parseRosterPeriods(rows) {
       }
 
       // Skip to Leave section
-      while (i < rows.length && !/leave/i.test(Object.values(rows[i])[0]||'')) i++;
-      if (i < rows.length) i++; // skip "Leave(...)" row
-      while (i < rows.length && !Object.values(rows[i]).some(v=>v?.trim())) i++;
+      while (i < rawRows.length && !/leave/i.test(rawRows[i][0]||'')) i++;
+      if (i < rawRows.length) i++; // skip "Leave(...)" row
+      while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
 
       // Leave header: Name, date1, date2...
-      if (i < rows.length) {
-        const lhVals = Object.values(rows[i]);
+      if (i < rawRows.length) {
+        const lhVals = rawRows[i];
         const dateCols = lhVals.slice(1).map(d=>(d||'').trim());
         i++;
         // Leave data rows
-        while (i < rows.length) {
-          const lvals = Object.values(rows[i]);
+        while (i < rawRows.length) {
+          const lvals = rawRows[i];
           const name = (lvals[0]||'').trim();
           if (!name) break;
           dateCols.forEach((dateStr, di) => {
@@ -1959,7 +1986,7 @@ async function renderForecastChart() {
   canvas.style.opacity = '0.3';
 
   try {
-    const [daily, rosterRows] = await Promise.all([fetchGS(GS_DAILY), fetchGS(GS_ROSTER)]);
+    const [daily, rosterRows] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
     const periods = parseRosterPeriods(rosterRows);
 
     // Parse daily history
