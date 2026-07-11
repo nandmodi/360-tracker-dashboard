@@ -1815,7 +1815,125 @@ async function fetchGS(url) {
 }
 
 
-// ── Forecast toggle ───────────────────────────────────────────────────────────
+const GS_ROSTER  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=598602757&single=true&output=csv';
+
+// Parse shift time label → { start (h), end (h), hours }
+function parseShiftHours(label) {
+  const timeRe = /(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
+  const times   = (label || '').match(timeRe);
+  if (!times || times.length < 2) return { start:0, end:0, hours:9 }; // default 9h
+  const toH = t => {
+    const m = t.trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return 0;
+    let h = parseInt(m[1]); const ampm = m[3]?.toUpperCase();
+    if (ampm==='PM' && h!==12) h+=12;
+    if (ampm==='AM' && h===12) h=0;
+    return h + parseInt(m[2])/60;
+  };
+  const s = toH(times[0]), e = toH(times[1]);
+  const hours = e > s ? e-s : (e+24-s); // handle overnight
+  return { start:s, end:e, hours };
+}
+
+// Parse the raw Roster CSV rows → array of periods
+function parseRosterPeriods(rows) {
+  const periods = [];
+  let i = 0;
+  while (i < rows.length) {
+    const vals = Object.values(rows[i]);
+    const first = (vals[0]||'').trim();
+    // Period date-range header row
+    if (first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first)) {
+      const period = { header:first, start:null, end:null, shifts:[], leaves:{}, target:30 };
+      // Parse period start/end
+      const dm = first.match(/(\d[\d\w\s]+?)\s+to\s+([\d\w\s]+?)(?:\s*$)/i);
+      if (dm) { period.start = new Date(dm[1]); period.end = new Date(dm[2]); }
+      i++;
+      // Skip blank
+      while (i < rows.length && !Object.values(rows[i]).some(v=>v?.trim())) i++;
+      if (i >= rows.length) break;
+
+      // Shift headers row
+      const shiftVals = Object.values(rows[i]);
+      const targetIdx = shiftVals.findIndex(v => /per user target/i.test(v||''));
+      const numShifts = targetIdx >= 0 ? targetIdx : 4;
+      for (let s=0; s<numShifts; s++) {
+        const lbl = (shiftVals[s]||'').trim();
+        if (lbl) period.shifts[s] = { label:lbl, users:[] };
+      }
+      i++;
+
+      // User rows (until blank or Leave row)
+      while (i < rows.length) {
+        const uvals = Object.values(rows[i]);
+        if (!uvals.some(v=>v?.trim())) break;
+        if (/leave/i.test(uvals[0]||'')) break;
+        const tgt = parseFloat(uvals[targetIdx]);
+        if (!isNaN(tgt) && tgt>0) period.target = tgt;
+        for (let s=0; s<numShifts; s++) {
+          const u = (uvals[s]||'').trim();
+          if (u && !/per user/i.test(u) && !/^\d+$/.test(u)) {
+            if (!period.shifts[s]) period.shifts[s] = { label:'', users:[] };
+            period.shifts[s].users.push(u);
+          }
+        }
+        i++;
+      }
+
+      // Skip to Leave section
+      while (i < rows.length && !/leave/i.test(Object.values(rows[i])[0]||'')) i++;
+      if (i < rows.length) i++; // skip "Leave(...)" row
+      while (i < rows.length && !Object.values(rows[i]).some(v=>v?.trim())) i++;
+
+      // Leave header: Name, date1, date2...
+      if (i < rows.length) {
+        const lhVals = Object.values(rows[i]);
+        const dateCols = lhVals.slice(1).map(d=>(d||'').trim());
+        i++;
+        // Leave data rows
+        while (i < rows.length) {
+          const lvals = Object.values(rows[i]);
+          const name = (lvals[0]||'').trim();
+          if (!name) break;
+          dateCols.forEach((dateStr, di) => {
+            if (!/leave/i.test(lvals[di+1]||'')) return;
+            const d = new Date(dateStr);
+            if (isNaN(d)) return;
+            const key = d.toISOString().slice(0,10);
+            if (!period.leaves[key]) period.leaves[key] = [];
+            period.leaves[key].push(name);
+          });
+          i++;
+        }
+      }
+      periods.push(period);
+    } else { i++; }
+  }
+  return periods;
+}
+
+// Get total capacity for a specific date (0 if Sunday or no roster)
+function getDayCapacity(date, periods) {
+  if (date.getDay() === 0) return 0; // Sunday
+  const dStr = new Date(date).toISOString().slice(0,10);
+  const d12  = new Date(date); d12.setHours(12,0,0,0);
+  const period = periods.find(p => {
+    if (!p.start || !p.end) return false;
+    const ps = new Date(p.start); ps.setHours(0,0,0,0);
+    const pe = new Date(p.end);   pe.setHours(23,59,0,0);
+    return d12 >= ps && d12 <= pe;
+  });
+  if (!period) return null; // no roster
+  const onLeave = period.leaves[dStr] || [];
+  let cap = 0;
+  (period.shifts||[]).forEach(shift => {
+    if (!shift) return;
+    const { hours } = parseShiftHours(shift.label);
+    const active = shift.users.filter(u => !onLeave.includes(u)).length;
+    cap += active * period.target * hours;
+  });
+  return Math.round(cap);
+}
 function toggleHourlyForecast() {
   _hourlyForecast = !_hourlyForecast;
   const btn = $('btnHlyForecast');
@@ -1841,12 +1959,13 @@ async function renderForecastChart() {
   canvas.style.opacity = '0.3';
 
   try {
-    const daily = await fetchGS(GS_DAILY);
-    // Parse date + in/out from daily rows
-    // columns expected: date, total_in, total_out, backlog (or similar)
+    const [daily, rosterRows] = await Promise.all([fetchGS(GS_DAILY), fetchGS(GS_ROSTER)]);
+    const periods = parseRosterPeriods(rosterRows);
+
+    // Parse daily history
     const parsed = [];
     daily.forEach(r => {
-      const dateVal = r.date || r.Date || r['date'] || Object.values(r)[0];
+      const dateVal = r.date || r.Date || Object.values(r)[0];
       const inVal   = parseFloat(r.total_in  || r['Total In']  || r.in  || 0);
       const outVal  = parseFloat(r.total_out || r['Total Out'] || r.out || 0);
       if (!dateVal) return;
@@ -1855,96 +1974,82 @@ async function renderForecastChart() {
       parsed.push({ d, dow: d.getDay(), inV: inVal, outV: outVal });
     });
 
-    // Build same-weekday averages (last 8 weeks of each day)
+    // Same-weekday averages (last 8 weeks)
     const dowSum = Array.from({length:7},()=>({in:0,out:0,n:0}));
-    parsed.forEach(p => {
-      dowSum[p.dow].in  += p.inV;
-      dowSum[p.dow].out += p.outV;
-      dowSum[p.dow].n++;
-    });
-    const dowAvg = dowSum.map(s => ({
-      in:  s.n ? Math.round(s.in  / s.n) : 0,
-      out: s.n ? Math.round(s.out / s.n) : 0,
-    }));
+    parsed.forEach(p => { dowSum[p.dow].in+=p.inV; dowSum[p.dow].out+=p.outV; dowSum[p.dow].n++; });
+    const dowAvg = dowSum.map(s => ({ in: s.n?Math.round(s.in/s.n):0, out: s.n?Math.round(s.out/s.n):0 }));
 
-    // Build next 14 days labels + projected values
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const labels = [], projIn = [], projOut = [];
-    const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    for (let i = 1; i <= 14; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
+    // Next 14 days
+    const today = new Date(); today.setHours(0,0,0,0);
+    const labels=[], projIn=[], projOut=[], projCap=[];
+    const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let hasRoster = false;
+    for (let i=1; i<=14; i++) {
+      const d = new Date(today); d.setDate(today.getDate()+i);
       const dow = d.getDay();
-      const label = `${DAY_NAMES[dow]} ${d.getDate()}/${d.getMonth()+1}`;
-      labels.push(label);
-      projIn.push(dow === 0 ? 0 : dowAvg[dow].in);   // Sunday = 0
-      projOut.push(dow === 0 ? 0 : dowAvg[dow].out);
+      labels.push(`${DAY_NAMES[dow]} ${d.getDate()}/${d.getMonth()+1}`);
+      projIn.push(dow===0 ? 0 : dowAvg[dow].in);
+      projOut.push(dow===0 ? 0 : dowAvg[dow].out);
+      const cap = getDayCapacity(d, periods);
+      projCap.push(cap);
+      if (cap !== null) hasRoster = true;
     }
 
     const PAL = getPal();
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.display='block'; canvas.style.opacity='1';
+    if (loader) loader.style.display='none';
 
-    canvas.style.display  = 'block';
-    canvas.style.opacity  = '1';
-    if (loader) loader.style.display = 'none';
+    const datasets = [
+      {
+        label:'Projected Received', data:projIn, type:'bar',
+        backgroundColor:PAL.accent+'66', borderColor:PAL.accent, borderWidth:1.5, borderRadius:4,
+        datalabels:{ anchor:'end', align:'end', color:PAL.accent,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v>0?v.toLocaleString():''},
+      },
+      {
+        label:'Projected QC Done', data:projOut, type:'bar',
+        backgroundColor:PAL.green+'66', borderColor:PAL.green, borderWidth:1.5, borderRadius:4,
+        datalabels:{ anchor:'end', align:'start', color:PAL.green,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v>0?v.toLocaleString():''},
+      },
+    ];
+    if (hasRoster) {
+      datasets.push({
+        label:'Capacity (Roster)', data:projCap, type:'line',
+        borderColor:PAL.red, backgroundColor:'transparent',
+        borderWidth:2, borderDash:[5,4], tension:0.2,
+        pointRadius:4, pointBackgroundColor:PAL.red,
+        datalabels:{ anchor:'end', align:'top', color:PAL.red,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v!=null&&v>0?v.toLocaleString():''},
+      });
+    }
 
     _hourlyChart = new Chart(canvas, {
-      type: 'bar',
-      plugins: [ChartDataLabels],
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Projected Received',
-            data: projIn,
-            backgroundColor: PAL.accent + '99',
-            borderColor: PAL.accent,
-            borderWidth: 1.5,
-            borderRadius: 4,
-            datalabels: {
-              anchor:'end', align:'end', color: PAL.accent,
-              font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-              formatter: v => v > 0 ? v.toLocaleString() : '',
-            },
-          },
-          {
-            label: 'Projected QC Done',
-            data: projOut,
-            backgroundColor: PAL.green + '99',
-            borderColor: PAL.green,
-            borderWidth: 1.5,
-            borderRadius: 4,
-            datalabels: {
-              anchor:'end', align:'start', color: PAL.green,
-              font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-              formatter: v => v > 0 ? v.toLocaleString() : '',
-            },
-          },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: { duration: 400 },
-        plugins: {
-          legend: { display: true, position:'top',
-            labels:{ color: PAL.bodyText||PAL.ink, font:{size:11}, padding:16, usePointStyle:true }},
-          tooltip: { mode:'index', intersect:false },
-          datalabels: { display: true },
+      type:'bar', plugins:[ChartDataLabels],
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400},
+        plugins:{
+          legend:{ display:true, position:'top',
+            labels:{color:PAL.bodyText||PAL.ink, font:{size:11}, padding:16, usePointStyle:true}},
+          tooltip:{mode:'index', intersect:false},
         },
-        scales: {
-          x: { grid:{display:false}, ticks:{ color: PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:45 }},
-          y: { beginAtZero:true, grid:{color: PAL.line||'#e8e6e3'},
-               ticks:{ color: PAL.bodyText||PAL.ink, font:{size:10} }},
+        scales:{
+          x:{ grid:{display:false}, ticks:{color:PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:45}},
+          y:{ beginAtZero:true, grid:{color:PAL.line||'#e8e6e3'}, ticks:{color:PAL.bodyText||PAL.ink, font:{size:10}}},
         },
       },
     });
 
-    // Update sub-title and legend
     const sub = $('hourlySub');
-    if (sub) sub.textContent = `14-day projection · same-weekday average from ${parsed.length} days of history`;
+    if (sub) sub.textContent = `14-day projection · same-weekday avg · ${hasRoster?'capacity from roster':'no roster found'}`;
     const leg = $('hourlyLegend');
-    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">Projected based on average of same weekday · Sundays = 0</span>`;
+    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">
+      Projected = same weekday historical avg · Red line = roster capacity (users × target × shift hrs) · Sundays = 0</span>`;
 
   } catch(err) {
     console.error('[forecast]', err);
