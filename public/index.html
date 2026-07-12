@@ -1871,6 +1871,18 @@ function parseShiftHours(label) {
   return { start:s, end:e, hours };
 }
 
+// Parse "11 July 2026" → "2026-07-11" safely (no timezone issues)
+function rosterDateToStr(s) {
+  const MON = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+               jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  const m = String(s||'').trim().match(/(\d{1,2})\s+(\w{3,})\s+(\d{2,4})/i);
+  if (!m) return null;
+  const day = m[1].padStart(2,'0');
+  const mon = MON[m[2].toLowerCase().slice(0,3)];
+  const yr  = m[3].length===2 ? '20'+m[3] : m[3];
+  return mon ? `${yr}-${mon}-${day}` : null;
+}
+
 // Parse the raw Roster CSV rows → array of periods
 function parseRosterPeriods(rawRows) {
   const periods = [];
@@ -1884,10 +1896,11 @@ function parseRosterPeriods(rawRows) {
       // Parse period start/end
       const dm = first.match(/(\d[\d\w\s]+?)\s+to\s+([\d\w\s]+?)(?:\s*$)/i);
       if (dm) {
-        // Handle "06 July 26" → "06 July 2026"
-        const fixYr = s => s.trim().replace(/(\d{2})$/, '20$1');
-        period.start = new Date(fixYr(dm[1]));
-        period.end   = new Date(fixYr(dm[2]));
+        const startStr = rosterDateToStr(dm[1]) || dm[1].trim();
+        const endStr   = rosterDateToStr(dm[2]) || dm[2].trim();
+        // Parse as local date using ISO format to avoid timezone shift
+        period.start = new Date(startStr + 'T00:00:00');
+        period.end   = new Date(endStr   + 'T23:59:59');
       }
       i++;
       // Skip blank
@@ -1938,9 +1951,8 @@ function parseRosterPeriods(rawRows) {
           if (!name) break;
           dateCols.forEach((dateStr, di) => {
             if (!/leave/i.test(lvals[di+1]||'')) return;
-            const d = new Date(dateStr);
-            if (isNaN(d)) return;
-            const key = d.toISOString().slice(0,10);
+            const key = rosterDateToStr(dateStr);
+            if (!key) return;
             if (!period.leaves[key]) period.leaves[key] = [];
             period.leaves[key].push(name);
           });
@@ -2119,12 +2131,131 @@ async function renderForecastChart() {
   }
 }
 
+// ── Day-wise chart: daily totals + capacity (8h × target per user) ───────────
+async function renderDayWiseChart(canvas, loader) {
+  try {
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = 'day-wise · total in/out per day · capacity = users × 8h × 30';
+
+    const [dailyRows, rosterRaw] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
+    const periods = parseRosterPeriods(rosterRaw);
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+
+    // Filter daily rows to date range
+    const matched = dailyRows.filter(r => {
+      const ds = (r.date||r.Date||Object.values(r)[0]||'').trim();
+      return ds >= fromStr && ds < toStr;
+    }).sort((a,b) => {
+      const da = (a.date||a.Date||Object.values(a)[0]||'');
+      const db = (b.date||b.Date||Object.values(b)[0]||'');
+      return da.localeCompare(db);
+    });
+
+    if (!matched.length) {
+      if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No daily data for ${label}.</span>`;
+      if (loader) loader.style.display='none';
+      canvas.style.opacity='1'; canvas.style.display='none'; return;
+    }
+    canvas.style.display = 'block';
+
+    const labels=[], recv=[], qcDone=[], capLine=[];
+    const DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    matched.forEach(r => {
+      const ds = (r.date||r.Date||Object.values(r)[0]||'').trim();
+      const d  = new Date(ds); d.setHours(12,0,0,0);
+      labels.push(`${DAY[d.getDay()]} ${d.getDate()}/${d.getMonth()+1}`);
+      recv.push(  parseFloat(r.total_in  || r['Total In']  || 0));
+      qcDone.push(parseFloat(r.total_out || r['Total Out'] || 0));
+
+      // Day-wise capacity = Σ users_on_shift × 8h × target (minus leaves)
+      let cap = 0;
+      const period = periods.find(p => {
+        if (!p.start||!p.end) return false;
+        return d >= new Date(p.start) && d <= new Date(p.end);
+      });
+      if (period && d.getDay() !== 0) { // weekdays
+        const onLeave = period.leaves[ds]||[];
+        (period.shifts||[]).forEach(sh => {
+          if (!sh) return;
+          const active = sh.users.filter(u=>!onLeave.includes(u)).length;
+          cap += active * 8 * period.target; // 8 effective hours (9h - 1h break)
+        });
+      }
+      capLine.push(cap || null);
+    });
+
+    const PAL = getPal();
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.opacity = '1';
+    if (loader) loader.style.display = 'none';
+
+    _hourlyChart = new Chart(canvas, {
+      type:'bar', plugins:[ChartDataLabels],
+      data:{ labels, datasets:[
+        { label:'Received', data:recv, hidden:!_hlyVisible.recv,
+          backgroundColor:PAL.accent+'88', borderColor:PAL.accent, borderWidth:1.5, borderRadius:3,
+          datalabels:{ anchor:'end', align:'end', color:PAL.accent,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'' }},
+        { label:'QC Done', data:qcDone, hidden:!_hlyVisible.qcdone,
+          backgroundColor:PAL.green+'88', borderColor:PAL.green, borderWidth:1.5, borderRadius:3,
+          datalabels:{ anchor:'end', align:'start', color:PAL.green,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?v.toLocaleString():'' }},
+        { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
+          borderColor:'#E8820A', backgroundColor:'transparent',
+          borderWidth:2.5, borderDash:[6,4], tension:0,
+          pointRadius:4, pointBackgroundColor:'#E8820A',
+          datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?v.toLocaleString():'' }},
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{mode:'index', intersect:false,
+            callbacks:{ label:c=>`${c.dataset.label}: ${c.parsed.y?.toLocaleString()}` }},
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{color:getPal().muted, font:{size:10}, maxRotation:45} },
+          y:{ beginAtZero:true, grid:{color:getPal().line},
+              ticks:{color:getPal().muted, font:{size:10}, callback:v=>v.toLocaleString()} },
+        },
+      },
+    });
+
+    const totalRecv  = recv.reduce((a,b)=>a+b,0);
+    const totalQc    = qcDone.reduce((a,b)=>a+b,0);
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = [
+      {label:'Received', color:PAL.accent, val:totalRecv.toLocaleString()},
+      {label:'QC Done',  color:PAL.green,  val:totalQc.toLocaleString()},
+      {label:'Capacity (8h/user)',color:'#E8820A', val:'from roster'},
+    ].map(({label,color,val})=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
+    ).join('');
+
+  } catch(e) {
+    console.error('[day-wise]', e);
+    if (loader) loader.style.display='none';
+    canvas.style.opacity='1';
+  }
+}
+
 async function renderHourlyChart() {
   const loader = $('hourlyLoader');
   const canvas = $('cHourly');
   if (!canvas) return;
   if (loader) loader.style.display = 'block';
   canvas.style.opacity = '0.3';
+
+  // ── Day-wise view ──────────────────────────────────────────────────────────
+  if (_hlyView === 'day') {
+    await renderDayWiseChart(canvas, loader);
+    return;
+  }
 
   try {
     const sub = $('hourlySub');
@@ -2184,32 +2315,66 @@ async function renderHourlyChart() {
     grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
     grad.addColorStop(1, hexToRgba(PAL.accent, 0));
 
-    // ── Compute capacity per hour from roster ────────────────────
+    // ── Compute capacity per hour from roster ─────────────────────────────────
+    // Hour-wise: actual users on shift at that hour × target
+    // Overnight shifts carry over: hours 0-N on date D use prev day (D-1) leaves
+    // Day-wise: each user = 8h × target (9h shift - 1h break)
     let capPerHour = new Array(24).fill(0);
     try {
-      const rosterRaw = await fetchGSRaw(GS_ROSTER);
-      const periods   = parseRosterPeriods(rosterRaw);
+      const rosterRaw  = await fetchGSRaw(GS_ROSTER);
+      const periods    = parseRosterPeriods(rosterRaw);
       const { fromStr } = getHourlyDateBounds(_hourlyRange);
-      const midDate = new Date(fromStr); midDate.setHours(12,0,0,0);
-      const period = periods.find(p => {
+
+      const refDate  = new Date(fromStr); refDate.setHours(12,0,0,0);
+      const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
+      const refStr   = refDate.toISOString().slice(0,10);
+      const prevStr  = prevDate.toISOString().slice(0,10);
+
+      const findPer = d => periods.find(p => {
         if (!p.start||!p.end) return false;
-        return midDate >= new Date(p.start) && midDate <= new Date(p.end);
+        const pd = new Date(d); pd.setHours(12,0,0,0);
+        return pd >= new Date(p.start) && pd <= new Date(p.end);
       });
-      if (period && midDate.getDay() !== 0) { // weekdays only
-        const dStr = midDate.toISOString().slice(0,10);
-        const onLeave = period.leaves[dStr]||[];
-        for (let h=0; h<24; h++) {
-          let cap = 0;
+
+      const period     = findPer(refDate);
+      const prevPeriod = findPer(prevDate);
+
+      for (let h = 0; h < 24; h++) {
+        // Check shifts from refDate period
+        if (period) {
           (period.shifts||[]).forEach(sh => {
             if (!sh) return;
             const { start, end } = parseShiftHours(sh.label);
-            const inShift = end>start ? (h>=start&&h<end) : (h>=start||h<end);
-            if (inShift) cap += sh.users.filter(u=>!onLeave.includes(u)).length * period.target;
+            const overnight = end < start;
+            if (!overnight) {
+              // Normal shift: active if h in [start, end)
+              if (h >= start && h < end) {
+                const leave = period.leaves[refStr]||[];
+                capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+              }
+            } else {
+              // Overnight: h >= start → shift started today (use refDate leaves)
+              if (h >= start) {
+                const leave = period.leaves[refStr]||[];
+                capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+              }
+            }
           });
-          capPerHour[h] = cap;
+        }
+        // Overnight carry-over from previous day: h < end means shift started YESTERDAY
+        if (prevPeriod) {
+          (prevPeriod.shifts||[]).forEach(sh => {
+            if (!sh) return;
+            const { start, end } = parseShiftHours(sh.label);
+            const overnight = end < start;
+            if (overnight && h < end) {
+              // This hour is carry-over from yesterday's overnight shift → use yesterday's leaves
+              const leave = prevPeriod.leaves[prevStr]||[];
+              capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
+            }
+          });
         }
       }
-      // Sunday = 0 (already set by fill(0))
     } catch(e) { console.warn('[cap]', e.message); }
 
     if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
