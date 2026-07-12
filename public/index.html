@@ -15,17 +15,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
-    --bg:#eef2ff;--surface:#ffffff;--surface-2:#f6f8ff;--ink:#1a1523;--ink-2:#3f3d56;
-    --muted:#8b90a8;--line:#dfe3ff;--line-2:#cdd3f5;--accent:#4f46e5;--green:#059669;
-    --amber:#d97706;--red:#dc2626;--orange:#ea580c;--purple:#4f46e5;--teal:#0891b2;
+    --bg:#eef2ff;--surface:#ffffff;--surface-2:#f6f8ff;--ink:#171a2e;--ink-2:#3d4266;
+    --muted:#8589a8;--line:#e3e6f7;--line-2:#d2d7ee;--accent:#4f46e5;--green:#1f7a52;
+    --amber:#b27a00;--red:#b3261e;--orange:#c2410c;--purple:#4f46e5;--teal:#0e7490;
     --theme-btn-bg:#4f46e5;--theme-btn-fg:#ffffff;
     --shadow:rgba(0,0,0,0.05);--shadow-md:rgba(0,0,0,0.08);--shadow-lg:rgba(0,0,0,0.18);
   }
   [data-theme="dark"]{
-    --bg:#12131f;--surface:#1b1d2e;--surface-2:#222540;--ink:#eef0f7;--ink-2:#b4b8cf;
-    --muted:#7c82a0;--line:#2a2d47;--line-2:#363a5a;--accent:#818cf8;--green:#4ade80;
+    --bg:#12141f;--surface:#1b1e2e;--surface-2:#222639;--ink:#eef0f9;--ink-2:#b3b8d0;
+    --muted:#7d829c;--line:#2b2f45;--line-2:#373c56;--accent:#818cf8;--green:#4ade80;
     --amber:#f5c265;--red:#f87171;--orange:#fb923c;--purple:#818cf8;--teal:#22d3ee;
-    --theme-btn-bg:#818cf8;--theme-btn-fg:#12131f;
+    --theme-btn-bg:#818cf8;--theme-btn-fg:#12141f;
     --shadow:rgba(0,0,0,0.3);--shadow-md:rgba(0,0,0,0.4);--shadow-lg:rgba(0,0,0,0.6);
   }
   *{box-sizing:border-box;}
@@ -535,47 +535,40 @@
   .hly-tog{padding:4px 10px;border-radius:20px;background:transparent;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:all .15s;opacity:0.45;}
   .hly-tog.sel{opacity:1;}
 
-  /* ===== 360 redesign layer (indigo) — visual only ===== */
-  .hero{background:linear-gradient(135deg,#3730a3 0%,#4f46e5 60%,#6366f1 100%);border-radius:18px;padding:20px 24px;margin-bottom:22px;box-shadow:0 8px 26px rgba(79,70,229,.28);}
+  /* ===== 2026 redesign layer (visual only) ===== */
+  .hero{background:linear-gradient(135deg,#3730a3 0%,#4f46e5 60%,#6366f1 100%);border-radius:18px;padding:20px 24px;margin-bottom:20px;box-shadow:0 8px 28px rgba(79,70,229,.28);}
   .hero-top{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
-  .hero-top h2{font-family:'Bricolage Grotesque',serif;font-size:21px;font-weight:600;color:#fff;margin:0;letter-spacing:-.02em;}
-  .hero-top .hero-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.05em;color:#e0e7ff;background:rgba(255,255,255,.15);padding:4px 12px;border-radius:20px;}
+  .hero-top h2{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;color:#fff;margin:0;letter-spacing:-.02em;}
+  .hero-top .hero-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;color:#e0e7ff;background:rgba(255,255,255,.16);padding:4px 12px;border-radius:20px;}
   .hero-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;}
-  .hero-metric .hm-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#c7d2fe;}
-  .hero-metric .hm-value{font-family:'Bricolage Grotesque',serif;font-size:27px;font-weight:600;color:#fff;line-height:1.1;margin-top:3px;font-variant-numeric:tabular-nums;}
-  @media(max-width:820px){.hero-metrics{grid-template-columns:repeat(2,1fr);} .hero-top h2{font-size:19px;}}
-  [data-theme="dark"] .hero{background:linear-gradient(135deg,#312e81 0%,#4338ca 60%,#4f46e5 100%);box-shadow:0 8px 26px rgba(0,0,0,.4);}
+  .hero-metric .hm-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#c7d2fe;}
+  .hero-metric .hm-value{font-family:'Bricolage Grotesque',serif;font-size:28px;font-weight:600;color:#fff;line-height:1.1;margin-top:3px;font-variant-numeric:tabular-nums;}
+  @media(max-width:820px){.hero-metrics{grid-template-columns:repeat(2,1fr);}}
+  [data-theme="dark"] .hero{background:linear-gradient(135deg,#312e81 0%,#4338ca 60%,#4f46e5 100%);box-shadow:0 8px 28px rgba(0,0,0,.4);}
 
-  /* KPI grid: exactly 6 per row (2 rows for 12 cards) */
   .kpis{grid-template-columns:repeat(6,minmax(0,1fr));}
-  @media(max-width:1100px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr));}}
-  @media(max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
-
-  /* KPI cards: colored TOP border + emoji glyph */
-  .kpi{border-top-width:3px;padding-top:14px;}
-  .kpi::before{font-size:19px;line-height:1;margin-bottom:6px;display:block;}
-  .kpi[data-id="ent"]::before{content:"🏢";} .kpi[data-id="team"]::before{content:"👥";}
-  .kpi[data-id="received"]::before{content:"📥";} .kpi[data-id="processing"]::before{content:"🔄";}
-  .kpi[data-id="delivered"]::before{content:"✅";} .kpi[data-id="rejected"]::before{content:"❌";}
-  .kpi[data-id="tech-ai"]::before{content:"🔧";} .kpi[data-id="pending"]::before{content:"⏳";}
-  .kpi[data-id="sla"]::before{content:"⚡";} .kpi[data-id="tat"]::before{content:"🕐";}
-  .kpi[data-id="e2e-tat"]::before{content:"⏱️";} .kpi[data-id="w6h"]::before{content:"📈";}
-  .kpi[data-id="ent"],.kpi[data-id="received"],.kpi[data-id="sla"]{border-top-color:var(--accent);}
-  .kpi[data-id="team"],.kpi[data-id="processing"]{border-top-color:#3b82f6;}
+  @media(max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr));}}
+  @media(max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .kpi{border-top-width:3px;border-top-style:solid;padding-top:14px;}
+  .kpi::before{font-size:19px;line-height:1;margin-bottom:5px;display:block;}
+  .kpi[data-id="ent"]::before{content:"\1F3E2";} .kpi[data-id="team"]::before{content:"\1F465";}
+  .kpi[data-id="received"]::before{content:"\1F4E5";} .kpi[data-id="processing"]::before{content:"\1F504";}
+  .kpi[data-id="delivered"]::before{content:"\2705";} .kpi[data-id="rejected"]::before{content:"\274C";}
+  .kpi[data-id="tech-ai"]::before{content:"\1F527";} .kpi[data-id="pending"]::before{content:"\23F3";}
+  .kpi[data-id="sla"]::before{content:"\26A1";} .kpi[data-id="tat"]::before{content:"\1F550";}
+  .kpi[data-id="e2e-tat"]::before{content:"\23F1";} .kpi[data-id="w6h"]::before{content:"\1F4C8";}
+  .kpi[data-id="ent"],.kpi[data-id="received"],.kpi[data-id="sla"],.kpi[data-id="e2e-tat"]{border-top-color:var(--accent);}
+  .kpi[data-id="team"],.kpi[data-id="processing"]{border-top-color:#2563eb;}
   .kpi[data-id="delivered"],.kpi[data-id="w6h"]{border-top-color:var(--green);}
   .kpi[data-id="rejected"]{border-top-color:var(--red);}
-  .kpi[data-id="pending"]{border-top-color:var(--amber);}
-  .kpi[data-id="tech-ai"]{border-top-color:var(--orange);}
-  .kpi[data-id="tat"],.kpi[data-id="e2e-tat"]{border-top-color:var(--teal);}
-  .kpi-flip .kpi-front::before,.kpi-flip .kpi-back::before{content:none;}
+  .kpi[data-id="pending"],.kpi[data-id="tech-ai"]{border-top-color:var(--amber);}
+  .kpi[data-id="tat"]{border-top-color:var(--teal);}
 
-  /* solid indigo selected pills */
   .trend-tab.sel,.gran-tab.sel,.view-switch button.sel{background:var(--accent);color:#fff;box-shadow:0 1px 4px rgba(79,70,229,.35);}
-  [data-theme="dark"] .trend-tab.sel,[data-theme="dark"] .gran-tab.sel,[data-theme="dark"] .view-switch button.sel{color:#12131f;}
+  [data-theme="dark"] .trend-tab.sel,[data-theme="dark"] .gran-tab.sel,[data-theme="dark"] .view-switch button.sel{color:#12141f;}
 
-  /* section header accent tick */
   .section-label{color:var(--accent);}
-  .section-label::before{content:"";width:14px;height:3px;border-radius:2px;background:var(--accent);display:inline-block;margin-right:6px;vertical-align:middle;}
+  .section-label::before{content:"";width:14px;height:3px;border-radius:2px;background:var(--accent);display:inline-block;margin-right:2px;vertical-align:middle;}
 </style>
 </head>
 <body>
@@ -770,8 +763,8 @@
       <div class="hero-metric"><div class="hm-label">Received</div><div class="hm-value" id="hkv-received">—</div></div>
       <div class="hero-metric"><div class="hm-label">Delivered</div><div class="hm-value" id="hkv-delivered">—</div></div>
       <div class="hero-metric"><div class="hm-label">SLA %</div><div class="hm-value" id="hkv-sla">—</div></div>
+      <div class="hero-metric"><div class="hm-label">Pending</div><div class="hm-value" id="hkv-pending">—</div></div>
       <div class="hero-metric"><div class="hm-label">Avg TAT</div><div class="hm-value" id="hkv-tat">—</div></div>
-      <div class="hero-metric"><div class="hm-label">Accuracy</div><div class="hm-value" id="hkv-acc">—</div></div>
     </div>
   </div>
   <div class="section-label">Overview</div>
@@ -807,6 +800,7 @@
           <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
+          <div class="trend-tabs" id="hlyTypeTabs" style="margin-right:4px"><button class="trend-tab sel" data-ht="line" onclick="setHlyType('line')">Curve</button><button class="trend-tab" data-ht="bar" onclick="setHlyType('bar')">Bar</button></div>
           <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
@@ -1790,6 +1784,7 @@ let _hourlyRange  = 'today';
 let _hourlyChart  = null;
 let _hourlyForecast = false;  // forecast mode toggle
 let _hlyView     = 'hour';    // 'hour' or 'day'
+let _hlyType     = 'line';    // 'line' (curve) or 'bar' - Received & QC Done
 let _hlyVisible  = { recv:true, qcdone:true, backlog:true, cap:false };
 let _gsCache      = {};  // url → { data, ts }
 const GS_TTL      = 5 * 60 * 1000;
@@ -2060,6 +2055,13 @@ function toggleHlyDs(ds, btn) {
   }
 }
 
+function setHlyType(t){
+  _hlyType = (t==='bar') ? 'bar' : 'line';
+  const wrap = $('hlyTypeTabs');
+  if (wrap) wrap.querySelectorAll('.trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.ht===_hlyType));
+  if (!_hourlyForecast) renderHourlyChart();
+}
+
 function toggleHourlyForecast() {
   _hourlyForecast = !_hourlyForecast;
   const btn = $('btnHlyForecast');
@@ -2076,11 +2078,131 @@ function toggleHourlyForecast() {
   }
 }
 
+// -- Hour-wise forecast: project today's 24h curve from same-weekday hourly avg --
+async function renderHourWiseForecast(canvas, loader) {
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+  try {
+    const [rows, rosterRaw] = await Promise.all([fetchGS(GS_HOURLY), fetchGSRaw(GS_ROSTER)]);
+    const parsed = rows.map(r => ({ ...r, _p: parseHourIST(r.hour_ist) })).filter(r => r._p);
+
+    const today = new Date();
+    const dow = today.getDay();
+    const pad = n => String(n).padStart(2, '0');
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+
+    // Same-weekday hourly averages (fallback: overall hourly avg), excluding today
+    const sameSum = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
+    const allSum  = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
+    const actIn = new Array(24).fill(0), actOut = new Array(24).fill(0);
+    let hasActual = false, histDays = new Set();
+    parsed.forEach(r => {
+      const h = r._p.hour, ds = r._p.dateStr;
+      const inV = parseFloat(r.total_in) || 0, outV = parseFloat(r.total_out) || 0;
+      if (ds === todayStr) { actIn[h] += inV; actOut[h] += outV; hasActual = true; return; }
+      histDays.add(ds);
+      allSum[h].in += inV; allSum[h].out += outV; allSum[h].n++;
+      const wd = new Date(ds + 'T12:00:00').getDay();
+      if (wd === dow) { sameSum[h].in += inV; sameSum[h].out += outV; sameSum[h].n++; }
+    });
+    const projIn = [], projOut = [];
+    for (let h = 0; h < 24; h++) {
+      const s = sameSum[h].n ? sameSum[h] : allSum[h];
+      projIn.push(s.n ? Math.round(s.in / s.n) : 0);
+      projOut.push(s.n ? Math.round(s.out / s.n) : 0);
+    }
+
+    // Capacity per hour from roster (same logic as live hourly view)
+    let capPerHour = new Array(24).fill(0);
+    try {
+      const periods  = parseRosterPeriods(rosterRaw);
+      const refDate  = new Date(); refDate.setHours(12,0,0,0);
+      const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
+      const refStr   = refDate.toISOString().slice(0,10);
+      const prevStr  = prevDate.toISOString().slice(0,10);
+      const findPer  = d => periods.find(pp => { if(!pp.start||!pp.end) return false; const pd=new Date(d); pd.setHours(12,0,0,0); return pd>=new Date(pp.start)&&pd<=new Date(pp.end); });
+      const period = findPer(refDate), prevPeriod = findPer(prevDate);
+      for (let h = 0; h < 24; h++) {
+        if (period) (period.shifts||[]).forEach(sh => {
+          if (!sh) return; const { start, end } = parseShiftHours(sh.label); const overnight = end < start;
+          if ((!overnight && h >= start && h < end) || (overnight && h >= start)) {
+            const leave = period.leaves[refStr] || [];
+            capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+          }
+        });
+        if (prevPeriod) (prevPeriod.shifts||[]).forEach(sh => {
+          if (!sh) return; const { start, end } = parseShiftHours(sh.label); const overnight = end < start;
+          if (overnight && h < end) {
+            const leave = prevPeriod.leaves[prevStr] || [];
+            capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
+          }
+        });
+      }
+    } catch(e) { console.warn('[fcast-hr-cap]', e.message); }
+    const hasCap = capPerHour.some(v => v > 0);
+
+    const PAL = getPal();
+    const labels = Array.from({length:24}, (_,i) => pad(i) + ':00');
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.display = 'block'; canvas.style.opacity = '1';
+    if (loader) loader.style.display = 'none';
+
+    const datasets = [
+      { label:'Received (proj)', data:projIn, type:_hlyType, order:2, borderRadius:4,
+        borderColor:PAL.accent, backgroundColor:PAL.accent+'55', borderWidth:2, tension:0.35, fill:_hlyType!=='bar',
+        pointRadius:2.5, pointBackgroundColor:PAL.accent,
+        datalabels:{ display:false } },
+      { label:'QC Done (proj)', data:projOut, type:_hlyType, order:2, borderRadius:4,
+        borderColor:PAL.green, backgroundColor:(_hlyType==='bar'?PAL.green+'55':'transparent'), borderWidth:2, tension:0.35, fill:false,
+        pointRadius:2.5, pointBackgroundColor:PAL.green,
+        datalabels:{ display:false } },
+    ];
+    if (hasActual) datasets.push(
+      { label:'Received (today)', data:actIn, type:'line', order:0,
+        borderColor:PAL.accent, backgroundColor:'transparent', borderWidth:2.4, tension:0.35, fill:false,
+        pointRadius:2, pointBackgroundColor:PAL.accent, datalabels:{ display:false } }
+    );
+    if (hasCap) datasets.push(
+      { label:'Capacity', data:capPerHour, type:'line', order:1,
+        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], tension:0, fill:false,
+        pointRadius:3, pointBackgroundColor:'#E8820A', datalabels:{ display:false } }
+    );
+
+    _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400},
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:true, position:'top', labels:{ color:PAL.bodyText||PAL.ink, font:{size:11}, padding:14, usePointStyle:true } },
+          tooltip:{ mode:'index', intersect:false, callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` } },
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{ color:PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:0, autoSkip:true, maxTicksLimit:12 } },
+          y:{ beginAtZero:true, grid:{ color:PAL.line||'#e8e6e3' }, ticks:{ color:PAL.bodyText||PAL.ink, font:{size:10} } },
+        },
+      },
+    });
+
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = `Hour-wise forecast \u00b7 same-weekday hourly avg over ${histDays.size} day(s)${hasActual?' \u00b7 today actual overlaid':''}${hasCap?' \u00b7 capacity from roster':''}`;
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">Projected = same-weekday average received/qc_done by hour of day \u00b7 dashed orange = roster capacity/hr</span>`;
+  } catch(e) {
+    console.warn('[fcast-hourwise]', e.message);
+    if (loader) loader.style.display = 'none';
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="color:var(--muted);font-size:12px">Hour-wise forecast unavailable: ${e.message}</span>`;
+  }
+}
+
 // ── Forecast chart — next 14 days using same-weekday average from GS_DAILY ───
 async function renderForecastChart() {
   const loader = $('hourlyLoader');
   const canvas = $('cHourly');
   if (!canvas) return;
+  if (_hlyView === 'hour') { await renderHourWiseForecast(canvas, loader); return; }
   if (loader) loader.style.display = 'block';
   canvas.style.opacity = '0.3';
 
@@ -2437,7 +2559,7 @@ async function renderHourlyChart() {
     _hourlyChart = new Chart(canvas, {
       type:'line', plugins:[ChartDataLabels],
       data:{ labels, datasets:[
-        { label:'Received', data:recv,
+        { label:'Received', data:recv, type:_hlyType, order:2, borderRadius:4,
           borderColor:PAL.accent, backgroundColor:grad,
           borderWidth:2.2, tension:0.35, fill:true,
           pointRadius:3, pointHoverRadius:6,
@@ -2449,8 +2571,8 @@ async function renderHourlyChart() {
             formatter:v=>v>0?v.toLocaleString():'', padding:{top:2,bottom:2},
           },
         },
-        { label:'QC Done', data:qcDone,
-          borderColor:PAL.green, backgroundColor:'transparent',
+        { label:'QC Done', data:qcDone, type:_hlyType, order:2, borderRadius:4,
+          borderColor:PAL.green, backgroundColor:(_hlyType==='bar'?PAL.green+'55':'transparent'),
           borderWidth:2, tension:0.35, fill:false,
           pointRadius:2.5, pointHoverRadius:5.5,
           pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
@@ -2461,7 +2583,7 @@ async function renderHourlyChart() {
             formatter:v=>v>0?v.toLocaleString():'', padding:{top:1,bottom:1},
           },
         },
-        { label:'Pendency', data:backlogAvg,
+        { label:'Pendency', data:backlogAvg, type:'line', order:1,
           borderColor:PAL.red, backgroundColor:'transparent',
           borderWidth:2, tension:0.35, fill:false,
           borderDash:[5,3],
@@ -2476,7 +2598,7 @@ async function renderHourlyChart() {
           },
         },
         // Capacity from roster (dashed orange line)
-        { label:'Capacity', data:capPerHour, hidden:!_hlyVisible.cap,
+        { label:'Capacity', data:capPerHour, type:'line', order:1, hidden:!_hlyVisible.cap,
           borderColor:'#E8820A', backgroundColor:'transparent',
           borderWidth:2.2, borderDash:[6,4], tension:0, fill:false,
           pointRadius:3, pointHoverRadius:5,
@@ -2940,15 +3062,12 @@ function paint(){
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
 
-  // hero banner sync (mirrors computed KPI values; no new logic)
-  if ($('hkv-received')) {
-    $('hkv-received').textContent  = num(k.totalReceived);
-    $('hkv-delivered').textContent = num(k.totalDelivered);
-    $('hkv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
-    $('hkv-tat').textContent       = fmtTatHrs(k.avgTat);
-    const _au=(k.autoDelivered||0), _mn=(k.manualDelivered||0), _tt=_au+_mn;
-    $('hkv-acc').textContent       = _tt ? ((_au/_tt)*100).toFixed(1)+'%' : '—';
-  }
+  // hero banner sync (mirrors computed KPI values)
+  { const hr=$('hkv-received'); if(hr){ hr.textContent=num(k.totalReceived);
+    $('hkv-delivered').textContent=num(k.totalDelivered);
+    $('hkv-sla').textContent=k.slaCompliance!=null?k.slaCompliance.toFixed(1)+'%':'—';
+    $('hkv-pending').textContent=num(k.totalPending);
+    $('hkv-tat').textContent=fmtTatHrs(k.avgTat); } }
 
   // SLA + Delivery panels
   paintSla(k);
