@@ -2059,7 +2059,9 @@ function setHlyType(t){
   _hlyType = (t==='bar') ? 'bar' : 'line';
   const wrap = $('hlyTypeTabs');
   if (wrap) wrap.querySelectorAll('.trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.ht===_hlyType));
-  if (!_hourlyForecast) renderHourlyChart();
+  // Re-render whichever view is active — works in BOTH live and forecast modes
+  if (_hourlyForecast) renderForecastChart();
+  else renderHourlyChart();
 }
 
 function toggleHourlyForecast() {
