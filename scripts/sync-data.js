@@ -61,6 +61,7 @@ function getDateStr(s) {
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
+  const pa  = parseDate(r.processedAt || r.processed_at || r.processed_on); // processed timestamp (E2E start)
   const sc  = parseDate(r.sku_created_on); // sku_created_on (for TAT/SLA)
   const ft  = parseDate(r.final_time);
     const fq  = parseDate(r.first_qc_done);  // first QC done time
@@ -72,10 +73,12 @@ function mapRow(r) {
           if (ms > 0) tat = Math.round(ms / 36000) / 100;
     }
 
-  // E2E TAT = createdAt to first_qc_done
+  // E2E TAT = processedAt -> first_qc_done
+  //   Fallback: if processedAt is null/blank/not a valid date, use createdAt -> first_qc_done
   let e2e = null;
-    if (ca && fq) {
-          const ms = fq - ca;
+    const e2eStart = pa || ca;   // pa is null when processedAt is blank/invalid
+    if (e2eStart && fq) {
+          const ms = fq - e2eStart;
           if (ms > 0) e2e = Math.round(ms / 36000) / 100;
     }
 
