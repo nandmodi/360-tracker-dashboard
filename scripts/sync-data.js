@@ -59,6 +59,8 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
+const _diag = { withProcessed:0, fallback:0, sample:[] };
+
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
   const pa  = parseDate(r.processedAt || r.processed_at || r.processed_on); // processed timestamp (E2E start)
@@ -81,6 +83,9 @@ function mapRow(r) {
           const ms = fq - e2eStart;
           if (ms > 0) e2e = Math.round(ms / 36000) / 100;
     }
+    // --- E2E diagnostics ---
+    if (pa) _diag.withProcessed++; else _diag.fallback++;
+    if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, e2e });
 
   // SLA = sku_created_on to first_qc_done <= 6h
   const finalStatus = (r.final_status || '').trim();
@@ -125,6 +130,9 @@ async function main() {
   const lines   = text.split('\n');
     const headers = parseCSVLine(lines[0]);
     console.log(`Total rows: ${lines.length - 1}`);
+    console.log('[CSV headers] ' + headers.join(' | '));
+    const procCol = headers.find(h => /processed/i.test(h));
+    console.log('[processed-like column] ' + (procCol || 'NONE FOUND — E2E will always fall back to createdAt'));
 
   const cutoff = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000).toISOString().slice(0, 10);
     console.log(`Keeping last ${KEEP_DAYS} days (cutoff: ${cutoff}) + all pending`);
@@ -148,6 +156,8 @@ async function main() {
   }
 
   console.log(`Kept: ${rows.length} | Skipped: ${skipped}`);
+    console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
+    console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
     const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
@@ -156,7 +166,8 @@ async function main() {
   const payload = {
         rows,
         lastSynced: new Date().toISOString(),
-        meta: { total: rows.length, delivered, rejected, pending },
+        meta: { total: rows.length, delivered, rejected, pending,
+          e2eDiag: { withProcessedAt: _diag.withProcessed, fellBackToCreatedAt: _diag.fallback, sample: _diag.sample } },
   };
 
   const json   = JSON.stringify(payload);
