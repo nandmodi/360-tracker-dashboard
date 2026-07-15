@@ -1730,7 +1730,7 @@ const KPIS = [
   { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
   { id:'sla',       label:'SLA Compliance',    sub:'within 6h (first_qc_done)', color:'green', kind:'records', view:'within_sla' },
   { id:'tat',       label:'Avg TAT',           sub:'sku_created_on → first_qc_done', color:'blue', kind:'records',  view:'tat'        },
-  { id:'e2e-tat',   label:'E2E TAT',           sub:'createdAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
+  { id:'e2e-tat',   label:'E2E TAT',           sub:'processedAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
   { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
 ];
 
