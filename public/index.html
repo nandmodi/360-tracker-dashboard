@@ -1455,22 +1455,20 @@ function aggregate(rows){
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
   // Only Delivered rows, qc_user not null, TAT > 0
   let tatSum=0, tatCount=0;
-  const tatValues=[];   // for P95 (Delivered) — same population as Avg TAT
   for (const r of rows){
     if (!isDelivered(r)) continue;          // only Delivered
     if (!r.qc) continue;                    // skip null qc_user_id
     if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
       tatSum += r.tat;
       tatCount++;
-      tatValues.push(r.tat);
     }
   }
-  // P95 TAT (Delivered) — nearest-rank percentile, same population as Avg TAT
+  // P95 E2E TAT (Delivered) — nearest-rank percentile, same population as E2E TAT avg
   let p95Tat = null;
-  if (tatValues.length){
-    const sortedTat = tatValues.slice().sort((a,b)=>a-b);
-    const idx = Math.min(sortedTat.length-1, Math.ceil(0.95*sortedTat.length)-1);
-    p95Tat = +sortedTat[idx].toFixed(2);
+  if (e2eValues.length){
+    const sortedE2e = e2eValues.slice().sort((a,b)=>a-b);
+    const idx = Math.min(sortedE2e.length-1, Math.ceil(0.95*sortedE2e.length)-1);
+    p95Tat = +sortedE2e[idx].toFixed(2);
   }
 
   // ── Step 3: Unique set counts ─────────────────────────────────
@@ -1481,6 +1479,7 @@ function aggregate(rows){
   let autoDelivered=0, manualDelivered=0;
   // New metrics
   let e2eTatSum=0, e2eTatCount=0;
+  const e2eValues=[];   // for P95 (Delivered, E2E) — same population as E2E TAT avg
   let slaDelivCount=0, within6h=0;
   let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
   const entCount={}, teamCount={}, qcCount={};
@@ -1508,6 +1507,7 @@ function aggregate(rows){
       // E2E TAT (final_time - createdAt)
       if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
         e2eTatSum += r.e2e; e2eTatCount++;
+        e2eValues.push(r.e2e);
       }
       // SLA / Within 6h: based on TAT (sku_created_on → first_qc_done)
       if (typeof r.tat === 'number' && r.tat > 0){
@@ -1741,7 +1741,7 @@ const KPIS = [
   { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
   { id:'tat',       label:'Avg TAT',           sub:'sku_created_on → first_qc_done', color:'blue', kind:'records',  view:'tat'        },
   { id:'e2e-tat',   label:'E2E TAT',           sub:'processedAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
-  { id:'p95',       label:'P95 TAT (Delivered)', sub:'95th percentile, hrs', color:'blue',  kind:'records',   view:'p95_tat'  },
+  { id:'p95',       label:'P95 E2E TAT (Delivered)', sub:'95th percentile, processedAt → first_qc_done', color:'blue',  kind:'records',   view:'p95_tat'  },
 ];
 
 function renderKpiCards(){
@@ -3670,7 +3670,7 @@ function drillSubset(rows, view){
     case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e > 0);
     case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
-    case 'p95_tat':       return rows.filter(r => isDelivered(r) && r.qc && typeof r.tat==='number' && r.tat>0).sort((a,b)=>(b.tat||0)-(a.tat||0));
+    case 'p95_tat':       return rows.filter(r => isDelivered(r) && typeof r.e2e==='number' && r.e2e>0).sort((a,b)=>(b.e2e||0)-(a.e2e||0));
     default:              return rows;
   }
 }
