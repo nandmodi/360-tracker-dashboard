@@ -1463,13 +1463,6 @@ function aggregate(rows){
       tatCount++;
     }
   }
-  // P95 E2E TAT (Delivered) — nearest-rank percentile, same population as E2E TAT avg
-  let p95Tat = null;
-  if (e2eValues.length){
-    const sortedE2e = e2eValues.slice().sort((a,b)=>a-b);
-    const idx = Math.min(sortedE2e.length-1, Math.ceil(0.95*sortedE2e.length)-1);
-    p95Tat = +sortedE2e[idx].toFixed(2);
-  }
 
   // ── Step 3: Unique set counts ─────────────────────────────────
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
@@ -1632,6 +1625,14 @@ function aggregate(rows){
   const topReasons    = slice(reasonsDisplay,10);
   const topReasonsKeys= {};
   Object.keys(topReasons).forEach(l=>{ topReasonsKeys[l]=reasonsKeys[l]; });
+
+  // P95 E2E TAT (Delivered) — nearest-rank percentile, same population as E2E TAT avg
+  let p95Tat = null;
+  if (e2eValues.length){
+    const sortedE2e = e2eValues.slice().sort((a,b)=>a-b);
+    const idx = Math.min(sortedE2e.length-1, Math.ceil(0.95*sortedE2e.length)-1);
+    p95Tat = +sortedE2e[idx].toFixed(2);
+  }
 
   const totalReceived = skuSet.size;
   return {
