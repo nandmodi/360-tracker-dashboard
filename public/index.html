@@ -556,13 +556,13 @@
   .kpi[data-id="delivered"]::before{content:"\2705";} .kpi[data-id="rejected"]::before{content:"\274C";}
   .kpi[data-id="tech-ai"]::before{content:"\1F527";} .kpi[data-id="pending"]::before{content:"\23F3";}
   .kpi[data-id="sla"]::before{content:"\26A1";} .kpi[data-id="tat"]::before{content:"\1F550";}
-  .kpi[data-id="e2e-tat"]::before{content:"\23F1";} .kpi[data-id="w6h"]::before{content:"\1F4C8";}
+  .kpi[data-id="e2e-tat"]::before{content:"\23F1";} .kpi[data-id="w6h"]::before{content:"\1F4C8";} .kpi[data-id="p95"]::before{content:"\1F4CA";}
   .kpi[data-id="ent"],.kpi[data-id="received"],.kpi[data-id="sla"],.kpi[data-id="e2e-tat"]{border-top-color:var(--accent);}
   .kpi[data-id="team"],.kpi[data-id="processing"]{border-top-color:#2563eb;}
   .kpi[data-id="delivered"],.kpi[data-id="w6h"]{border-top-color:var(--green);}
   .kpi[data-id="rejected"]{border-top-color:var(--red);}
   .kpi[data-id="pending"],.kpi[data-id="tech-ai"]{border-top-color:var(--amber);}
-  .kpi[data-id="tat"]{border-top-color:var(--teal);}
+  .kpi[data-id="tat"],.kpi[data-id="p95"]{border-top-color:var(--teal);}
 
   .trend-tab.sel,.gran-tab.sel,.view-switch button.sel{background:var(--accent);color:#fff;box-shadow:0 1px 4px rgba(79,70,229,.35);}
   [data-theme="dark"] .trend-tab.sel,[data-theme="dark"] .gran-tab.sel,[data-theme="dark"] .view-switch button.sel{color:#12141f;}
@@ -1455,13 +1455,22 @@ function aggregate(rows){
   // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
   // Only Delivered rows, qc_user not null, TAT > 0
   let tatSum=0, tatCount=0;
+  const tatValues=[];   // for P95 (Delivered) — same population as Avg TAT
   for (const r of rows){
     if (!isDelivered(r)) continue;          // only Delivered
     if (!r.qc) continue;                    // skip null qc_user_id
     if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
       tatSum += r.tat;
       tatCount++;
+      tatValues.push(r.tat);
     }
+  }
+  // P95 TAT (Delivered) — nearest-rank percentile, same population as Avg TAT
+  let p95Tat = null;
+  if (tatValues.length){
+    const sortedTat = tatValues.slice().sort((a,b)=>a-b);
+    const idx = Math.min(sortedTat.length-1, Math.ceil(0.95*sortedTat.length)-1);
+    p95Tat = +sortedTat[idx].toFixed(2);
   }
 
   // ── Step 3: Unique set counts ─────────────────────────────────
@@ -1634,6 +1643,7 @@ function aggregate(rows){
     rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
     avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
     tatRecordCount: tatCount,
+    p95Tat,
     enterpriseCount: entIdSet.size,
     teamCount:       teamIdSet.size,
     topEnt:  slice(Object.fromEntries(Object.entries(entCount).sort((a,b)=>b[1]-a[1])), 12),
@@ -1728,10 +1738,10 @@ const KPIS = [
   { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
   { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
   { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
-  { id:'sla',       label:'SLA Compliance',    sub:'within 6h (first_qc_done)', color:'green', kind:'records', view:'within_sla' },
+  { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
   { id:'tat',       label:'Avg TAT',           sub:'sku_created_on → first_qc_done', color:'blue', kind:'records',  view:'tat'        },
   { id:'e2e-tat',   label:'E2E TAT',           sub:'processedAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
-  { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
+  { id:'p95',       label:'P95 TAT (Delivered)', sub:'95th percentile, hrs', color:'blue',  kind:'records',   view:'p95_tat'  },
 ];
 
 function renderKpiCards(){
@@ -3059,10 +3069,10 @@ function paint(){
     `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
     `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
   $('kv-pending').textContent   = num(k.totalPending);
-  $('kv-sla').textContent       = k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—';
   $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
+  $('kv-p95')     && ($('kv-p95').textContent     = fmtTatHrs(k.p95Tat));
 
   // hero banner sync (mirrors computed KPI values)
   { const hr=$('hkv-received'); if(hr){ hr.textContent=num(k.totalReceived);
@@ -3660,6 +3670,7 @@ function drillSubset(rows, view){
     case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e > 0);
     case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
+    case 'p95_tat':       return rows.filter(r => isDelivered(r) && r.qc && typeof r.tat==='number' && r.tat>0).sort((a,b)=>(b.tat||0)-(a.tat||0));
     default:              return rows;
   }
 }
