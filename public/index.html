@@ -585,6 +585,10 @@
   .mtrend-val{font-size:10px;color:var(--muted);margin-bottom:3px;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .mtrend-bar{width:55%;border-radius:4px 4px 0 0;min-height:4px;transition:height .3s ease;}
   .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap;}
+  .mini-trend-wrap{padding-bottom:2px;}
+  .mtrend-cols{height:104px;gap:14px;}
+  .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
+  .trend-tabs-mini .trend-tab{padding:3px 9px;min-width:26px;font-size:11px;font-weight:600;}
 </style>
 </head>
 <body>
@@ -854,6 +858,10 @@
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
         </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
+        </div>
         <div class="edit-controls" data-panel-ctl="sla"></div>
       </div>
       <div class="sla-content">
@@ -879,11 +887,7 @@
             <span id="slaMeta">—</span>
           </div>
         </div>
-        <div class="mini-trend-wrap" data-trendtoggle>
-          <div class="trend-tabs" style="margin-bottom:4px">
-            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
-            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
-          </div>
+        <div class="mini-trend-wrap">
           <div class="mini-trend" id="slaTrend"></div>
         </div>
       </div>
@@ -893,6 +897,10 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
         </div>
         <div class="edit-controls" data-panel-ctl="delivery"></div>
       </div>
@@ -916,11 +924,7 @@
             <span id="delvMeta">—</span>
           </div>
         </div>
-        <div class="mini-trend-wrap" data-trendtoggle>
-          <div class="trend-tabs" style="margin-bottom:4px">
-            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
-            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
-          </div>
+        <div class="mini-trend-wrap">
           <div class="mini-trend" id="delivTrend"></div>
         </div>
       </div>
@@ -931,6 +935,10 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Accuracy</h3>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
         </div>
         <div class="edit-controls" data-panel-ctl="accuracy"></div>
       </div>
@@ -957,11 +965,7 @@
             <span id="accTotal">—</span>
           </div>
         </div>
-        <div class="mini-trend-wrap" data-trendtoggle>
-          <div class="trend-tabs" style="margin-bottom:4px">
-            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
-            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
-          </div>
+        <div class="mini-trend-wrap">
           <div class="mini-trend" id="accTrend"></div>
         </div>
       </div>
