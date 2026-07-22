@@ -853,30 +853,31 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>SLA performance</h3>
-          <div class="panel-sub">Within / Out of SLA · click to drill</div>
         </div>
         <div class="edit-controls" data-panel-ctl="sla"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells sla-cells-slim">
-          <div class="sla-cell sla-in sla-cell-slim" id="slaCellIn" tabindex="0" role="button">
-            <div class="sla-num green" id="slaNumIn">—</div>
-            <div class="sla-pct" id="slaPctIn">—%</div>
-            <div class="sla-cell-label">Within SLA</div>
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="slaCellIn" tabindex="0" role="button">
+              <div class="sla-num green" id="slaNumIn">—</div>
+              <div class="sla-pct" id="slaPctIn">—%</div>
+              <div class="sla-cell-label">Within SLA</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="slaCellOut" tabindex="0" role="button">
+              <div class="sla-num orange" id="slaNumOut">—</div>
+              <div class="sla-pct" id="slaPctOut">—%</div>
+              <div class="sla-cell-label">Out of SLA</div>
+            </div>
           </div>
-          <div class="sla-cell sla-out sla-cell-slim" id="slaCellOut" tabindex="0" role="button">
-            <div class="sla-num orange" id="slaNumOut">—</div>
-            <div class="sla-pct" id="slaPctOut">—%</div>
-            <div class="sla-cell-label">Out of SLA</div>
+          <div class="sla-bar sla-bar-slim">
+            <div class="sla-bar-in" id="slaBarIn"></div>
+            <div class="sla-bar-out" id="slaBarOut"></div>
           </div>
-        </div>
-        <div class="sla-bar sla-bar-slim">
-          <div class="sla-bar-in" id="slaBarIn"></div>
-          <div class="sla-bar-out" id="slaBarOut"></div>
-        </div>
-        <div class="sla-bottom">
-          <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
-          <span id="slaMeta">—</span>
+          <div class="sla-bottom">
+            <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
+            <span id="slaMeta">—</span>
+          </div>
         </div>
         <div class="mini-trend-wrap" data-trendtoggle>
           <div class="trend-tabs" style="margin-bottom:4px">
@@ -892,27 +893,28 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Delivery rate</h3>
-          <div class="panel-sub">delivered / received · click to drill</div>
         </div>
         <div class="edit-controls" data-panel-ctl="delivery"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells sla-cells-slim">
-          <div class="sla-cell sla-in sla-cell-slim" id="delvCellDone" tabindex="0" role="button">
-            <div class="sla-num green" id="delvNumDone">—</div>
-            <div class="sla-pct" id="delvPctDone">—%</div>
-            <div class="sla-cell-label">Delivered</div>
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="delvCellDone" tabindex="0" role="button">
+              <div class="sla-num green" id="delvNumDone">—</div>
+              <div class="sla-pct" id="delvPctDone">—%</div>
+              <div class="sla-cell-label">Delivered</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
+              <div class="sla-num" id="delvNumRej" style="color:var(--red);">—</div>
+              <div class="sla-pct" id="delvPctRej">—%</div>
+              <div class="sla-cell-label">Not delivered</div>
+            </div>
           </div>
-          <div class="sla-cell sla-out sla-cell-slim" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
-            <div class="sla-num" id="delvNumRej" style="color:var(--red);">—</div>
-            <div class="sla-pct" id="delvPctRej">—%</div>
-            <div class="sla-cell-label">Not delivered</div>
+          <div class="sla-bar sla-bar-slim"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
+          <div class="sla-bottom">
+            <span>Rejected: <strong id="delvRejCount">—</strong> · Pending: <strong id="delvPendCount">—</strong></span>
+            <span id="delvMeta">—</span>
           </div>
-        </div>
-        <div class="sla-bar sla-bar-slim"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
-        <div class="sla-bottom">
-          <span>Rejected: <strong id="delvRejCount">—</strong> · Pending: <strong id="delvPendCount">—</strong></span>
-          <span id="delvMeta">—</span>
         </div>
         <div class="mini-trend-wrap" data-trendtoggle>
           <div class="trend-tabs" style="margin-bottom:4px">
@@ -929,30 +931,31 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Accuracy</h3>
-          <div class="panel-sub">Auto vs manually edited · delivered SKUs only</div>
         </div>
         <div class="edit-controls" data-panel-ctl="accuracy"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells sla-cells-slim">
-          <div class="sla-cell sla-in sla-cell-slim" id="accCellAuto" tabindex="0" role="button">
-            <div class="sla-num green" id="accNumAuto">—</div>
-            <div class="sla-pct" id="accPctAuto">—%</div>
-            <div class="sla-cell-label">AUTO</div>
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="accCellAuto" tabindex="0" role="button">
+              <div class="sla-num green" id="accNumAuto">—</div>
+              <div class="sla-pct" id="accPctAuto">—%</div>
+              <div class="sla-cell-label">AUTO</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="accCellManual" tabindex="0" role="button">
+              <div class="sla-num red" id="accNumManual">—</div>
+              <div class="sla-pct" id="accPctManual">—%</div>
+              <div class="sla-cell-label">MANUALLY EDITED</div>
+            </div>
           </div>
-          <div class="sla-cell sla-out sla-cell-slim" id="accCellManual" tabindex="0" role="button">
-            <div class="sla-num red" id="accNumManual">—</div>
-            <div class="sla-pct" id="accPctManual">—%</div>
-            <div class="sla-cell-label">MANUALLY EDITED</div>
+          <div class="sla-bar sla-bar-slim">
+            <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
+            <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
           </div>
-        </div>
-        <div class="sla-bar sla-bar-slim">
-          <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
-          <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
-        </div>
-        <div class="sla-bottom">
-          <span id="accMeta">—</span>
-          <span id="accTotal">—</span>
+          <div class="sla-bottom">
+            <span id="accMeta">—</span>
+            <span id="accTotal">—</span>
+          </div>
         </div>
         <div class="mini-trend-wrap" data-trendtoggle>
           <div class="trend-tabs" style="margin-bottom:4px">
