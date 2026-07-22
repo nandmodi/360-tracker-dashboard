@@ -311,6 +311,14 @@
   .sla-tick{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);}
   .sla-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
   .sla-bottom strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+  /* Slim bar-only variant for SLA / Delivery / Accuracy cards */
+  .sla-cells-slim{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;}
+  .sla-cell-slim{padding:0;border:none;background:transparent;border-radius:0;flex-direction:row;align-items:baseline;gap:5px;box-shadow:none;}
+  .sla-cell-slim:hover{transform:none;box-shadow:none;border-color:transparent;}
+  .sla-cell-slim .sla-num{display:none;}
+  .sla-cell-slim .sla-cell-label{order:1;margin-top:0;text-transform:none;letter-spacing:0;font-family:inherit;font-size:11px;color:var(--muted);}
+  .sla-cell-slim .sla-pct{order:2;font-size:13px;font-weight:600;color:var(--ink);}
+  .sla-bar-slim{height:8px;border-radius:4px;}
 
   /* TABLE */
   .table-wrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:background .25s,border-color .25s;}
@@ -569,6 +577,14 @@
 
   .section-label{color:var(--accent);}
   .section-label::before{content:"";width:14px;height:3px;border-radius:2px;background:var(--accent);display:inline-block;margin-right:2px;vertical-align:middle;}
+
+  /* Mini 3-period trend (SLA / Delivery / Accuracy cards) */
+  .mini-trend-wrap{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);}
+  .mtrend-cols{display:flex;align-items:flex-end;gap:10px;height:64px;}
+  .mtrend-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .mtrend-val{font-size:10px;color:var(--muted);margin-bottom:3px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mtrend-bar{width:55%;border-radius:4px 4px 0 0;min-height:4px;transition:height .3s ease;}
+  .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -842,26 +858,32 @@
         <div class="edit-controls" data-panel-ctl="sla"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells">
-          <div class="sla-cell sla-in" id="slaCellIn" tabindex="0" role="button">
+        <div class="sla-cells sla-cells-slim">
+          <div class="sla-cell sla-in sla-cell-slim" id="slaCellIn" tabindex="0" role="button">
             <div class="sla-num green" id="slaNumIn">—</div>
             <div class="sla-pct" id="slaPctIn">—%</div>
             <div class="sla-cell-label">Within SLA</div>
           </div>
-          <div class="sla-cell sla-out" id="slaCellOut" tabindex="0" role="button">
+          <div class="sla-cell sla-out sla-cell-slim" id="slaCellOut" tabindex="0" role="button">
             <div class="sla-num orange" id="slaNumOut">—</div>
             <div class="sla-pct" id="slaPctOut">—%</div>
             <div class="sla-cell-label">Out of SLA</div>
           </div>
         </div>
-        <div class="sla-bar">
+        <div class="sla-bar sla-bar-slim">
           <div class="sla-bar-in" id="slaBarIn"></div>
           <div class="sla-bar-out" id="slaBarOut"></div>
         </div>
-        <div class="sla-tick"><span>0%</span><span>100%</span></div>
         <div class="sla-bottom">
           <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
           <span id="slaMeta">—</span>
+        </div>
+        <div class="mini-trend-wrap" data-trendtoggle>
+          <div class="trend-tabs" style="margin-bottom:4px">
+            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
+            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
+          </div>
+          <div class="mini-trend" id="slaTrend"></div>
         </div>
       </div>
     </div>
@@ -875,23 +897,29 @@
         <div class="edit-controls" data-panel-ctl="delivery"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells">
-          <div class="sla-cell sla-in" id="delvCellDone" tabindex="0" role="button">
+        <div class="sla-cells sla-cells-slim">
+          <div class="sla-cell sla-in sla-cell-slim" id="delvCellDone" tabindex="0" role="button">
             <div class="sla-num green" id="delvNumDone">—</div>
             <div class="sla-pct" id="delvPctDone">—%</div>
             <div class="sla-cell-label">Delivered</div>
           </div>
-          <div class="sla-cell sla-out" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
+          <div class="sla-cell sla-out sla-cell-slim" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
             <div class="sla-num" id="delvNumRej" style="color:var(--red);">—</div>
             <div class="sla-pct" id="delvPctRej">—%</div>
             <div class="sla-cell-label">Not delivered</div>
           </div>
         </div>
-        <div class="sla-bar"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
-        <div class="sla-tick"><span>0%</span><span>100%</span></div>
+        <div class="sla-bar sla-bar-slim"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
         <div class="sla-bottom">
           <span>Rejected: <strong id="delvRejCount">—</strong> · Pending: <strong id="delvPendCount">—</strong></span>
           <span id="delvMeta">—</span>
+        </div>
+        <div class="mini-trend-wrap" data-trendtoggle>
+          <div class="trend-tabs" style="margin-bottom:4px">
+            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
+            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
+          </div>
+          <div class="mini-trend" id="delivTrend"></div>
         </div>
       </div>
     </div>
@@ -906,26 +934,32 @@
         <div class="edit-controls" data-panel-ctl="accuracy"></div>
       </div>
       <div class="sla-content">
-        <div class="sla-cells">
-          <div class="sla-cell sla-in" id="accCellAuto" tabindex="0" role="button">
+        <div class="sla-cells sla-cells-slim">
+          <div class="sla-cell sla-in sla-cell-slim" id="accCellAuto" tabindex="0" role="button">
             <div class="sla-num green" id="accNumAuto">—</div>
             <div class="sla-pct" id="accPctAuto">—%</div>
             <div class="sla-cell-label">AUTO</div>
           </div>
-          <div class="sla-cell sla-out" id="accCellManual" tabindex="0" role="button">
+          <div class="sla-cell sla-out sla-cell-slim" id="accCellManual" tabindex="0" role="button">
             <div class="sla-num red" id="accNumManual">—</div>
             <div class="sla-pct" id="accPctManual">—%</div>
             <div class="sla-cell-label">MANUALLY EDITED</div>
           </div>
         </div>
-        <div class="sla-bar">
+        <div class="sla-bar sla-bar-slim">
           <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
           <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
         </div>
-        <div class="sla-tick"><span>0%</span><span>100%</span></div>
         <div class="sla-bottom">
           <span id="accMeta">—</span>
           <span id="accTotal">—</span>
+        </div>
+        <div class="mini-trend-wrap" data-trendtoggle>
+          <div class="trend-tabs" style="margin-bottom:4px">
+            <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')">Month</button>
+            <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')">Week</button>
+          </div>
+          <div class="mini-trend" id="accTrend"></div>
         </div>
       </div>
     </div>
@@ -1396,6 +1430,121 @@ function passesFilters(r){
     if (F.to   && t >= F.to.getTime() + 86400000) return false;
   }
   return true;
+}
+
+// Same as passesFilters but WITHOUT the date-range check — used by the
+// SLA/Delivery/Accuracy mini-trend (last 3 months / weeks), which needs its
+// own fixed date windows regardless of the global date-range filter.
+function passesNonDateFilters(r){
+  if (F.ent      && !F.ent.has(r.ent))                  return false;
+  if (F.team     && !F.team.has(r.tm))                return false;
+  if (F.user     && !F.user.has(r.qc))                  return false;
+  if (F.verified && !F.verified.has(r.fs||'')) return false;
+  if (F.sla){
+    if (F.sla.size === 0) return false;
+    const isWithin = r.sla === 1;
+    const isOut    = r.sla === 0;
+    let ok = false;
+    if (F.sla.has('Within SLA') && isWithin) ok = true;
+    if (F.sla.has('Out of SLA') && isOut)    ok = true;
+    if (!ok) return false;
+  }
+  if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
+  if (F.rejReason){
+    const { label, type } = F.rejReason;
+    if (type === 'qc') {
+      if (!(r.isv||'').includes(label)) return false;
+    } else {
+      if ((r.rej||'').trim() !== label) return false;
+    }
+  }
+  return true;
+}
+
+// ── Mini-trend: last 3 months / weeks for SLA · Delivery · Accuracy ──
+let trendGran = 'month';   // 'month' | 'week' — shared across all 3 cards
+
+function getTrendPeriodsMonth(){
+  const now = new Date();
+  const periods = [];
+  for (let i=2;i>=0;i--){
+    const d    = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const from = new Date(d.getFullYear(), d.getMonth(), 1);
+    const to   = new Date(d.getFullYear(), d.getMonth()+1, 1); // exclusive
+    const label = d.toLocaleString('en-US',{month:'short'}) + "'" + String(d.getFullYear()).slice(2);
+    periods.push({label, from, to});
+  }
+  return periods;
+}
+
+function getTrendPeriodsWeek(){
+  const now = new Date();
+  const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1); // tomorrow 00:00, exclusive
+  const periods = [];
+  for (let i=2;i>=0;i--){
+    const to   = new Date(endToday); to.setDate(to.getDate() - i*7);
+    const from = new Date(to);       from.setDate(from.getDate() - 7);
+    const label = i===0 ? 'This wk' : (i+' wks ago');
+    periods.push({label, from, to});
+  }
+  return periods;
+}
+
+// Computes SLA% / Delivery% / Accuracy% for one date window, using the
+// exact same formulas as paintSla / paintDelivery / paintAccuracy.
+function trendMetricsForPeriod(from, to){
+  let withinSla=0, outOfSla=0, autoD=0, manualD=0, deliv=0, pend=0, total=0;
+  for (const r of RAW){
+    if (!passesNonDateFilters(r)) continue;
+    const ts = r._created;
+    if (!ts || ts < from || ts >= to) continue;
+    total++;
+    if (isPending(r)) pend++;
+    if (isDelivered(r)){
+      deliv++;
+      if (r.aq == 1) manualD++; else autoD++;
+    }
+    if (!isPending(r) && r.sla !== null){
+      if      (r.sla === 1) withinSla++;
+      else if (r.sla === 0) outOfSla++;
+    }
+  }
+  const slaTot = withinSla + outOfSla;
+  const accTot = autoD + manualD;
+  const denom  = Math.max(total - pend, 1);
+  return {
+    slaPct:      slaTot ? (withinSla/slaTot)*100 : null,
+    deliveryPct: total  ? (deliv/denom)*100      : null,
+    accPct:      accTot ? (autoD/accTot)*100     : null,
+  };
+}
+
+function paintMiniTrend(elId, items, color){
+  const el = $(elId); if (!el) return;
+  el.innerHTML = '<div class="mtrend-cols">' + items.map(it => {
+    const h = it.pct != null ? Math.max(4, Math.round(it.pct)) : 4;
+    const valTxt = it.pct != null ? it.pct.toFixed(1)+'%' : '—';
+    return `<div class="mtrend-col"><div class="mtrend-val">${valTxt}</div>`
+         + `<div class="mtrend-bar" style="height:${h}%;background:${color}"></div>`
+         + `<div class="mtrend-lbl">${it.label}</div></div>`;
+  }).join('') + '</div>';
+}
+
+function renderTrends(){
+  const periods = trendGran === 'week' ? getTrendPeriodsWeek() : getTrendPeriodsMonth();
+  const data = periods.map(p => ({ label: p.label, ...trendMetricsForPeriod(p.from, p.to) }));
+  const PAL = getPal();
+  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct })),      PAL.green  || 'var(--green)');
+  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct })), PAL.accent || 'var(--accent)');
+  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct })),      PAL.teal   || 'var(--teal)');
+}
+
+function setTrendGran(g){
+  trendGran = (g === 'week') ? 'week' : 'month';
+  document.querySelectorAll('[data-trendtoggle] .trend-tab').forEach(b => {
+    b.classList.toggle('sel', b.dataset.g === trendGran);
+  });
+  renderTrends();
 }
 
 // SMB and Resellers grouped as "SMB & Resellers"
@@ -3086,6 +3235,7 @@ function paint(){
   paintSla(k);
   paintDelivery(k);
   paintAccuracy(k);
+  renderTrends();
 
   // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
