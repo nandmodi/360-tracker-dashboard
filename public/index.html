@@ -3551,7 +3551,16 @@ function createMultiSelect({
   function renderList(){
     const sel = F[field];
     const q = search.toLowerCase();
-    const filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+    let filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options.slice();
+    if (sel){
+      // Partial selection active — pin selected items to the top (stable sort
+      // preserves the existing alphabetical order within each group).
+      filtered = filtered.slice().sort((a,b)=>{
+        const aSel = sel.has(a), bSel = sel.has(b);
+        if (aSel !== bSel) return aSel ? -1 : 1;
+        return 0;
+      });
+    }
     if (!filtered.length) { list.innerHTML = `<div class="ms-empty">No matches</div>`; return; }
     list.innerHTML = filtered.map(v => {
       const checked = !sel || sel.has(v);
