@@ -1519,36 +1519,44 @@ const SEG_ACCENT_GRAD = {
 
 function trendMetricsForPeriod(from, to){
   let withinSla=0, outOfSla=0, autoD=0, manualD=0, deliv=0, pend=0, total=0;
-  const segData = {};   // segment -> { withinSla, autoD, deliv }  (contribution counts)
+  const segData = {};   // segment -> { withinSla, outOfSla, autoD, manualD, deliv, pend, total }
   for (const r of RAW){
     if (!passesNonDateFilters(r)) continue;
     const ts = r._created;
     if (!ts || ts < from || ts >= to) continue;
     const seg = normSeg(r.seg);
-    const b = segData[seg] || (segData[seg] = { withinSla:0, autoD:0, deliv:0 });
-    total++;
-    if (isPending(r)) pend++;
+    const b = segData[seg] || (segData[seg] = { withinSla:0, outOfSla:0, autoD:0, manualD:0, deliv:0, pend:0, total:0 });
+    total++; b.total++;
+    if (isPending(r)){ pend++; b.pend++; }
     if (isDelivered(r)){
       deliv++; b.deliv++;
-      if (r.aq == 1) manualD++; else { autoD++; b.autoD++; }
+      if (r.aq == 1){ manualD++; b.manualD++; } else { autoD++; b.autoD++; }
     }
     if (!isPending(r) && r.sla !== null){
       if      (r.sla === 1){ withinSla++; b.withinSla++; }
-      else if (r.sla === 0) outOfSla++;
+      else if (r.sla === 0){ outOfSla++; b.outOfSla++; }
     }
   }
   const slaTot = withinSla + outOfSla;
   const accTot = autoD + manualD;
   const denom  = Math.max(total - pend, 1);
 
-  // Per-segment CONTRIBUTION shares — each stacks to exactly the overall % above.
+  // Per-segment: OWN rate (independent, e.g. Ent's own SLA% = Ent-within / Ent-eligible)
+  // + weight (that segment's share of the eligible volume — used only to size the slice
+  //   in the stacked bar, NOT to compute the rate itself).
   const segBreak = {};
   for (const seg of Object.keys(segData)){
     const b = segData[seg];
+    const segSlaTot   = b.withinSla + b.outOfSla;
+    const segAccTot   = b.autoD + b.manualD;
+    const segDenom    = Math.max(b.total - b.pend, 1);
     segBreak[seg] = {
-      slaPct:      slaTot ? (b.withinSla/slaTot)*100 : 0,
-      deliveryPct: total  ? (b.deliv/denom)*100      : 0,
-      accPct:      accTot ? (b.autoD/accTot)*100     : 0,
+      slaPct:         segSlaTot ? (b.withinSla/segSlaTot)*100 : null,
+      slaWeight:      slaTot    ? (segSlaTot/slaTot)*100      : 0,
+      deliveryPct:    b.total   ? (b.deliv/segDenom)*100      : null,
+      deliveryWeight: total     ? (b.total/total)*100 : 0,   // share of period volume for this segment
+      accPct:         segAccTot ? (b.autoD/segAccTot)*100    : null,
+      accWeight:      accTot    ? (segAccTot/accTot)*100     : 0,
     };
   }
   return {
@@ -1559,7 +1567,9 @@ function trendMetricsForPeriod(from, to){
   };
 }
 
-// items: [{label, pct, segBreak:{seg:pctShare}}, ...]  — one entry per period
+// items: [{label, pct, segBreak:{seg:{rate,weight}}}, ...] — one entry per period.
+// Each segment's LABEL = its own independent rate. Each segment's SLICE HEIGHT
+// (within the stacked bar) = its share of the period's eligible volume.
 function paintMiniTrend(elId, items, segColors, accentGrad){
   const el = $(elId); if (!el) return;
   const maxH = 208; // px — matches .mtrend-cols height
@@ -1569,12 +1579,12 @@ function paintMiniTrend(elId, items, segColors, accentGrad){
     const isLast = idx === items.length - 1;
     let segHtml = '';
     SEG_STACK_ORDER.forEach(sk => {
-      const v = (it.segBreak && it.segBreak[sk]) || 0;
-      if (v <= 0.4) return;
-      const segH = totalPct > 0 ? (v/totalPct*100) : 0;
+      const seg = (it.segBreak && it.segBreak[sk]) || null;
+      if (!seg || seg.weight <= 0.4) return;
       const c = segColors[sk] || {bg:'#999',text:'#fff'};
-      segHtml += `<div style="height:${segH}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;">`
-               + `<span style="font-size:9px;font-weight:700;color:${c.text};">${Math.round(v)}%</span></div>`;
+      const rateTxt = seg.rate != null ? Math.round(seg.rate)+'%' : '—';
+      segHtml += `<div style="height:${seg.weight}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;">`
+               + `<span style="font-size:9px;font-weight:700;color:${c.text};">${rateTxt}</span></div>`;
     });
     let arrow = '';
     if (idx > 0 && items[idx-1].pct != null && it.pct != null){
@@ -1596,14 +1606,14 @@ function paintMiniTrend(elId, items, segColors, accentGrad){
 function renderTrends(){
   const periods = trendGran === 'week' ? getTrendPeriodsWeek() : getTrendPeriodsMonth();
   const data = periods.map(p => ({ label: p.label, ...trendMetricsForPeriod(p.from, p.to) }));
-  const mapSeg = (segBreak, key) => {
+  const mapSeg = (segBreak, rateKey, weightKey) => {
     const out = {};
-    for (const s of Object.keys(segBreak||{})) out[s] = segBreak[s][key] || 0;
+    for (const s of Object.keys(segBreak||{})) out[s] = { rate: segBreak[s][rateKey], weight: segBreak[s][weightKey] || 0 };
     return out;
   };
-  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct,      segBreak: mapSeg(d.segBreak,'slaPct') })),      SEG_COLORS.sla,      SEG_ACCENT_GRAD.sla);
-  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct, segBreak: mapSeg(d.segBreak,'deliveryPct') })), SEG_COLORS.delivery, SEG_ACCENT_GRAD.delivery);
-  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct,      segBreak: mapSeg(d.segBreak,'accPct') })),      SEG_COLORS.accuracy, SEG_ACCENT_GRAD.accuracy);
+  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct,      segBreak: mapSeg(d.segBreak,'slaPct','slaWeight') })),           SEG_COLORS.sla,      SEG_ACCENT_GRAD.sla);
+  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct, segBreak: mapSeg(d.segBreak,'deliveryPct','deliveryWeight') })), SEG_COLORS.delivery, SEG_ACCENT_GRAD.delivery);
+  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct,      segBreak: mapSeg(d.segBreak,'accPct','accWeight') })),           SEG_COLORS.accuracy, SEG_ACCENT_GRAD.accuracy);
 }
 
 function setTrendGran(g){
