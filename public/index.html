@@ -582,9 +582,9 @@
   .mini-trend-wrap{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);}
   .mtrend-cols{display:flex;align-items:flex-end;gap:10px;height:64px;}
   .mtrend-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
-  .mtrend-val{font-size:10px;color:var(--muted);margin-bottom:3px;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  .mtrend-bar{width:55%;border-radius:4px 4px 0 0;min-height:4px;transition:height .3s ease;}
-  .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap;}
+  .mtrend-stack{width:70%;max-width:52px;border-radius:8px 8px 0 0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;transition:height .3s ease;}
+  .mtrend-val{font-size:11px;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:4px;white-space:nowrap;}
   .mini-trend-wrap{padding-bottom:2px;}
   .mtrend-cols{height:208px;gap:14px;}
   .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
@@ -1499,51 +1499,105 @@ function getTrendPeriodsWeek(){
 
 // Computes SLA% / Delivery% / Accuracy% for one date window, using the
 // exact same formulas as paintSla / paintDelivery / paintAccuracy.
+const SEG_STACK_ORDER = ['Ent','Mid','SMB & Resellers'];
+const SEG_COLORS = {
+  sla:      { Ent:{bg:'#7c3aed',text:'#fff'}, Mid:{bg:'#a78bfa',text:'#fff'}, 'SMB & Resellers':{bg:'#e9d5ff',text:'#3b0764'} },
+  delivery: { Ent:{bg:'#2563eb',text:'#fff'}, Mid:{bg:'#60a5fa',text:'#fff'}, 'SMB & Resellers':{bg:'#dbeafe',text:'#1e3a8a'} },
+  accuracy: { Ent:{bg:'#0f766e',text:'#fff'}, Mid:{bg:'#2dd4bf',text:'#0f172a'}, 'SMB & Resellers':{bg:'#99f6e4',text:'#134e4a'} },
+};
+const SEG_ACCENT_GRAD = {
+  sla:      'linear-gradient(135deg,#7c3aed,#6d28d9)',
+  delivery: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
+  accuracy: 'linear-gradient(135deg,#0f766e,#0d9488)',
+};
+
 function trendMetricsForPeriod(from, to){
   let withinSla=0, outOfSla=0, autoD=0, manualD=0, deliv=0, pend=0, total=0;
+  const segData = {};   // segment -> { withinSla, autoD, deliv }  (contribution counts)
   for (const r of RAW){
     if (!passesNonDateFilters(r)) continue;
     const ts = r._created;
     if (!ts || ts < from || ts >= to) continue;
+    const seg = normSeg(r.seg);
+    const b = segData[seg] || (segData[seg] = { withinSla:0, autoD:0, deliv:0 });
     total++;
     if (isPending(r)) pend++;
     if (isDelivered(r)){
-      deliv++;
-      if (r.aq == 1) manualD++; else autoD++;
+      deliv++; b.deliv++;
+      if (r.aq == 1) manualD++; else { autoD++; b.autoD++; }
     }
     if (!isPending(r) && r.sla !== null){
-      if      (r.sla === 1) withinSla++;
+      if      (r.sla === 1){ withinSla++; b.withinSla++; }
       else if (r.sla === 0) outOfSla++;
     }
   }
   const slaTot = withinSla + outOfSla;
   const accTot = autoD + manualD;
   const denom  = Math.max(total - pend, 1);
+
+  // Per-segment CONTRIBUTION shares — each stacks to exactly the overall % above.
+  const segBreak = {};
+  for (const seg of Object.keys(segData)){
+    const b = segData[seg];
+    segBreak[seg] = {
+      slaPct:      slaTot ? (b.withinSla/slaTot)*100 : 0,
+      deliveryPct: total  ? (b.deliv/denom)*100      : 0,
+      accPct:      accTot ? (b.autoD/accTot)*100     : 0,
+    };
+  }
   return {
     slaPct:      slaTot ? (withinSla/slaTot)*100 : null,
     deliveryPct: total  ? (deliv/denom)*100      : null,
     accPct:      accTot ? (autoD/accTot)*100     : null,
+    segBreak,
   };
 }
 
-function paintMiniTrend(elId, items, color){
+// items: [{label, pct, segBreak:{seg:pctShare}}, ...]  — one entry per period
+function paintMiniTrend(elId, items, segColors, accentGrad){
   const el = $(elId); if (!el) return;
-  el.innerHTML = '<div class="mtrend-cols">' + items.map(it => {
-    const h = it.pct != null ? Math.max(4, Math.round(it.pct)) : 4;
-    const valTxt = it.pct != null ? it.pct.toFixed(1)+'%' : '—';
-    return `<div class="mtrend-col"><div class="mtrend-val">${valTxt}</div>`
-         + `<div class="mtrend-bar" style="height:${h}%;background:${color}"></div>`
-         + `<div class="mtrend-lbl">${it.label}</div></div>`;
+  const maxH = 208; // px — matches .mtrend-cols height
+  el.innerHTML = '<div class="mtrend-cols">' + items.map((it, idx) => {
+    const totalPct = it.pct != null ? it.pct : 0;
+    const barH = Math.max(6, Math.round((totalPct/100)*maxH));
+    const isLast = idx === items.length - 1;
+    let segHtml = '';
+    SEG_STACK_ORDER.forEach(sk => {
+      const v = (it.segBreak && it.segBreak[sk]) || 0;
+      if (v <= 0.4) return;
+      const segH = totalPct > 0 ? (v/totalPct*100) : 0;
+      const c = segColors[sk] || {bg:'#999',text:'#fff'};
+      segHtml += `<div style="height:${segH}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;">`
+               + `<span style="font-size:9px;font-weight:700;color:${c.text};">${Math.round(v)}%</span></div>`;
+    });
+    let arrow = '';
+    if (idx > 0 && items[idx-1].pct != null && it.pct != null){
+      arrow = it.pct >= items[idx-1].pct ? ' \u25B2' : ' \u25BC';
+    }
+    const totalTxt = it.pct != null ? it.pct.toFixed(1)+'%'+arrow : '—';
+    const valStyle = isLast
+      ? `color:#fff;font-weight:700;background:${accentGrad};padding:1px 8px;border-radius:20px;display:inline-block;`
+      : `color:var(--muted);font-weight:600;`;
+    const barShadow = isLast ? 'box-shadow:0 4px 14px rgba(0,0,0,.18);' : '';
+    return `<div class="mtrend-col">
+        <div class="mtrend-stack" style="height:${barH}px;${barShadow}">${segHtml}</div>
+        <div class="mtrend-val" style="${valStyle}">${totalTxt}</div>
+        <div class="mtrend-lbl">${it.label}</div>
+      </div>`;
   }).join('') + '</div>';
 }
 
 function renderTrends(){
   const periods = trendGran === 'week' ? getTrendPeriodsWeek() : getTrendPeriodsMonth();
   const data = periods.map(p => ({ label: p.label, ...trendMetricsForPeriod(p.from, p.to) }));
-  const PAL = getPal();
-  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct })),      PAL.green  || 'var(--green)');
-  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct })), PAL.accent || 'var(--accent)');
-  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct })),      PAL.teal   || 'var(--teal)');
+  const mapSeg = (segBreak, key) => {
+    const out = {};
+    for (const s of Object.keys(segBreak||{})) out[s] = segBreak[s][key] || 0;
+    return out;
+  };
+  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct,      segBreak: mapSeg(d.segBreak,'slaPct') })),      SEG_COLORS.sla,      SEG_ACCENT_GRAD.sla);
+  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct, segBreak: mapSeg(d.segBreak,'deliveryPct') })), SEG_COLORS.delivery, SEG_ACCENT_GRAD.delivery);
+  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct,      segBreak: mapSeg(d.segBreak,'accPct') })),      SEG_COLORS.accuracy, SEG_ACCENT_GRAD.accuracy);
 }
 
 function setTrendGran(g){
