@@ -585,6 +585,9 @@
   .mtrend-stack{width:70%;max-width:52px;border-radius:8px 8px 0 0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;transition:height .3s ease;}
   .mtrend-val{font-size:11px;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:4px;white-space:nowrap;}
+  .mtrend-legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .mtrend-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);}
+  .mtrend-legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0;}
   .mini-trend-wrap{padding-bottom:2px;}
   .mtrend-cols{height:208px;gap:14px;}
   .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
@@ -888,6 +891,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#7c3aed"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#a78bfa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#e9d5ff"></span>SMB & Resellers</span></div>
           <div class="mini-trend" id="slaTrend"></div>
         </div>
       </div>
@@ -925,6 +929,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2563eb"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#60a5fa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#dbeafe"></span>SMB & Resellers</span></div>
           <div class="mini-trend" id="delivTrend"></div>
         </div>
       </div>
@@ -966,6 +971,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#0f766e"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2dd4bf"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#99f6e4"></span>SMB & Resellers</span></div>
           <div class="mini-trend" id="accTrend"></div>
         </div>
       </div>
