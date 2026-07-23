@@ -3601,11 +3601,23 @@ function createMultiSelect({
   return { setOptions, close, refreshTrigger };
 }
 
+// Teams that belong to the currently-selected enterprise(s).
+// F.ent === null means "all enterprises" → returns the full team list.
+function teamsForCurrentEntFilter(){
+  const entSel = F.ent;
+  const team = new Set();
+  for (const r of RAW){
+    if (entSel && !entSel.has(r.ent)) continue;
+    if (r.tm) team.add(r.tm);
+  }
+  return [...team].sort();
+}
+
 const msEnt  = createMultiSelect({
   field:'ent',  triggerId:'msEntTrigger',  panelId:'msEntPanel',
   textId:'msEntText', searchId:'msEntSearch', listId:'msEntList',
   singularLabel:'enterprise', pluralLabel:'enterprises',
-  onChange: ()=> setTimeout(()=>refresh(), 0),
+  onChange: ()=> { msTeam.setOptions(teamsForCurrentEntFilter()); setTimeout(()=>refresh(), 0); },
 });
 const msTeam = createMultiSelect({
   field:'team', triggerId:'msTeamTrigger', panelId:'msTeamPanel',
