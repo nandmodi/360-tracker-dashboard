@@ -1425,13 +1425,13 @@ function passesFilters(r){
   }
   if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
   if (F.rejReason){
-    const { label, type } = F.rejReason;
+    const { label, type } = F.rejReason; const fsTrim = (r.fs||'').trim();
     if (type === 'qc') {
       // QC reasons come from issues_by_severity (blocker issues)
-      if (!(r.isv||'').includes(label)) return false;
+      if (fsTrim !== 'QC Failed') return false; if (!(r.isv||'').includes(label)) return false;
     } else {
       // Validation / Tech reasons come from failure_reason (r.rej)
-      if ((r.rej||'').trim() !== label) return false;
+      if (fsTrim !== 'Validation Failed' && fsTrim !== 'Tech Failure' && fsTrim !== 'AI Failed') return false; if ((r.rej||'').trim() !== label) return false;
     }
   }
   if (F.from || F.to){
@@ -1463,11 +1463,11 @@ function passesNonDateFilters(r){
   }
   if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
   if (F.rejReason){
-    const { label, type } = F.rejReason;
+    const { label, type } = F.rejReason; const fsTrim = (r.fs||'').trim();
     if (type === 'qc') {
-      if (!(r.isv||'').includes(label)) return false;
+      if (fsTrim !== 'QC Failed') return false; if (!(r.isv||'').includes(label)) return false;
     } else {
-      if ((r.rej||'').trim() !== label) return false;
+      if (fsTrim !== 'Validation Failed' && fsTrim !== 'Tech Failure' && fsTrim !== 'AI Failed') return false; if ((r.rej||'').trim() !== label) return false;
     }
   }
   return true;
