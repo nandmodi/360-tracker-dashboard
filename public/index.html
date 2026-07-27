@@ -1397,7 +1397,7 @@ function presetRange(p){
 // ─────────────────────────────────────────────────────────────
 const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
 function isDelivered(r){       const s=(r.fs||'').trim(); return s==='Delivered'; }
-function isRejected(r){        const s=(r.fs||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
+function isRejected(r){        const s=(r.fs||'').trim(); return s==='QC Failed'||s==='Validation Failed'||s==='Tech Failure'||s==='AI Failed'; }
 function isValidationFailed(r){const s=(r.fs||'').trim(); return s==='Validation Failed'; }
 function isQcFailed(r){        const s=(r.fs||'').trim(); return s==='QC Failed'; }
 function isPending(r){         const cs=(r.cs||'').trim(); return cs==='qc_unassigned'||cs==='qc_inprogress'; }
@@ -1733,8 +1733,8 @@ function aggregate(rows){
         if (r.tat <= 6) within6h++;
       }
     } else if (isRejected(r)){
-      totalRejected++; kind='rejected';
-      if (isValidationFailed(r)) totalValidationFailed++;
+      totalRejected++; kind='rejected'; const fsTrim=(r.fs||'').trim();
+      if (isValidationFailed(r)) totalValidationFailed++; if (fsTrim==='Tech Failure') totalTechFailed++; if (fsTrim==='AI Failed') totalAiFailed++;
       if (isQcFailed(r))         totalQcFailed++;
       const k = normReason(r.rej);
       if (k){
@@ -1961,7 +1961,7 @@ const KPIS = [
   { id:'received',   label:'Total Received', sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
   { id:'processing', label:'Processing',     sub:'final_status=Processing',color:'blue',   kind:'records',   view:'processing' },
   { id:'delivered',  label:'Delivered',      sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
-  { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
+  { id:'rejected',  label:'Rejected',          sub:'QC + Validation + Tech & AI Failure', color:'red', kind:'records', view:'rejected' },
   { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
   { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
   { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
