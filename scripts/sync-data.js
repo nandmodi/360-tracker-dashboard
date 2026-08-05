@@ -7,8 +7,13 @@ const path = require('path');
 const https= require('https');
 const zlib = require('zlib');
 
-const UUID     = "7f9326d8-9eb9-4cc2-bded-efb1aac967db";
-const URL      = `https://metabase.spyne.ai/api/public/card/${UUID}/query/csv`;
+// ── Metabase auth (session-token based, NOT the public-link method) ──
+// Requires GitHub Actions secrets: METABASE_USERNAME, METABASE_PASSWORD
+// (never hardcode credentials here; they are injected as env vars by the workflow).
+const METABASE_BASE     = process.env.METABASE_BASE     || 'https://metabase.spyne.ai';
+const METABASE_CARD_ID  = process.env.METABASE_CARD_ID  || '12025'; // 360-vin-data(NK) model
+const METABASE_USERNAME = process.env.METABASE_USERNAME;
+const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
 const SLA_H    = 6;
 const OUT      = path.join(__dirname, '..', 'public', 'data.json');
 const KEEP_DAYS= 183; // 6 months
@@ -29,6 +34,86 @@ function fetchCSV(url, redirects = 0) {
                   stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
                   stream.on('error', reject);
           }).on('error', reject);
+    });
+}
+
+// POST helper — sends JSON body, returns parsed JSON response.
+function postJSON(url, bodyObj, extraHeaders = {}) {
+    const data = JSON.stringify(bodyObj);
+    const u = new URL(url);
+    return new Promise((resolve, reject) => {
+          const req = https.request(u, {
+                  method: 'POST',
+                  headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(data),
+                        ...extraHeaders,
+                  },
+          }, res => {
+                  const chunks = [];
+                  res.on('data', c => chunks.push(c));
+                  res.on('end', () => {
+                        const body = Buffer.concat(chunks).toString('utf8');
+                        if (res.statusCode < 200 || res.statusCode >= 300) {
+                                  return reject(new Error(`HTTP ${res.statusCode}: ${body.slice(0,300)}`));
+                        }
+                        try { resolve(JSON.parse(body)); }
+                        catch (e) { reject(new Error('Invalid JSON response: ' + body.slice(0,300))); }
+                  });
+          });
+          req.on('error', reject);
+          req.write(data);
+          req.end();
+    });
+}
+
+// Logs in with username/password (from GitHub Actions secrets) and returns a
+// short-lived Metabase session token. Never logs the credentials themselves.
+async function getMetabaseSession() {
+    if (!METABASE_USERNAME || !METABASE_PASSWORD) {
+          throw new Error('Missing METABASE_USERNAME / METABASE_PASSWORD — set them as GitHub Actions secrets.');
+    }
+    console.log('Authenticating with Metabase…');
+    const resp = await postJSON(`${METABASE_BASE}/api/session`, {
+          username: METABASE_USERNAME,
+          password: METABASE_PASSWORD,
+    });
+    if (!resp || !resp.id) throw new Error('Metabase login did not return a session token.');
+    console.log('Metabase session acquired.');
+    return resp.id;
+}
+
+// Fetches a card/model's data as CSV using an authenticated session token
+// (works for both regular questions and Models — both are "cards" in Metabase's API).
+function fetchCardCSV(cardId, sessionToken, redirects = 0) {
+    if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
+    const url = `${METABASE_BASE}/api/card/${cardId}/query/csv`;
+    const postData = 'parameters=%5B%5D'; // form-encoded empty parameters array
+    return new Promise((resolve, reject) => {
+          const req = https.request(url, {
+                  method: 'POST',
+                  headers: {
+                        'X-Metabase-Session': sessionToken,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Length': Buffer.byteLength(postData),
+                        'Accept-Encoding': 'gzip, deflate',
+                  },
+          }, res => {
+                  if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
+                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1));
+                  if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} fetching card CSV`));
+                  let stream = res;
+                  const enc = res.headers['content-encoding'];
+                  if (enc === 'gzip')    stream = res.pipe(zlib.createGunzip());
+                  if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
+                  const chunks = [];
+                  stream.on('data', c => chunks.push(c));
+                  stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+                  stream.on('error', reject);
+          });
+          req.on('error', reject);
+          req.write(postData);
+          req.end();
     });
 }
 
@@ -122,9 +207,10 @@ function mapRow(r) {
 }
 
 async function main() {
-    console.log('Fetching CSV from Metabase...');
+    console.log('Fetching CSV from Metabase (authenticated)...');
     const t0   = Date.now();
-    const text = await fetchCSV(URL);
+    const sessionToken = await getMetabaseSession();
+    const text = await fetchCardCSV(METABASE_CARD_ID, sessionToken);
     console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
   const lines   = text.split('\n');
