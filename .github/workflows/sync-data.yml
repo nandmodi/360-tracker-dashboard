@@ -25,6 +25,9 @@ jobs:
 
       - name: Fetch & process Metabase data
         run: node scripts/sync-data.js
+        env:
+          METABASE_USERNAME: ${{ secrets.METABASE_USERNAME }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
 
       - name: Commit data.json if changed
         run: |
