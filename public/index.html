@@ -980,30 +980,30 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>QC Failed reasons</h3>
-          <div class="panel-sub">Blocker severity issues · top 5</div>
+          <div class="panel-sub">Blocker severity issues · top 20, scroll for more</div>
         </div>
       </div>
-      <div id="cQcReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+      <div id="cQcReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
 
     <div class="panel" data-panel="reasons2" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Validation Failed reasons</h3>
-          <div class="panel-sub">failure reasons · top 5</div>
+          <div class="panel-sub">failure reasons · top 20, scroll for more</div>
         </div>
       </div>
-      <div id="cValReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+      <div id="cValReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
 
     <div class="panel" data-panel="reasons3" data-size="third">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Tech &amp; AI Failure reasons</h3>
-          <div class="panel-sub">failure reasons · top 5</div>
+          <div class="panel-sub">failure reasons · top 20, scroll for more</div>
         </div>
       </div>
-      <div id="cTechReasons" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
+      <div id="cTechReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
 
 
@@ -1014,7 +1014,7 @@
           <h3>Top enterprises</h3>
           <div class="panel-sub">by job count · click to filter</div>
         </div>
-        <div class="edit-controls" data-panel-ctl="topEnt"></div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="ent"><button class="trend-tab sel" data-sort="total" onclick="setEntSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setEntSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topEnt"></div>
       </div>
       <div id="cEnt" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
@@ -1025,7 +1025,7 @@
           <h3>Top teams</h3>
           <div class="panel-sub">by job count · click to filter</div>
         </div>
-        <div class="edit-controls" data-panel-ctl="topTeam"></div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="team"><button class="trend-tab sel" data-sort="total" onclick="setTeamSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setTeamSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topTeam"></div>
       </div>
       <div id="cTeam" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
@@ -3003,7 +3003,7 @@ function hideSegTip(){
   $('segTooltip').style.display = 'none';
 }
 
-function mkSegBar(id, container, breakMap, opts={}){
+let entSortBy = 'total', teamSortBy = 'total'; let lastEntBreak = null, lastTeamBreak = null; function pickEnt(label){ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); setTimeout(()=>refresh(),0); } function pickTeam(label){ F.team = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); } function setEntSort(mode){ entSortBy = mode; document.querySelectorAll('[data-sorttoggle="ent"] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.sort===mode)); if (lastEntBreak) mkSegBar('ent', $('cEnt'), lastEntBreak, { sortBy: entSortBy, limit: 30, onPick: pickEnt }); } function setTeamSort(mode){ teamSortBy = mode; document.querySelectorAll('[data-sorttoggle="team"] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.sort===mode)); if (lastTeamBreak) mkSegBar('team', $('cTeam'), lastTeamBreak, { sortBy: teamSortBy, limit: 30, onPick: pickTeam }); } function mkSegBar(id, container, breakMap, opts={}){
   if (!container) return;
   container.innerHTML = '';
   if (!breakMap || !Object.keys(breakMap).length){
@@ -3014,8 +3014,8 @@ function mkSegBar(id, container, breakMap, opts={}){
   // Sort by total desc, take top 10
   const entries = Object.entries(breakMap)
     .map(([label, b]) => ({ label, total:b.total||0, delivered:b.delivered||0, rejected:b.rejected||0 }))
-    .sort((a,b) => b.total - a.total)
-    .slice(0, 10);
+    .sort((a,b) => b[(opts.sortBy==='rejected'?'rejected':'total')] - a[(opts.sortBy==='rejected'?'rejected':'total')])
+    .slice(0, opts.limit || 10);
 
   const maxTotal = entries[0]?.total || 1;
 
@@ -3315,11 +3315,11 @@ function paint(){
 
   // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
-  mkSegBar('ent',  $('cEnt'),  k.entBreak,  {
-    onPick: label=>{ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); setTimeout(()=>refresh(),0); }
+  lastEntBreak = k.entBreak; mkSegBar('ent',  $('cEnt'),  k.entBreak,  {
+    sortBy: entSortBy, limit: 30, onPick: pickEnt
   });
-  mkSegBar('team', $('cTeam'), k.teamBreak, {
-    onPick: label=>{ F.team = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); }
+  lastTeamBreak = k.teamBreak; mkSegBar('team', $('cTeam'), k.teamBreak, {
+    sortBy: teamSortBy, limit: 30, onPick: pickTeam
   });
   mkSegBar('qc',   $('cQc'),   k.qcBreak,  {
     onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); }
