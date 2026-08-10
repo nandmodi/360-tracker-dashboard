@@ -404,7 +404,7 @@
   .modal-body{flex:1;overflow:auto;}
   .modal-footer{padding:10px 26px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
   .filter-chips{display:flex;flex-wrap:wrap;gap:6px;}
-  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;} .active-filters-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#FFF7E6;border:1px solid #F5C265;border-radius:10px;padding:8px 14px;margin-bottom:14px;} .active-filters-bar .afb-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#8A5A00;font-weight:700;} .active-filters-bar .afb-reset{margin-left:auto;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;text-decoration:underline;background:none;border:none;}
   .chip strong{color:var(--ink);font-weight:500;}
   .modal-body table{font-size:13px;}
   .modal-body th{padding:11px 16px;background:var(--surface);}
@@ -790,7 +790,7 @@
     </div>
   </div>
   <div class="section-label">Overview</div>
-  <section class="kpis" id="kpiGrid"></section>
+  <div id="activeFiltersBar" class="active-filters-bar" style="display:none"></div><section class="kpis" id="kpiGrid"></section>
 
   <div class="panel-grid" id="panelGrid">
     <div class="panel" data-panel="trend" data-size="full">
@@ -1745,9 +1745,9 @@ function aggregate(rows){
         reasonDisplay['(unspecified)'] = '(no reason recorded)';
       }
     } else if ((r.fs||'').trim() === 'Tech Failure'){
-      totalTechFailed++; kind='rejected';
+      totalTechFailed++; kind='techFailed';
     } else if ((r.fs||'').trim() === 'AI Failed'){
-      totalAiFailed++;   kind='rejected';
+      totalAiFailed++;   kind='techFailed';
     } else if ((r.fs||'').trim() === 'Processing'){
       totalProcessing++;
     } else if (isPending(r)){
@@ -3885,7 +3885,7 @@ function bindSlaCells(){
 // ─────────────────────────────────────────────────────────────
 // DRILL-DOWN MODAL
 // ─────────────────────────────────────────────────────────────
-function activeFilterChips(){
+function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('User', F.user); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
   const chips=[];
   const setChip = (label, sel) => {
     if (!sel) return;
