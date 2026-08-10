@@ -1620,7 +1620,7 @@ function setTrendGran(g){
   document.querySelectorAll('[data-trendtoggle] .trend-tab').forEach(b => {
     b.classList.toggle('sel', b.dataset.g === trendGran);
   });
-  renderTrends();
+  renderTrends(); renderActiveFiltersBar();
 }
 
 // SMB and Resellers grouped as "SMB & Resellers"
@@ -3311,7 +3311,7 @@ function paint(){
   paintSla(k);
   paintDelivery(k);
   paintAccuracy(k);
-  renderTrends();
+  renderTrends(); renderActiveFiltersBar();
 
   // Top-X segmented bars (Delivered + Rejected in one bar)
   const PAL = getPal();
