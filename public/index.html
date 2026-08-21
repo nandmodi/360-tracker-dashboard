@@ -980,7 +980,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>QC Failed reasons</h3>
-          <div class="panel-sub">Blocker severity issues · top 20, scroll for more</div>
+          <div class="panel-sub">Blocker severity issues · all reasons, scroll for more</div>
         </div>
       </div>
       <div id="cQcReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
@@ -990,7 +990,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Validation Failed reasons</h3>
-          <div class="panel-sub">failure reasons · top 20, scroll for more</div>
+          <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
         </div>
       </div>
       <div id="cValReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
@@ -1000,7 +1000,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Tech &amp; AI Failure reasons</h3>
-          <div class="panel-sub">failure reasons · top 20, scroll for more</div>
+          <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
         </div>
       </div>
       <div id="cTechReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
@@ -1819,20 +1819,20 @@ function aggregate(rows){
         }
       }
       // fallback if no Blocker tag found — use full issues text
-      if (!Object.keys(qcReasons).length && r.rej){
+      if (!/blocker/i.test(r.isv||'')){ const k = r.rej ? (r.rej||'').trim().slice(0,60) : '(no reason recorded)'; qcReasons[k] = (qcReasons[k]||0)+1; } if (false){
         const k = (r.rej||'').trim().slice(0,60);
         if (k) qcReasons[k] = (qcReasons[k]||0)+1;
       }
     }
 
     // Validation Failed → failure_reason
-    if (fs === 'Validation Failed' && r.rej){
+    if (fs === 'Validation Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; valReasons[k] = (valReasons[k]||0)+1; } if (false && r.rej){
       const k = (r.rej||'').trim().slice(0,80);
       if (k) valReasons[k] = (valReasons[k]||0)+1;
     }
 
     // Tech Failure + AI Failed → failure_reason
-    if ((fs === 'Tech Failure' || fs === 'AI Failed') && r.rej){
+    if ((fs === 'Tech Failure' || fs === 'AI Failed')){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; techReasons[k] = (techReasons[k]||0)+1; } if (false && r.rej){
       const k = (r.rej||'').trim().slice(0,80);
       if (k) techReasons[k] = (techReasons[k]||0)+1;
     }
@@ -1876,9 +1876,9 @@ function aggregate(rows){
     topTeam: slice(Object.fromEntries(Object.entries(teamCount).sort((a,b)=>b[1]-a[1])),12),
     topQc:   slice(Object.fromEntries(Object.entries(qcCount).sort((a,b)=>b[1]-a[1])),  15),
     topReasons, topReasonsKeys,
-    qcReasons:   top(qcReasons,   20),
-    valReasons:  top(valReasons,  20),
-    techReasons: top(techReasons, 20),
+    qcReasons:   top(qcReasons,   500),
+    valReasons:  top(valReasons,  500),
+    techReasons: top(techReasons, 500),
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     autoDelivered, manualDelivered,
     e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
