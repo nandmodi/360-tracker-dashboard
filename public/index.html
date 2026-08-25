@@ -1397,6 +1397,9 @@ function presetRange(p){
 // ─────────────────────────────────────────────────────────────
 const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
 function isDelivered(r){       const s=(r.fs||'').trim(); return s==='Delivered'; }
+// TAT-eligible = Delivered + QC Failed + Validation Failed + Tech Failure + AI Failed + Undelivered
+// (i.e. everything EXCEPT Processing and Pending/Under Review — matches the "Status" checkbox selection)
+function isTatEligible(r){     const s=(r.fs||'').trim(); return s==='Delivered'||s==='QC Failed'||s==='Validation Failed'||s==='Tech Failure'||s==='AI Failed'||s==='Undelivered'; }
 function isRejected(r){        const s=(r.fs||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
 function isValidationFailed(r){const s=(r.fs||'').trim(); return s==='Validation Failed'; }
 function isQcFailed(r){        const s=(r.fs||'').trim(); return s==='QC Failed'; }
@@ -1681,7 +1684,7 @@ function aggregate(rows){
   // Only Delivered rows, qc_user not null, TAT > 0
   let tatSum=0, tatCount=0;
   for (const r of rows){
-    if (!isDelivered(r)) continue;          // only Delivered
+    if (!isTatEligible(r)) continue;        // Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered
     if (!r.qc) continue;                    // skip null qc_user_id
     if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
       tatSum += r.tat;
@@ -1717,21 +1720,23 @@ function aggregate(rows){
     if (r.tid) teamIdSet.add(r.tid); else if (r.tm) teamIdSet.add(r.tm);
 
     let kind = 'pending';
+    // E2E TAT / Within 6h — computed across ALL TAT-eligible statuses
+    // (Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered), not just Delivered.
+    if (isTatEligible(r)){
+      if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
+        e2eTatSum += r.e2e; e2eTatCount++;
+        e2eValues.push(r.e2e);
+      }
+      if (typeof r.tat === 'number' && r.tat > 0){
+        slaDelivCount++;
+        if (r.tat <= 6) within6h++;
+      }
+    }
     if (isDelivered(r)){
       totalDelivered++; kind='delivered';
       // Accuracy: is_assisted_by_qc — false=AUTO, true=MANUALLY EDITED
       if (r.aq == 1)  manualDelivered++;
       else                               autoDelivered++;
-      // E2E TAT (final_time - createdAt)
-      if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
-        e2eTatSum += r.e2e; e2eTatCount++;
-        e2eValues.push(r.e2e);
-      }
-      // SLA / Within 6h: based on TAT (sku_created_on → first_qc_done)
-      if (typeof r.tat === 'number' && r.tat > 0){
-        slaDelivCount++;
-        if (r.tat <= 6) within6h++;
-      }
     } else if (isRejected(r)){
       totalRejected++; kind='rejected';
       if (isValidationFailed(r)) totalValidationFailed++;
