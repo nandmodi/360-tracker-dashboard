@@ -1997,9 +1997,14 @@ function renderKpiCards(){
       `}
     </div>
   `).join('');
+  const TREND_POPUP_IDS = ['w6h','tat','e2e-tat','p99'];
   $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
     const id = el.dataset.id;
-    const open = ()=>{ if(editMode) return; openDrill(KPIS.find(x=>x.id===id)); };
+    const open = ()=>{
+      if(editMode) return;
+      if (TREND_POPUP_IDS.includes(id)){ openTrendPopup(id); return; }
+      openDrill(KPIS.find(x=>x.id===id));
+    };
     el.addEventListener('click', open);
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();open();} });
   });
@@ -3931,8 +3936,110 @@ function drillSubset(rows, view){
 // Holds the current drill-down context so we can re-render on sort changes
 let _modalCtx = null;
 
+// ── Monthly trend popup for Within 6h / Avg TAT / E2E TAT / P99 KPI cards ──
+// Shows April onward; automatically includes each new month as data arrives —
+// no hardcoded month count, so it grows on its own (Aug = 5 months, Sep = 6, etc).
+function getDedupedForTrend(rows){
+  const dedupMap = {};
+  for (const r of rows){
+    const key = (r.sku && r.sku.trim()) ? r.sku.trim()
+              : (r.vid && r.vid.trim()) ? `mid:${r.vid.trim()}`
+              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.tm||'')}|${(r.vin||'')}`;
+    const existing = dedupMap[key];
+    if (!existing) dedupMap[key] = r;
+    else {
+      const tNew = r._created ? r._created.getTime() : 0;
+      const tOld = existing._created ? existing._created.getTime() : 0;
+      if (tNew > tOld) dedupMap[key] = r;
+    }
+  }
+  return Object.values(dedupMap);
+}
+
+function getMonthsFromApril(deduped){
+  let maxDate = new Date(2026,3,1);
+  for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const months = [];
+  let y = 2026, m = 3; // April 2026 (0-based month index 3)
+  while (y < maxDate.getFullYear() || (y === maxDate.getFullYear() && m <= maxDate.getMonth())){
+    months.push({ from: new Date(y,m,1), to: new Date(y,m+1,1), label: new Date(y,m,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
+    m++; if (m>11){ m=0; y++; }
+  }
+  return months;
+}
+
+function computeMonthlyMetric(deduped, from, to, metricId){
+  const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+  const pop = deduped.filter(r => r._created && r._created >= from && r._created < to && TAT_ELIGIBLE.has((r.fs||'').trim()));
+  if (metricId === 'w6h'){
+    const vals = pop.map(r=>r.tat).filter(t=>typeof t==='number' && t>0);
+    if (!vals.length) return null;
+    return +(100*vals.filter(t=>t<=6).length/vals.length).toFixed(2);
+  }
+  if (metricId === 'tat'){
+    const vals = pop.filter(r=>r.qc).map(r=>r.tat).filter(t=>typeof t==='number' && t>0);
+    if (!vals.length) return null;
+    return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+  }
+  if (metricId === 'e2e-tat'){
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>0);
+    if (!vals.length) return null;
+    return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+  }
+  if (metricId === 'p99'){
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>0).sort((a,b)=>a-b);
+    if (!vals.length) return null;
+    const idx = Math.min(vals.length-1, Math.ceil(0.99*vals.length)-1);
+    return +vals[idx].toFixed(2);
+  }
+  return null;
+}
+
+const TREND_POPUP_META = {
+  'w6h':     { label:'Within 6h %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
+  'tat':     { label:'Avg TAT',                    fmt: v => fmtTatHrs(v) },
+  'e2e-tat': { label:'E2E TAT',                    fmt: v => fmtTatHrs(v) },
+  'p99':     { label:'P99 E2E TAT (Delivered)',    fmt: v => fmtTatHrs(v) },
+};
+
+function openTrendPopup(id){
+  const meta = TREND_POPUP_META[id];
+  if (!meta) return;
+
+  const deduped = getDedupedForTrend(RAW);
+  const months  = getMonthsFromApril(deduped);
+  const values  = months.map(m => computeMonthlyMetric(deduped, m.from, m.to, id));
+
+  $('modalTitle').textContent = meta.label + ' — Monthly Trend';
+  $('modalSub').textContent   = 'APRIL ONWARDS · AUTO-UPDATES EACH MONTH';
+  $('modalChips').innerHTML   = '';
+  $('modalStats').innerHTML   = '';
+  $('modalCount').textContent = '';
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modal').classList.add('show');
+  $('modalBody').innerHTML = '<div style="padding:20px 24px;"><canvas id="trendPopupCanvas" height="100"></canvas></div>';
+
+  _modalCtx = null; // not a records/breakdown modal — disables sorting/download on this view
+
+  requestAnimationFrame(()=>{
+    const canvas = document.getElementById('trendPopupCanvas');
+    if (!canvas) return;
+    if (window._trendPopupChart) window._trendPopupChart.destroy();
+    window._trendPopupChart = new Chart(canvas, {
+      type: 'bar',
+      data: { labels: months.map(m=>m.label), datasets: [{ label: meta.label, data: values, backgroundColor:'#4f46e5', borderRadius:4 }] },
+      options: {
+        responsive: true,
+        plugins: { legend: { display:false }, tooltip: { callbacks: { label: ctx => meta.fmt(ctx.raw) } } },
+        scales: { y: { beginAtZero:true } },
+      },
+    });
+  });
+}
+
 function openDrill(kpi){
   if (!kpi) return;
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = '';
   const filtered = RAW.filter(passesFilters);
   const k = aggregate(filtered);
 
