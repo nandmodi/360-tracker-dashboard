@@ -1999,7 +1999,7 @@ function renderKpiCards(){
       `}
     </div>
   `).join('');
-  const TREND_POPUP_IDS = ['w6h','tat','e2e-tat','p99'];
+  const TREND_POPUP_IDS = ['w6h','tat','e2e-tat','p99','delivered'];
   $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
     const id = el.dataset.id;
     const open = ()=>{
@@ -4011,14 +4011,24 @@ function computeMonthlyMetric(deduped, from, to, metricId){
     const idx = Math.min(vals.length-1, Math.ceil(0.99*vals.length)-1);
     return +vals[idx].toFixed(2);
   }
+  if (metricId === 'delivered'){
+    // Same formula as the "Delivery rate" section: Delivered / (Total Received - Pending) * 100
+    const periodRows = deduped.filter(r => r._created && r._created >= from && r._created < to);
+    if (!periodRows.length) return null;
+    const deliv   = periodRows.filter(r => (r.fs||'').trim() === 'Delivered').length;
+    const pending = periodRows.filter(isPending).length;
+    const denom   = Math.max(periodRows.length - pending, 1);
+    return +((deliv/denom)*100).toFixed(2);
+  }
   return null;
 }
 
 const TREND_POPUP_META = {
-  'w6h':     { label:'Within 6h %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
-  'tat':     { label:'Avg TAT',                    fmt: v => fmtTatHrs(v) },
-  'e2e-tat': { label:'E2E TAT',                    fmt: v => fmtTatHrs(v) },
-  'p99':     { label:'P99 E2E TAT (Delivered)',    fmt: v => fmtTatHrs(v) },
+  'w6h':      { label:'Within 6h %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
+  'tat':      { label:'Avg TAT',                    fmt: v => fmtTatHrs(v) },
+  'e2e-tat':  { label:'E2E TAT',                    fmt: v => fmtTatHrs(v) },
+  'p99':      { label:'P99 E2E TAT (Delivered)',    fmt: v => fmtTatHrs(v) },
+  'delivered':{ label:'Delivered %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
 };
 
 let _trendPopupId = null, _trendPopupGran = 'month';
