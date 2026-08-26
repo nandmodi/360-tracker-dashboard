@@ -4071,7 +4071,7 @@ function renderTrendPopupChart(){
   const meta = TREND_POPUP_META[id];
   if (!meta) return;
   const PAL = getPal();
-  const deduped = getDedupedForTrend(RAW);
+  const deduped = getDedupedForTrend(RAW.filter(passesNonDateFilters)); // respects Enterprise/Team/User/Status/SLA/Segment/Reason filters (date range excluded — this popup is its own month/week timeline)
   const periods = _trendPopupGran === 'week' ? getLastNWeeks(deduped, 5) : getMonthsFromApril(deduped);
   const values  = periods.map(p => computeMonthlyMetric(deduped, p.from, p.to, id));
 
