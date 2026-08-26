@@ -892,7 +892,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#7c3aed"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#a78bfa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#e9d5ff"></span>SMB & Resellers</span></div>
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#7c3aed"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#a78bfa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#c4b5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#e9d5ff"></span>Resellers</span></div>
           <div class="mini-trend" id="slaTrend"></div>
         </div>
       </div>
@@ -930,7 +930,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2563eb"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#60a5fa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#dbeafe"></span>SMB & Resellers</span></div>
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2563eb"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#60a5fa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#93c5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#dbeafe"></span>Resellers</span></div>
           <div class="mini-trend" id="delivTrend"></div>
         </div>
       </div>
@@ -972,7 +972,7 @@
           </div>
         </div>
         <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#0f766e"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2dd4bf"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#99f6e4"></span>SMB & Resellers</span></div>
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#0f766e"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2dd4bf"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#5eead4"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#99f6e4"></span>Resellers</span></div>
           <div class="mini-trend" id="accTrend"></div>
         </div>
       </div>
@@ -1509,11 +1509,11 @@ function getTrendPeriodsWeek(){
 
 // Computes SLA% / Delivery% / Accuracy% for one date window, using the
 // exact same formulas as paintSla / paintDelivery / paintAccuracy.
-const SEG_STACK_ORDER = ['Ent','Mid','SMB & Resellers'];
+const SEG_STACK_ORDER = ['Ent','Mid','SMB','Resellers'];
 const SEG_COLORS = {
-  sla:      { Ent:{bg:'#7c3aed',text:'#fff'}, Mid:{bg:'#a78bfa',text:'#fff'}, 'SMB & Resellers':{bg:'#e9d5ff',text:'#3b0764'} },
-  delivery: { Ent:{bg:'#2563eb',text:'#fff'}, Mid:{bg:'#60a5fa',text:'#fff'}, 'SMB & Resellers':{bg:'#dbeafe',text:'#1e3a8a'} },
-  accuracy: { Ent:{bg:'#0f766e',text:'#fff'}, Mid:{bg:'#2dd4bf',text:'#0f172a'}, 'SMB & Resellers':{bg:'#99f6e4',text:'#134e4a'} },
+  sla:      { Ent:{bg:'#7c3aed',text:'#fff'}, Mid:{bg:'#a78bfa',text:'#fff'}, SMB:{bg:'#c4b5fd',text:'#3b0764'}, Resellers:{bg:'#e9d5ff',text:'#3b0764'} },
+  delivery: { Ent:{bg:'#2563eb',text:'#fff'}, Mid:{bg:'#60a5fa',text:'#fff'}, SMB:{bg:'#93c5fd',text:'#1e3a8a'}, Resellers:{bg:'#dbeafe',text:'#1e3a8a'} },
+  accuracy: { Ent:{bg:'#0f766e',text:'#fff'}, Mid:{bg:'#2dd4bf',text:'#0f172a'}, SMB:{bg:'#5eead4',text:'#134e4a'}, Resellers:{bg:'#99f6e4',text:'#134e4a'} },
 };
 const SEG_ACCENT_GRAD = {
   sla:      'linear-gradient(135deg,#7c3aed,#6d28d9)',
@@ -1628,11 +1628,12 @@ function setTrendGran(g){
   renderTrends(); renderActiveFiltersBar();
 }
 
-// SMB and Resellers grouped as "SMB & Resellers"
+// SMB and Resellers are tracked as separate segment categories
 function normSeg(s){
   if (!s) return 'Unknown';
   const v = s.trim();
-  if (/^smb$/i.test(v) || /resell/i.test(v)) return 'SMB & Resellers';
+  if (/^smb$/i.test(v)) return 'SMB';
+  if (/^resell/i.test(v)) return 'Resellers';
   return v;  // Ent, Mid pass through as-is
 }
 
