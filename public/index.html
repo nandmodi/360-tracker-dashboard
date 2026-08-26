@@ -56,6 +56,17 @@
   .f-select:focus{border-color:var(--ink);}.f-select:disabled{opacity:.45;cursor:not-allowed;}
   .btn-reset{align-self:flex-end;background:transparent;border:1px solid var(--line);padding:7px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--ink-2);height:34px;transition:background .15s;}
   .btn-reset:hover{background:var(--bg);}
+  #vinSearchWrap{position:relative;align-self:flex-end;}
+  #vinSearchToggle{display:flex;align-items:center;gap:6px;}
+  .vin-search-box{position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px var(--shadow-lg);padding:6px;display:none;align-items:center;gap:4px;}
+  .vin-search-box.show{display:flex;}
+  .vin-search-box input{border:none;outline:none;background:transparent;font-size:13px;width:300px;padding:6px 4px;}
+  .vin-search-box .vin-search-close{cursor:pointer;color:var(--ink-2);padding:4px;flex-shrink:0;}
+  .vin-result-field{}
+  .vin-result-field p:first-child{color:var(--ink-2);margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+  .vin-result-field p:last-child{margin:0;font-size:13px;color:var(--ink);}
+  .vin-flash{animation:vinflash 1.3s ease-out;}
+  @keyframes vinflash{0%{background:var(--accent);opacity:.12;}100%{opacity:0;}}
 
   /* DATE PICKER */
   .date-filter{position:relative;display:flex;flex-direction:column;gap:4px;}
@@ -764,6 +775,18 @@
           <button class="ms-action muted" type="button" data-act="none" data-ms="seg">Clear all</button>
         </div>
         <div class="ms-list" id="msSegList"></div>
+      </div>
+    </div>
+    <div id="vinSearchWrap">
+      <button class="btn-reset" id="vinSearchToggle" type="button" title="Find by VIN / spin_sku_id / spin_id / mediaID / dealerVinId">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+        Find VIN
+      </button>
+      <div class="vin-search-box" id="vinSearchBox">
+        <input type="text" id="vinSearchInput" placeholder="VIN / spin_sku_id / spin_id / mediaID / dealerVinId" />
+        <span class="vin-search-close" id="vinSearchClose">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+        </span>
       </div>
     </div>
     <button class="btn-reset" id="resetBtn">Reset</button>
@@ -3688,6 +3711,90 @@ function refreshMsTriggers(){ MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
 // ─────────────────────────────────────────────────────────────
 // RESET FILTER
 // ─────────────────────────────────────────────────────────────
+// ── Find VIN / spin_sku_id / spin_id / mediaID / dealerVinId ──
+$('vinSearchToggle').addEventListener('click', ()=>{
+  const box = $('vinSearchBox');
+  box.classList.toggle('show');
+  if (box.classList.contains('show')) $('vinSearchInput').focus();
+});
+$('vinSearchClose').addEventListener('click', ()=> $('vinSearchBox').classList.remove('show'));
+$('vinSearchInput').addEventListener('keydown', e=>{
+  if (e.key === 'Enter'){ e.preventDefault(); doVinSearch($('vinSearchInput').value.trim()); }
+  if (e.key === 'Escape'){ $('vinSearchBox').classList.remove('show'); }
+});
+
+function doVinSearch(query){
+  if (!query) return;
+  const q = query.trim().toLowerCase();
+  const matchField = r => (r.vin && r.vin.toLowerCase()===q) || (r.sku && r.sku.toLowerCase()===q) ||
+                           (r.sid && r.sid.toLowerCase()===q) || (r.vid && r.vid.toLowerCase()===q);
+  let match = RAW.find(matchField);
+  if (!match){
+    const partialField = r => (r.vin && r.vin.toLowerCase().includes(q)) || (r.sku && r.sku.toLowerCase().includes(q)) ||
+                               (r.sid && r.sid.toLowerCase().includes(q)) || (r.vid && r.vid.toLowerCase().includes(q));
+    match = RAW.find(partialField);
+  }
+  if (!match){ openVinNotFound(query); return; }
+  openVinResult(match);
+}
+
+function openVinResult(r){
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modalChips').innerHTML = '';
+  $('modalStats').innerHTML = '';
+  $('modalCount').textContent = '';
+  _modalCtx = null;
+  $('modalTitle').textContent = r.vin || r.sku || '—';
+  $('modalSub').textContent   = (r.ent||'—') + ' · SKU ' + (r.sku||'—');
+
+  const fs = (r.fs||'').trim();
+  const statusColor = fs==='Delivered' ? 'green' : (['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes(fs) ? 'red' : 'amber');
+
+  const csObLabel = r.cs ? 'CS' : (r.ob ? 'OB' : null);
+  const csObVal   = r.cs || r.ob;
+
+  const fields = [
+    ['Enterprise name', r.ent],
+    ['Team name', r.tm],
+    [csObLabel, csObVal],
+    ['Created on', r.c ? fmtDate(r.c) : null],
+    ['Input type', r.tt],
+    ['Failure reason', r.rej],
+    ['Final time', r.u ? fmtDate(r.u) : null],
+    ['First QC done', r.fq ? fmtDate(r.fq) : null],
+  ];
+  const rowsHtml = fields
+    .filter(([label,val]) => label && val)
+    .map(([label,val]) => `<div class="vin-result-field"><p>${esc(label)}</p><p>${esc(val)}</p></div>`)
+    .join('');
+
+  $('modalBody').innerHTML = `
+    <div style="padding:8px 28px 28px;position:relative;overflow:hidden;">
+      <div class="vin-flash" style="position:absolute;inset:0;pointer-events:none;"></div>
+      <div style="position:relative;display:flex;justify-content:flex-end;margin-bottom:8px;">
+        <span class="kpi-value ${statusColor}" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;">${esc(fs||'—')}</span>
+      </div>
+      <div style="position:relative;display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;">
+        ${rowsHtml || '<div style="grid-column:1/-1;color:var(--ink-2);">No further details available for this record.</div>'}
+      </div>
+    </div>`;
+  $('modal').classList.add('show');
+}
+
+function openVinNotFound(query){
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modalChips').innerHTML = '';
+  $('modalStats').innerHTML = '';
+  $('modalCount').textContent = '';
+  _modalCtx = null;
+  $('modalTitle').textContent = 'No record found';
+  $('modalSub').textContent   = 'Try VIN, SKU, Spin ID, or Media ID';
+  $('modalBody').innerHTML = `<div style="padding:40px 28px;text-align:center;color:var(--ink-2);">No record found for <strong style="color:var(--ink);">${esc(query)}</strong>.</div>`;
+  $('modal').classList.add('show');
+}
+
 $('resetBtn').addEventListener('click', ()=>{
   const r = presetRange('this_month');
   Object.assign(F, {
