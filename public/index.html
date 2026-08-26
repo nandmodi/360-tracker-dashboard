@@ -377,6 +377,8 @@
   .modal-backdrop.show{display:block;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);}
   .modal-panel{position:fixed;top:0;right:0;bottom:0;width:min(95vw,1100px);background:var(--surface);display:flex;flex-direction:column;box-shadow:-12px 0 40px var(--shadow-lg);transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1);}
   .modal-backdrop.show .modal-panel{transform:translateX(0);}
+  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:min(92vw,600px);max-height:85vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
+  .modal-backdrop.show .modal-panel.centered{transform:translate(-50%,-50%) scale(1);opacity:1;}
   .modal-head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
   .modal-title{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink);line-height:1.1;}
   .modal-sub{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:6px;}
@@ -4009,15 +4011,17 @@ function openTrendPopup(id){
   const deduped = getDedupedForTrend(RAW);
   const months  = getMonthsFromApril(deduped);
   const values  = months.map(m => computeMonthlyMetric(deduped, m.from, m.to, id));
+  const PAL = getPal();
 
-  $('modalTitle').textContent = meta.label + ' — Monthly Trend';
-  $('modalSub').textContent   = 'APRIL ONWARDS · AUTO-UPDATES EACH MONTH';
+  $('modalTitle').textContent = meta.label;
+  $('modalSub').textContent   = 'April onwards · auto-updates each month';
   $('modalChips').innerHTML   = '';
   $('modalStats').innerHTML   = '';
   $('modalCount').textContent = '';
   if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  document.querySelector('.modal-panel')?.classList.add('centered');
   $('modal').classList.add('show');
-  $('modalBody').innerHTML = '<div style="padding:20px 24px;"><canvas id="trendPopupCanvas" height="100"></canvas></div>';
+  $('modalBody').innerHTML = '<div style="padding:8px 28px 28px;"><div style="position:relative;height:280px;"><canvas id="trendPopupCanvas" role="img" aria-label="Line chart of ' + esc(meta.label) + ' by month"></canvas></div></div>';
 
   _modalCtx = null; // not a records/breakdown modal — disables sorting/download on this view
 
@@ -4025,13 +4029,36 @@ function openTrendPopup(id){
     const canvas = document.getElementById('trendPopupCanvas');
     if (!canvas) return;
     if (window._trendPopupChart) window._trendPopupChart.destroy();
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0,0,0,280);
+    grad.addColorStop(0, PAL.accent+'40');
+    grad.addColorStop(1, PAL.accent+'00');
     window._trendPopupChart = new Chart(canvas, {
-      type: 'bar',
-      data: { labels: months.map(m=>m.label), datasets: [{ label: meta.label, data: values, backgroundColor:'#4f46e5', borderRadius:4 }] },
+      type: 'line', plugins:[ChartDataLabels],
+      data: { labels: months.map(m=>m.label), datasets: [{
+        data: values, borderColor: PAL.accent, backgroundColor: grad,
+        borderWidth: 2.5, tension: 0.4, fill: true,
+        pointRadius: 4, pointHoverRadius: 7,
+        pointBackgroundColor: PAL.accent, pointBorderColor: '#fff', pointBorderWidth: 2,
+        datalabels: {
+          align:'top', anchor:'end',
+          color: PAL.ink,
+          font:{family:"'JetBrains Mono',monospace", size:11, weight:'600'},
+          formatter: v => v==null ? '' : meta.fmt(v),
+          padding:{top:4},
+        },
+      }] },
       options: {
-        responsive: true,
-        plugins: { legend: { display:false }, tooltip: { callbacks: { label: ctx => meta.fmt(ctx.raw) } } },
-        scales: { y: { beginAtZero:true } },
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 26 } },
+        plugins: {
+          legend: { display:false },
+          tooltip: { callbacks: { label: ctx2 => meta.fmt(ctx2.raw) } },
+        },
+        scales: {
+          x: { grid: { display:false } },
+          y: { beginAtZero:true, grid:{ color:'rgba(128,128,128,0.15)' } },
+        },
       },
     });
   });
@@ -4039,6 +4066,7 @@ function openTrendPopup(id){
 
 function openDrill(kpi){
   if (!kpi) return;
+  document.querySelector('.modal-panel')?.classList.remove('centered');
   if ($('modalDlWrap')) $('modalDlWrap').style.display = '';
   const filtered = RAW.filter(passesFilters);
   const k = aggregate(filtered);
