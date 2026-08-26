@@ -377,7 +377,7 @@
   .modal-backdrop.show{display:block;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);}
   .modal-panel{position:fixed;top:0;right:0;bottom:0;width:min(95vw,1100px);background:var(--surface);display:flex;flex-direction:column;box-shadow:-12px 0 40px var(--shadow-lg);transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1);}
   .modal-backdrop.show .modal-panel{transform:translateX(0);}
-  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:min(92vw,600px);max-height:85vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
+  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:min(94vw,760px);max-height:88vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
   .modal-backdrop.show .modal-panel.centered{transform:translate(-50%,-50%) scale(1);opacity:1;}
   .modal-head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
   .modal-title{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink);line-height:1.1;}
@@ -3970,6 +3970,23 @@ function getMonthsFromApril(deduped){
   return months;
 }
 
+// Last N weeks (Monday–Sunday), most recent week last — current week + (n-1) prior weeks.
+function getLastNWeeks(deduped, n){
+  let maxDate = new Date(2026,3,1);
+  for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const day = maxDate.getDay(); // 0=Sun..6=Sat
+  const diffToMonday = (day === 0) ? 6 : day - 1;
+  const thisMonday = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - diffToMonday);
+  const weeks = [];
+  for (let i = n-1; i >= 0; i--){
+    const from = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7*i);
+    const to   = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 7);
+    const toIncl = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
+    weeks.push({ from, to, label: from.toLocaleDateString('en-US',{day:'2-digit',month:'short'}) + '–' + toIncl.toLocaleDateString('en-US',{day:'2-digit',month:'short'}) });
+  }
+  return weeks;
+}
+
 function computeMonthlyMetric(deduped, from, to, metricId){
   const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
   const pop = deduped.filter(r => r._created && r._created >= from && r._created < to && TAT_ELIGIBLE.has((r.fs||'').trim()));
@@ -4004,38 +4021,61 @@ const TREND_POPUP_META = {
   'p99':     { label:'P99 E2E TAT (Delivered)',    fmt: v => fmtTatHrs(v) },
 };
 
+let _trendPopupId = null, _trendPopupGran = 'month';
+
+function setTrendPopupGran(g){
+  _trendPopupGran = g;
+  document.querySelectorAll('[data-trendpopuptoggle] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderTrendPopupChart();
+}
+
 function openTrendPopup(id){
   const meta = TREND_POPUP_META[id];
   if (!meta) return;
-
-  const deduped = getDedupedForTrend(RAW);
-  const months  = getMonthsFromApril(deduped);
-  const values  = months.map(m => computeMonthlyMetric(deduped, m.from, m.to, id));
-  const PAL = getPal();
+  _trendPopupId = id;
+  _trendPopupGran = 'month';
 
   $('modalTitle').textContent = meta.label;
-  $('modalSub').textContent   = 'April onwards · auto-updates each month';
   $('modalChips').innerHTML   = '';
   $('modalStats').innerHTML   = '';
   $('modalCount').textContent = '';
   if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
   document.querySelector('.modal-panel')?.classList.add('centered');
   $('modal').classList.add('show');
-  $('modalBody').innerHTML = '<div style="padding:8px 28px 28px;"><div style="position:relative;height:280px;"><canvas id="trendPopupCanvas" role="img" aria-label="Line chart of ' + esc(meta.label) + ' by month"></canvas></div></div>';
+  $('modalSub').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;">
+      <span>April onwards · auto-updates each month</span>
+      <div class="trend-tabs trend-tabs-mini" data-trendpopuptoggle>
+        <button class="trend-tab sel" data-g="month" onclick="setTrendPopupGran('month')" title="Month-wise, since April">M</button>
+        <button class="trend-tab"     data-g="week"  onclick="setTrendPopupGran('week')"  title="Week-wise, last 4 weeks">W</button>
+      </div>
+    </div>`;
+  $('modalBody').innerHTML = '<div style="padding:8px 28px 28px;"><div style="position:relative;height:340px;"><canvas id="trendPopupCanvas" role="img" aria-label="Line chart of ' + esc(meta.label) + ' by period"></canvas></div></div>';
 
   _modalCtx = null; // not a records/breakdown modal — disables sorting/download on this view
+  renderTrendPopupChart();
+}
+
+function renderTrendPopupChart(){
+  const id = _trendPopupId;
+  const meta = TREND_POPUP_META[id];
+  if (!meta) return;
+  const PAL = getPal();
+  const deduped = getDedupedForTrend(RAW);
+  const periods = _trendPopupGran === 'week' ? getLastNWeeks(deduped, 4) : getMonthsFromApril(deduped);
+  const values  = periods.map(p => computeMonthlyMetric(deduped, p.from, p.to, id));
 
   requestAnimationFrame(()=>{
     const canvas = document.getElementById('trendPopupCanvas');
     if (!canvas) return;
     if (window._trendPopupChart) window._trendPopupChart.destroy();
     const ctx = canvas.getContext('2d');
-    const grad = ctx.createLinearGradient(0,0,0,280);
+    const grad = ctx.createLinearGradient(0,0,0,340);
     grad.addColorStop(0, PAL.accent+'40');
     grad.addColorStop(1, PAL.accent+'00');
     window._trendPopupChart = new Chart(canvas, {
       type: 'line', plugins:[ChartDataLabels],
-      data: { labels: months.map(m=>m.label), datasets: [{
+      data: { labels: periods.map(p=>p.label), datasets: [{
         data: values, borderColor: PAL.accent, backgroundColor: grad,
         borderWidth: 2.5, tension: 0.4, fill: true,
         pointRadius: 4, pointHoverRadius: 7,
