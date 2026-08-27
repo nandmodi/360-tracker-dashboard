@@ -194,6 +194,8 @@ function mapRow(r) {
     set('sid', r['ss.spin_id']);
     set('vm',  r['fd.platform']);
     set('cs',  r.crm_status);
+    set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
+    set('ob',  r.OB);       // "OB" column — fallback shown when CS is blank
     set('seg', r.customer_segment);
     set('tt',  r.input_type);
     set('vin', r.vinName);
