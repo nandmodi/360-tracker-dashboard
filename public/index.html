@@ -3745,11 +3745,14 @@ function openVinResult(r){
   $('modalStats').innerHTML = '';
   $('modalCount').textContent = '';
   _modalCtx = null;
-  $('modalTitle').textContent = r.vin || r.sku || '—';
-  $('modalSub').textContent   = (r.ent||'—') + ' · SKU ' + (r.sku||'—');
-
   const fs = (r.fs||'').trim();
   const statusColor = fs==='Delivered' ? 'green' : (['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes(fs) ? 'red' : 'amber');
+
+  $('modalTitle').innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <span>${esc(r.vin || r.sku || '—')}</span>
+      <span class="kpi-value ${statusColor}" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;white-space:nowrap;">${esc(fs||'—')}</span>
+    </div>`;
+  $('modalSub').textContent   = (r.ent||'—') + ' · SKU ' + (r.sku||'—');
 
   const csObLabel = r.cs ? 'CS' : (r.ob ? 'OB' : null);
   const csObVal   = r.cs || r.ob;
@@ -3770,11 +3773,8 @@ function openVinResult(r){
     .join('');
 
   $('modalBody').innerHTML = `
-    <div style="padding:8px 28px 28px;position:relative;overflow:hidden;">
+    <div style="padding:16px 28px 28px;position:relative;overflow:hidden;">
       <div class="vin-flash" style="position:absolute;inset:0;pointer-events:none;"></div>
-      <div style="position:relative;display:flex;justify-content:flex-end;margin-bottom:8px;">
-        <span class="kpi-value ${statusColor}" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;">${esc(fs||'—')}</span>
-      </div>
       <div style="position:relative;display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;">
         ${rowsHtml || '<div style="grid-column:1/-1;color:var(--ink-2);">No further details available for this record.</div>'}
       </div>
