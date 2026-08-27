@@ -60,7 +60,12 @@
   #vinSearchToggle{display:flex;align-items:center;gap:6px;}
   .vin-search-box{position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px var(--shadow-lg);padding:6px;display:none;align-items:center;gap:4px;}
   .vin-search-box.show{display:flex;}
-  .vin-search-box input{border:none;outline:none;background:transparent;font-size:13px;width:300px;padding:6px 4px;}
+  .vin-search-box{align-items:flex-start !important;}
+  .vin-search-box textarea{border:none;outline:none;background:transparent;font-size:13px;width:360px;padding:6px 4px;resize:vertical;min-height:34px;max-height:120px;font-family:inherit;}
+  .vin-search-submit{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;flex-shrink:0;margin-top:2px;}
+  .vin-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  .vin-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
+  .vin-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
   .vin-search-box .vin-search-close{cursor:pointer;color:var(--ink-2);padding:4px;flex-shrink:0;}
   .vin-result-field{}
   .vin-result-field p:first-child{color:var(--ink-2);margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
@@ -388,7 +393,7 @@
   .modal-backdrop.show{display:block;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);}
   .modal-panel{position:fixed;top:0;right:0;bottom:0;width:min(95vw,1100px);background:var(--surface);display:flex;flex-direction:column;box-shadow:-12px 0 40px var(--shadow-lg);transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1);}
   .modal-backdrop.show .modal-panel{transform:translateX(0);}
-  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:min(96vw,900px);max-height:92vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
+  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:95vw;max-width:1600px;max-height:92vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
   .modal-backdrop.show .modal-panel.centered{transform:translate(-50%,-50%) scale(1);opacity:1;}
   .modal-head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
   .modal-title{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink);line-height:1.1;}
@@ -783,7 +788,8 @@
         Find VIN
       </button>
       <div class="vin-search-box" id="vinSearchBox">
-        <input type="text" id="vinSearchInput" placeholder="VIN / spin_sku_id / spin_id / mediaID / dealerVinId" />
+        <textarea id="vinSearchInput" rows="1" placeholder="VIN / spin_sku_id / spin_id / mediaID / dealerVinId — comma or new-line separated for multiple"></textarea>
+        <button class="vin-search-submit" id="vinSearchSubmit" type="button">Search</button>
         <span class="vin-search-close" id="vinSearchClose">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
         </span>
@@ -3718,65 +3724,103 @@ $('vinSearchToggle').addEventListener('click', ()=>{
   if (box.classList.contains('show')) $('vinSearchInput').focus();
 });
 $('vinSearchClose').addEventListener('click', ()=> $('vinSearchBox').classList.remove('show'));
+$('vinSearchSubmit').addEventListener('click', ()=> doVinSearch($('vinSearchInput').value));
 $('vinSearchInput').addEventListener('keydown', e=>{
-  if (e.key === 'Enter'){ e.preventDefault(); doVinSearch($('vinSearchInput').value.trim()); }
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doVinSearch($('vinSearchInput').value); }
   if (e.key === 'Escape'){ $('vinSearchBox').classList.remove('show'); }
 });
 
-function doVinSearch(query){
-  if (!query) return;
-  const q = query.trim().toLowerCase();
-  const matchField = r => (r.vin && r.vin.toLowerCase()===q) || (r.sku && r.sku.toLowerCase()===q) ||
-                           (r.sid && r.sid.toLowerCase()===q) || (r.vid && r.vid.toLowerCase()===q);
-  let match = RAW.find(matchField);
-  if (!match){
-    const partialField = r => (r.vin && r.vin.toLowerCase().includes(q)) || (r.sku && r.sku.toLowerCase().includes(q)) ||
-                               (r.sid && r.sid.toLowerCase().includes(q)) || (r.vid && r.vid.toLowerCase().includes(q));
-    match = RAW.find(partialField);
+// Accepts one value or several (comma / new-line separated). Matches on
+// VIN, spin_sku_id, spin_id, mediaID, or dealerVinId — exact match first,
+// falling back to a partial/substring match.
+function doVinSearch(raw){
+  const queries = String(raw||'').split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
+  if (!queries.length) return;
+  const results = [], seen = new Set(), notFound = [];
+  for (const query of queries){
+    const q = query.toLowerCase();
+    const exactField = r => (r.vin && r.vin.toLowerCase()===q) || (r.sku && r.sku.toLowerCase()===q) ||
+                             (r.sid && r.sid.toLowerCase()===q) || (r.vid && r.vid.toLowerCase()===q) ||
+                             (r.dvid && r.dvid.toLowerCase()===q);
+    let match = RAW.find(exactField);
+    if (!match){
+      const partialField = r => (r.vin && r.vin.toLowerCase().includes(q)) || (r.sku && r.sku.toLowerCase().includes(q)) ||
+                                 (r.sid && r.sid.toLowerCase().includes(q)) || (r.vid && r.vid.toLowerCase().includes(q)) ||
+                                 (r.dvid && r.dvid.toLowerCase().includes(q));
+      match = RAW.find(partialField);
+    }
+    if (match && !seen.has(match)){ seen.add(match); results.push(match); }
+    else if (!match) notFound.push(query);
   }
-  if (!match){ openVinNotFound(query); return; }
-  openVinResult(match);
+  if (!results.length){ openVinNotFound(queries.join(', ')); return; }
+  openVinResultsTable(results, notFound);
 }
 
-function openVinResult(r){
+// All known fields in data.json, in display order, with human-readable labels
+// and a formatter. Columns are shown even if blank for most rows (so the
+// table stays consistent record-to-record); truly absent fields show "—".
+const VIN_ALL_COLUMNS = [
+  ['vin',  'VIN',            v => v],
+  ['sku',  'SKU',            v => v],
+  ['fs',   'Status',         null], // rendered via statusBadge, not cell()
+  ['ent',  'Enterprise',     v => v],
+  ['tm',   'Team',           v => v],
+  ['seg',  'Segment',        v => v],
+  ['csCol','CS',             v => v],
+  ['ob',   'OB',             v => v],
+  ['cs',   'CRM status',     v => v],
+  ['c',    'Created on',     v => v ? fmtDate(v) : null],
+  ['u',    'Final time',     v => v ? fmtDate(v) : null],
+  ['tt',   'Input type',     v => v],
+  ['vm',   'Platform',       v => v],
+  ['sid',  'Spin ID',        v => v],
+  ['vid',  'Media ID',       v => v],
+  ['dvid', 'Dealer VIN ID',  v => v],
+  ['qc',   'QC user',        v => v],
+  ['tat',  'TAT (hrs)',      v => (typeof v==='number') ? v.toFixed(2) : null],
+  ['e2e',  'E2E TAT (hrs)',  v => (typeof v==='number') ? v.toFixed(2) : null],
+  ['sla',  'SLA',            v => v===1 ? 'Within' : (v===0 ? 'Out' : null)],
+  ['rej',  'Failure reason', v => v],
+  ['isv',  'Issues',         v => v],
+  ['me',   'Manual editing', v => v===1 ? 'Yes' : null],
+  ['aq',   'Assisted by QC', v => v===1 ? 'Yes' : null],
+];
+
+function openVinResultsTable(records, notFound){
   document.querySelector('.modal-panel')?.classList.add('centered');
   if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
   $('modalChips').innerHTML = '';
   $('modalStats').innerHTML = '';
-  $('modalCount').textContent = '';
   _modalCtx = null;
-  const fs = (r.fs||'').trim();
-  const statusColor = fs==='Delivered' ? 'green' : (['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes(fs) ? 'red' : 'amber');
+  $('modalTitle').textContent = records.length===1 ? (records[0].vin || records[0].sku || '—') : `${records.length} records found`;
+  $('modalSub').textContent   = notFound.length ? `No match for: ${notFound.join(', ')}` : (records.length===1 ? ((records[0].ent||'—')+' · SKU '+(records[0].sku||'—')) : 'Search results');
+  $('modalCount').textContent = `${records.length} record${records.length===1?'':'s'}`;
 
-  $('modalTitle').innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-      <span>${esc(r.vin || r.sku || '—')}</span>
-      <span class="kpi-value ${statusColor}" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;white-space:nowrap;">${esc(fs||'—')}</span>
-    </div>`;
-  $('modalSub').textContent   = (r.ent||'—') + ' · SKU ' + (r.sku||'—');
+  const statusBadge = fsRaw => {
+    const fs = (fsRaw||'').trim();
+    const color = fs==='Delivered' ? 'green' : (['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes(fs) ? 'red' : 'amber');
+    return `<span class="kpi-value ${color}" style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px;white-space:nowrap;">${esc(fs||'—')}</span>`;
+  };
+  const cell = v => v ? esc(v) : '<span style="color:var(--ink-2);">—</span>';
 
-  const csObLabel = r.csCol ? 'CS' : (r.ob ? 'OB' : null);
-  const csObVal    = r.csCol || r.ob;
-
-  const fields = [
-    ['Enterprise name', r.ent],
-    ['Team name', r.tm],
-    [csObLabel, csObVal],
-    ['Created on', r.c ? fmtDate(r.c) : null],
-    ['Input type', r.tt],
-    ['Failure reason', r.rej],
-    ['Final time', r.u ? fmtDate(r.u) : null],
-    ['First QC done', r.fq ? fmtDate(r.fq) : null],
-  ];
-  const rowsHtml = fields
-    .filter(([label,val]) => label && val)
-    .map(([label,val]) => `<div class="vin-result-field"><p>${esc(label)}</p><p>${esc(val)}</p></div>`)
-    .join('');
+  const headerHtml = VIN_ALL_COLUMNS.map(([key,label]) => `<th>${esc(label)}</th>`).join('');
+  const rowsHtml = records.map(r => {
+    const cellsHtml = VIN_ALL_COLUMNS.map(([key,label,fmt]) => {
+      if (key === 'fs') return `<td>${statusBadge(r.fs)}</td>`;
+      const raw = r[key];
+      const val = fmt ? fmt(raw) : raw;
+      return `<td>${cell(val)}</td>`;
+    }).join('');
+    return `<tr>${cellsHtml}</tr>`;
+  }).join('');
 
   $('modalBody').innerHTML = `
-    <div style="padding:16px 28px 28px;position:relative;overflow:hidden;">
-      <div class="vin-flash" style="position:absolute;inset:0;pointer-events:none;"></div>
-      <div style="position:relative;display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;">
-        ${rowsHtml || '<div style="grid-column:1/-1;color:var(--ink-2);">No further details available for this record.</div>'}
+    <div style="padding:8px 28px 28px;">
+      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;">
+        <table class="vin-table">
+          <thead><tr>${headerHtml}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
       </div>
     </div>`;
   $('modal').classList.add('show');
