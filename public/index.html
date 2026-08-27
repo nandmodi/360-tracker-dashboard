@@ -3754,8 +3754,8 @@ function openVinResult(r){
     </div>`;
   $('modalSub').textContent   = (r.ent||'—') + ' · SKU ' + (r.sku||'—');
 
-  const csObLabel = r.cs ? 'CS' : (r.ob ? 'OB' : null);
-  const csObVal   = r.cs || r.ob;
+  const csObLabel = r.csCol ? 'CS' : (r.ob ? 'OB' : null);
+  const csObVal    = r.csCol || r.ob;
 
   const fields = [
     ['Enterprise name', r.ent],
