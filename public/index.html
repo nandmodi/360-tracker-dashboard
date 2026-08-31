@@ -106,7 +106,6 @@
   body.view-performance #viewPerformance{display:block;}
   body.view-performance .filters{padding-top:10px;padding-bottom:10px;}
   /* Hide filters that don't apply in the performance view */
-  body.view-performance #msUserWrap,
   body.view-performance #msPocObWrap,
   body.view-performance #msPocCsWrap,
   body.view-performance #msVerifiedWrap,
@@ -725,19 +724,34 @@
         <div class="ms-list" id="msTeamList"></div>
       </div>
     </div>
-    <div class="f-group ms-wrap" id="msUserWrap">
-      <label class="f-label">User (QC)</label>
-      <div class="ms-trigger" id="msUserTrigger" tabindex="0">
-        <span class="ms-text" id="msUserText">All</span>
+    <div class="f-group ms-wrap" id="msPocCsWrap">
+      <label class="f-label">CS</label>
+      <div class="ms-trigger" id="msPocCsTrigger" tabindex="0">
+        <span class="ms-text" id="msPocCsText">All</span>
         <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
       </div>
-      <div class="ms-panel" id="msUserPanel">
-        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msUserSearch" placeholder="Search users…"></div>
+      <div class="ms-panel" id="msPocCsPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msPocCsSearch" placeholder="Search CS…"></div>
         <div class="ms-actions">
-          <button class="ms-action" type="button" data-act="all" data-ms="user">Select all</button>
-          <button class="ms-action muted" type="button" data-act="none" data-ms="user">Clear all</button>
+          <button class="ms-action" type="button" data-act="all" data-ms="cs">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="cs">Clear all</button>
         </div>
-        <div class="ms-list" id="msUserList"></div>
+        <div class="ms-list" id="msPocCsList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msPocObWrap">
+      <label class="f-label">OB</label>
+      <div class="ms-trigger" id="msPocObTrigger" tabindex="0">
+        <span class="ms-text" id="msPocObText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msPocObPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msPocObSearch" placeholder="Search OB…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ob">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ob">Clear all</button>
+        </div>
+        <div class="ms-list" id="msPocObList"></div>
       </div>
     </div>
     <div class="f-group ms-wrap" id="msVerifiedWrap">
@@ -1446,7 +1460,8 @@ function normReason(s){
 function passesFilters(r){
   if (F.ent      && !F.ent.has(r.ent))                  return false;
   if (F.team     && !F.team.has(r.tm))                return false;
-  if (F.user     && !F.user.has(r.qc))                  return false;
+  if (F.cs       && !F.cs.has(r.csCol))                  return false;
+  if (F.ob       && !F.ob.has(r.ob))                     return false;
   if (F.verified && !F.verified.has(r.fs||'')) return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
@@ -1484,7 +1499,8 @@ function passesFilters(r){
 function passesNonDateFilters(r){
   if (F.ent      && !F.ent.has(r.ent))                  return false;
   if (F.team     && !F.team.has(r.tm))                return false;
-  if (F.user     && !F.user.has(r.qc))                  return false;
+  if (F.cs       && !F.cs.has(r.csCol))                  return false;
+  if (F.ob       && !F.ob.has(r.ob))                     return false;
   if (F.verified && !F.verified.has(r.fs||'')) return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
@@ -1668,18 +1684,20 @@ function normSeg(s){
 
 function buildFilterScopes(){
   // Build option lists from the full dataset so dropdowns don't shrink as filters apply.
-  const ent=new Set(),team=new Set(),user=new Set(),ver=new Set(),seg=new Set();
+  const ent=new Set(),team=new Set(),cs=new Set(),ob=new Set(),ver=new Set(),seg=new Set();
   for (const r of RAW){
     if (r.ent) ent.add(r.ent);
     if (r.tm) team.add(r.tm);
-    if (r.qc) user.add(r.qc);
+    if (r.csCol) cs.add(r.csCol);
+    if (r.ob) ob.add(r.ob);
     if (r.fs) ver.add(r.fs);
     seg.add(normSeg(r.seg));
   }
   return {
     enterpriseList: [...ent].sort(),
     teamList:       [...team].sort(),
-    userList:       [...user].sort(),
+    csList:         [...cs].sort(),
+    obList:         [...ob].sort(),
     verifiedList:   [...ver].sort(),
     segList:        [...seg].sort(),
   };
@@ -3376,7 +3394,8 @@ function paint(){
   const trendRows = RAW.filter(r => {
     if (F.ent      && !F.ent.has(r.ent))           return false;
     if (F.team     && !F.team.has(r.tm))         return false;
-    if (F.user     && !F.user.has(r.qc))           return false;
+    if (F.cs       && !F.cs.has(r.csCol))           return false;
+    if (F.ob       && !F.ob.has(r.ob))              return false;
     if (F.verified && !F.verified.has(r.fs||'')) return false;
     if (F.sla){
       if (F.sla.size === 0) return false;
@@ -3530,7 +3549,8 @@ async function syncFromServer({silent=false, force=false}={}){
     const sc = buildFilterScopes();
     msEnt.setOptions(sc.enterpriseList);
     msTeam.setOptions(sc.teamList);
-    msUser.setOptions(sc.userList);
+    msPocCs.setOptions(sc.csList);
+    msPocOb.setOptions(sc.obList);
     msVerified.setOptions(sc.verifiedList);
     msSla.setOptions(['Within SLA','Out of SLA']);
     msSeg.setOptions(sc.segList);
@@ -3676,10 +3696,16 @@ const msTeam = createMultiSelect({
   singularLabel:'team', pluralLabel:'teams',
   onChange: ()=> setTimeout(()=>refresh(), 0),
 });
-const msUser = createMultiSelect({
-  field:'user', triggerId:'msUserTrigger', panelId:'msUserPanel',
-  textId:'msUserText', searchId:'msUserSearch', listId:'msUserList',
-  singularLabel:'user', pluralLabel:'users',
+const msPocCs = createMultiSelect({
+  field:'cs', triggerId:'msPocCsTrigger', panelId:'msPocCsPanel',
+  textId:'msPocCsText', searchId:'msPocCsSearch', listId:'msPocCsList',
+  singularLabel:'CS', pluralLabel:'CS',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msPocOb = createMultiSelect({
+  field:'ob', triggerId:'msPocObTrigger', panelId:'msPocObPanel',
+  textId:'msPocObText', searchId:'msPocObSearch', listId:'msPocObList',
+  singularLabel:'OB', pluralLabel:'OB',
   onChange: ()=> setTimeout(()=>refresh(), 0),
 });
 const msVerified = createMultiSelect({
@@ -3702,8 +3728,8 @@ const msSeg = createMultiSelect({
   onChange: ()=> setTimeout(()=>refresh(),0),
 });
 
-const MS_INSTANCES = [msEnt, msTeam, msUser, msVerified, msSla, msSeg];
-const MS_WRAPS = ['msEntWrap','msTeamWrap','msUserWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
+const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msVerified, msSla, msSeg];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
 
 // Close any open multi-select on outside click
 document.addEventListener('mousedown', e=>{
@@ -4049,7 +4075,7 @@ function bindSlaCells(){
 // ─────────────────────────────────────────────────────────────
 // DRILL-DOWN MODAL
 // ─────────────────────────────────────────────────────────────
-function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('User', F.user); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
+function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('CS', F.cs); setChip('OB', F.ob); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
   const chips=[];
   const setChip = (label, sel) => {
     if (!sel) return;
@@ -4060,7 +4086,8 @@ function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) 
   if(F.from||F.to)        chips.push(`<span class="chip">Date <strong>${esc(F.preset==='custom'?(F.from?fmtShort(F.from):'')+(F.from&&F.to?' → ':'')+(F.to?fmtShort(F.to):''):PLABELS[F.preset]||'')}</strong></span>`);
   setChip('Enterprise', F.ent);
   setChip('Team',       F.team);
-  setChip('User',       F.user);
+  setChip('CS',         F.cs);
+  setChip('OB',          F.ob);
   setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
   setChip('Segment',    F.seg);
@@ -4918,7 +4945,7 @@ async function downloadReport(){
       if (sel.size === 1) return `${label}: ${[...sel][0] || '(blank)'}`;
       return `${label}: ${sel.size} selected`;
     };
-    [['Enterprise',F.ent],['Team',F.team],['User',F.user],
+    [['Enterprise',F.ent],['Team',F.team],['CS',F.cs],['OB',F.ob],
      ['Verified',F.verified],['SLA',F.sla]].forEach(([l,s])=>{
       const t = summarizeSet(l, s); if (t) filters.push(t);
     });
