@@ -1075,17 +1075,6 @@
       <div id="cTeam" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
 
-    <div class="panel" data-panel="topQc" data-size="full">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Top QC users</h3>
-          <div class="panel-sub">by job count · click to filter</div>
-        </div>
-        <div class="edit-controls" data-panel-ctl="topQc"></div>
-      </div>
-      <div id="cQc" style="overflow-y:auto;max-height:260px;padding-right:4px"></div>
-    </div>
-
 
     <div class="panel" data-panel="records" data-size="full" style="padding:0;">
       <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
@@ -1401,7 +1390,6 @@ const DEFAULT_LAYOUT = [
   { id:'reasons3', size:'third' },
   { id:'topEnt',   size:'half'  },
   { id:'topTeam',  size:'half'  },
-  { id:'topQc',    size:'full'  },
   { id:'records',  size:'full'  },
 ];
 let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v12'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
@@ -3380,9 +3368,6 @@ function paint(){
   });
   lastTeamBreak = k.teamBreak; mkSegBar('team', $('cTeam'), k.teamBreak, {
     sortBy: teamSortBy, limit: 30, onPick: pickTeam
-  });
-  mkSegBar('qc',   $('cQc'),   k.qcBreak,  {
-    onPick: label=>{ F.user = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); }
   });
 
   // Reason breakdown cards
