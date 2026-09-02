@@ -4378,10 +4378,12 @@ let accTeamSort = { col:null, dir:null };
 function buildAccGroups(keyFn){
   const groups = {};
   for (const r of _accDeduped){
-    if ((r.fs||'').trim() !== 'Delivered') continue;
     const key = keyFn(r);
     if (!key) continue;
-    if (!groups[key]) groups[key] = { total:0, issues:{} };
+    if (!groups[key]) groups[key] = { total:0, issues:{}, received:0, pending:0 };
+    groups[key].received++;
+    if (isPending(r)) groups[key].pending++;
+    if ((r.fs||'').trim() !== 'Delivered') continue;
     groups[key].total++;
     for (const issue of extractIssues(r.mc)){
       groups[key].issues[issue] = (groups[key].issues[issue]||0)+1;
@@ -4401,22 +4403,28 @@ function renderAccTable(tableId, groups, colLabel, sortState){
   let rows = Object.entries(groups).map(([name, g]) => {
     const pcts = {};
     _accTopIssues.forEach(issue => { pcts[issue] = g.total ? (g.issues[issue]||0)/g.total*100 : 0; });
-    return { name, total: g.total, pcts };
+    const fulfillment = g.received ? (g.total / Math.max(g.received - g.pending, 1)) * 100 : 0;
+    return { name, total: g.total, pcts, fulfillment };
   });
-  if (sortState.col){
+  if (sortState.col === '__fulfillment__'){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.fulfillment-b.fulfillment : b.fulfillment-a.fulfillment);
+  } else if (sortState.col){
     rows.sort((a,b) => sortState.dir==='asc' ? a.pcts[sortState.col]-b.pcts[sortState.col] : b.pcts[sortState.col]-a.pcts[sortState.col]);
   } else {
     rows.sort((a,b)=>b.total-a.total);
   }
   rows = rows.slice(0,20); // top 20, rest via scroll within this set
 
-  const headerHtml = `<th>${esc(colLabel)}</th>` + _accTopIssues.map(issue => {
-    const arrow = sortState.col===issue ? (sortState.dir==='asc'?' ↑':' ↓') : '';
-    return `<th class="sortable" data-issue="${esc(issue)}" data-table="${tableId}">${esc(issue)}${arrow}</th>`;
-  }).join('');
+  const fulfillArrow = sortState.col==='__fulfillment__' ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+  const headerHtml = `<th>${esc(colLabel)}</th>` +
+    `<th class="sortable" data-issue="__fulfillment__" data-table="${tableId}">Fulfillment %${fulfillArrow}</th>` +
+    _accTopIssues.map(issue => {
+      const arrow = sortState.col===issue ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+      return `<th class="sortable" data-issue="${esc(issue)}" data-table="${tableId}">${esc(issue)}${arrow}</th>`;
+    }).join('');
   const rowsHtml = rows.map(r => {
     const cells = _accTopIssues.map(issue => `<td>${r.pcts[issue].toFixed(1)}%</td>`).join('');
-    return `<tr><td>${esc(r.name)}</td>${cells}</tr>`;
+    return `<tr><td>${esc(r.name)}</td><td>${r.fulfillment.toFixed(1)}%</td>${cells}</tr>`;
   }).join('');
   const table = document.getElementById(tableId);
   if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
