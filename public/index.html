@@ -108,7 +108,9 @@
   .acc-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .acc-mini-card{background:var(--surface-2);border:0.5px solid var(--line);border-radius:10px;padding:12px 14px;}
   .acc-mini-card h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.03em;}
-  .acc-table-wrap{overflow-x:auto;border:0.5px solid var(--line);border-radius:10px;}
+  .acc-table-wrap{overflow-x:auto;overflow-y:auto;max-height:420px;border:0.5px solid var(--line);border-radius:10px;}
+  .acc-table th.sortable{cursor:pointer;user-select:none;}
+  .acc-table th.sortable:hover{color:var(--accent);}
   .acc-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
   .acc-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
   .acc-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
@@ -4267,23 +4269,13 @@ function setTrendPopupGran(g){
 }
 
 // ── Accuracy tab ──────────────────────────────────────────────────────────
-// Extracts individual issue names from the issues_by_severity field.
-// Format: "High - A, B || Blocker - C || Low - D, E" — split on "||" for
-// severity buckets, then split each bucket's text on "," for individual issues
-// (a single VIN can carry two-plus issues in one bucket, comma-separated).
-function extractIssues(isv){
-  if (!isv) return [];
-  const issues = [];
-  const parts = String(isv).split('||');
-  for (const part of parts){
-    const t = part.trim();
-    const m = t.match(/^(blocker|high|low)\s*-\s*(.+)$/i);
-    if (m){
-      const items = m[2].split(',').map(s=>s.trim()).filter(Boolean);
-      issues.push(...items);
-    }
-  }
-  return issues;
+// Extracts individual manual-correction categories from the dedicated
+// manual_correction field (compact key "mc"). Values are a plain comma-
+// separated list, e.g. "Placement, Sequence" — a single VIN can carry more
+// than one correction type, comma-separated.
+function extractIssues(mc){
+  if (!mc) return [];
+  return String(mc).split(',').map(s=>s.trim()).filter(Boolean);
 }
 
 let accGran = 'month';
@@ -4296,7 +4288,7 @@ function setAccGran(g){
 }
 
 function renderAccuracy(){
-  const filtered = RAW.filter(passesFilters);
+  const filtered = RAW.filter(passesNonDateFilters); // trend spans April onward, independent of Date Range filter (same pattern as Throughput trend)
   _accDeduped = getDedupedForTrend(filtered);
   renderAccuracyTrendChart();
   computeTopIssues();
@@ -4308,10 +4300,13 @@ function renderAccuracyTrendChart(){
   const months = getMonthsFromApril(_accDeduped);
   const PAL = getPal();
   const values = months.map(m => {
-    const pop = _accDeduped.filter(r => r._created && r._created >= m.from && r._created < m.to && (r.fs||'').trim()==='Delivered');
-    if (!pop.length) return null;
-    const auto = pop.filter(r => r.aq != 1).length;
-    return +((auto/pop.length)*100).toFixed(1);
+    const pop = _accDeduped.filter(r => r._created && r._created >= m.from && r._created < m.to);
+    const delivered = pop.filter(r => (r.fs||'').trim()==='Delivered');
+    const qcFailed  = pop.filter(r => (r.fs||'').trim()==='QC Failed');
+    const total = delivered.length + qcFailed.length;
+    if (!total) return null;
+    const deliveredNoCorrection = delivered.filter(r => !r.mc).length;
+    return +((deliveredNoCorrection/total)*100).toFixed(1);
   });
 
   const canvas = document.getElementById('accTrendCanvas');
@@ -4342,7 +4337,7 @@ function computeTopIssues(){
   const counts = {};
   for (const r of _accDeduped){
     if ((r.fs||'').trim() !== 'Delivered') continue;
-    for (const issue of extractIssues(r.isv)){
+    for (const issue of extractIssues(r.mc)){
       counts[issue] = (counts[issue]||0)+1;
     }
   }
@@ -4361,47 +4356,83 @@ function renderAccuracyMiniCharts(){
   _accTopIssues.forEach((issue, i) => {
     const values = periods.map(p => {
       const pop = _accDeduped.filter(r => r._created && r._created >= p.from && r._created < p.to && (r.fs||'').trim()==='Delivered');
-      return pop.reduce((sum,r) => sum + extractIssues(r.isv).filter(x=>x===issue).length, 0);
+      return pop.reduce((sum,r) => sum + extractIssues(r.mc).filter(x=>x===issue).length, 0);
     });
     const canvas = document.getElementById(`accMini_${i}`);
     if (!canvas) return;
     new Chart(canvas, {
-      type:'line',
-      data:{ labels: periods.map(p=>p.label), datasets:[{ data: values, borderColor: PAL.orange, borderWidth:2, tension:0.35, pointRadius:2, fill:false }] },
-      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ ticks:{font:{size:9}} }, y:{ beginAtZero:true, ticks:{font:{size:9}} } } },
+      type:'line', plugins:[ChartDataLabels],
+      data:{ labels: periods.map(p=>p.label), datasets:[{
+        data: values, borderColor: PAL.orange, borderWidth:2, tension:0.35, pointRadius:2, fill:false,
+        datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v>0?v.toLocaleString():'' },
+      }] },
+      options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:16}}, plugins:{legend:{display:false}}, scales:{ x:{ ticks:{font:{size:9}} }, y:{ beginAtZero:true, ticks:{font:{size:9}} } } },
     });
   });
 }
 
-function renderAccuracyTables(){
-  const groupBy = (keyFn, tableId, colLabel) => {
-    const groups = {};
-    for (const r of _accDeduped){
-      if ((r.fs||'').trim() !== 'Delivered') continue;
-      const key = keyFn(r);
-      if (!key) continue;
-      if (!groups[key]) groups[key] = { total:0, issues:{} };
-      groups[key].total++;
-      for (const issue of extractIssues(r.isv)){
-        groups[key].issues[issue] = (groups[key].issues[issue]||0)+1;
-      }
+let _accEntGroups = {}, _accTeamGroups = {};
+let accEntSort  = { col:null, dir:null };
+let accTeamSort = { col:null, dir:null };
+
+function buildAccGroups(keyFn){
+  const groups = {};
+  for (const r of _accDeduped){
+    if ((r.fs||'').trim() !== 'Delivered') continue;
+    const key = keyFn(r);
+    if (!key) continue;
+    if (!groups[key]) groups[key] = { total:0, issues:{} };
+    groups[key].total++;
+    for (const issue of extractIssues(r.mc)){
+      groups[key].issues[issue] = (groups[key].issues[issue]||0)+1;
     }
-    const rows = Object.entries(groups).sort((a,b)=>b[1].total-a[1].total);
-    const headerHtml = `<th>${esc(colLabel)}</th>` + _accTopIssues.map(i=>`<th>${esc(i)}</th>`).join('');
-    const rowsHtml = rows.map(([name, g]) => {
-      const cells = _accTopIssues.map(issue => {
-        const cnt = g.issues[issue] || 0;
-        const pct = g.total ? (cnt/g.total*100) : 0;
-        return `<td>${pct.toFixed(1)}%</td>`;
-      }).join('');
-      return `<tr><td>${esc(name)}</td>${cells}</tr>`;
-    }).join('');
-    const table = document.getElementById(tableId);
-    if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
-  };
-  groupBy(r=>r.ent, 'accEntTable', 'Enterprise');
-  groupBy(r=>r.tm,  'accTeamTable', 'Team');
+  }
+  return groups;
 }
+
+function renderAccuracyTables(){
+  _accEntGroups  = buildAccGroups(r=>r.ent);
+  _accTeamGroups = buildAccGroups(r=>r.tm);
+  renderAccTable('accEntTable',  _accEntGroups,  'Enterprise', accEntSort);
+  renderAccTable('accTeamTable', _accTeamGroups, 'Team',       accTeamSort);
+}
+
+function renderAccTable(tableId, groups, colLabel, sortState){
+  let rows = Object.entries(groups).map(([name, g]) => {
+    const pcts = {};
+    _accTopIssues.forEach(issue => { pcts[issue] = g.total ? (g.issues[issue]||0)/g.total*100 : 0; });
+    return { name, total: g.total, pcts };
+  });
+  if (sortState.col){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.pcts[sortState.col]-b.pcts[sortState.col] : b.pcts[sortState.col]-a.pcts[sortState.col]);
+  } else {
+    rows.sort((a,b)=>b.total-a.total);
+  }
+  rows = rows.slice(0,20); // top 20, rest via scroll within this set
+
+  const headerHtml = `<th>${esc(colLabel)}</th>` + _accTopIssues.map(issue => {
+    const arrow = sortState.col===issue ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+    return `<th class="sortable" data-issue="${esc(issue)}" data-table="${tableId}">${esc(issue)}${arrow}</th>`;
+  }).join('');
+  const rowsHtml = rows.map(r => {
+    const cells = _accTopIssues.map(issue => `<td>${r.pcts[issue].toFixed(1)}%</td>`).join('');
+    return `<tr><td>${esc(r.name)}</td>${cells}</tr>`;
+  }).join('');
+  const table = document.getElementById(tableId);
+  if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
+}
+
+// Delegated click handler: sorting the Enterprise/Team accuracy tables by issue column.
+document.addEventListener('click', e=>{
+  const th = e.target.closest('.acc-table th.sortable');
+  if (!th) return;
+  const tableId = th.dataset.table, issue = th.dataset.issue;
+  const isEnt = tableId === 'accEntTable';
+  const sortState = isEnt ? accEntSort : accTeamSort;
+  if (sortState.col === issue) sortState.dir = (sortState.dir === 'desc') ? 'asc' : 'desc';
+  else { sortState.col = issue; sortState.dir = 'desc'; }
+  renderAccTable(tableId, isEnt ? _accEntGroups : _accTeamGroups, isEnt ? 'Enterprise' : 'Team', sortState);
+});
 
 function openTrendPopup(id){
   const meta = TREND_POPUP_META[id];
