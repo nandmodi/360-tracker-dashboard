@@ -102,6 +102,16 @@
 
   /* PERFORMANCE VIEW */
   #viewPerformance{display:none;}
+  #viewAccuracy{display:none;}
+  body.view-accuracy #viewOperations{display:none;}
+  body.view-accuracy #viewAccuracy{display:block;}
+  .acc-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .acc-mini-card{background:var(--surface-2);border:0.5px solid var(--line);border-radius:10px;padding:12px 14px;}
+  .acc-mini-card h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.03em;}
+  .acc-table-wrap{overflow-x:auto;border:0.5px solid var(--line);border-radius:10px;}
+  .acc-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  .acc-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
+  .acc-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
   body.view-performance #viewOperations{display:none;}
   body.view-performance #viewPerformance{display:block;}
   body.view-performance .filters{padding-top:10px;padding-bottom:10px;}
@@ -638,6 +648,10 @@
         <button data-view="performance" title="QC Performance view">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
           QC Performance
+        </button>
+        <button data-view="accuracy" title="Accuracy view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.4"/></svg>
+          Accuracy
         </button>
       </div>
       <span class="sync-info" id="syncInfo">—</span>
@@ -1262,6 +1276,54 @@
       </div>
     </div>
   </div><!-- /#viewPerformance -->
+
+  <div id="viewAccuracy">
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Accuracy trend</h3>
+          <div class="panel-sub" id="accTrendSub">Month-wise since April</div>
+        </div>
+      </div>
+      <div style="position:relative;height:280px;padding:8px 4px;">
+        <canvas id="accTrendCanvas"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Manual correction trends</h3>
+          <div class="panel-sub" id="accMiniSub">Current month and previous 3</div>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-accgran>
+          <button class="trend-tab sel" data-g="month" onclick="setAccGran('month')" title="Month-wise, current + previous 3">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setAccGran('week')"  title="Week-wise, last 4 weeks">W</button>
+        </div>
+      </div>
+      <div class="acc-mini-grid" id="accMiniGrid"></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Enterprise list</h3>
+          <div class="panel-sub">percentage of deliveries with each issue</div>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="accEntTable"></table></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Team list</h3>
+          <div class="panel-sub">percentage of deliveries with each issue</div>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="accTeamTable"></table></div>
+    </div>
+  </div><!-- /#viewAccuracy -->
 </main>
 
 <div class="modal-backdrop" id="modal">
@@ -3451,6 +3513,7 @@ function paint(){
 
 function refresh(){
   if (currentView === 'performance') renderPerformance();
+  else if (currentView === 'accuracy') renderAccuracy();
   else paint();
 }
 
@@ -4201,6 +4264,143 @@ function setTrendPopupGran(g){
   _trendPopupGran = g;
   document.querySelectorAll('[data-trendpopuptoggle] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
   renderTrendPopupChart();
+}
+
+// ── Accuracy tab ──────────────────────────────────────────────────────────
+// Extracts individual issue names from the issues_by_severity field.
+// Format: "High - A, B || Blocker - C || Low - D, E" — split on "||" for
+// severity buckets, then split each bucket's text on "," for individual issues
+// (a single VIN can carry two-plus issues in one bucket, comma-separated).
+function extractIssues(isv){
+  if (!isv) return [];
+  const issues = [];
+  const parts = String(isv).split('||');
+  for (const part of parts){
+    const t = part.trim();
+    const m = t.match(/^(blocker|high|low)\s*-\s*(.+)$/i);
+    if (m){
+      const items = m[2].split(',').map(s=>s.trim()).filter(Boolean);
+      issues.push(...items);
+    }
+  }
+  return issues;
+}
+
+let accGran = 'month';
+let _accDeduped = null, _accTopIssues = null;
+
+function setAccGran(g){
+  accGran = g;
+  document.querySelectorAll('[data-accgran] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderAccuracyMiniCharts();
+}
+
+function renderAccuracy(){
+  const filtered = RAW.filter(passesFilters);
+  _accDeduped = getDedupedForTrend(filtered);
+  renderAccuracyTrendChart();
+  computeTopIssues();
+  renderAccuracyMiniCharts();
+  renderAccuracyTables();
+}
+
+function renderAccuracyTrendChart(){
+  const months = getMonthsFromApril(_accDeduped);
+  const PAL = getPal();
+  const values = months.map(m => {
+    const pop = _accDeduped.filter(r => r._created && r._created >= m.from && r._created < m.to && (r.fs||'').trim()==='Delivered');
+    if (!pop.length) return null;
+    const auto = pop.filter(r => r.aq != 1).length;
+    return +((auto/pop.length)*100).toFixed(1);
+  });
+
+  const canvas = document.getElementById('accTrendCanvas');
+  if (!canvas) return;
+  if (window._accTrendChart) window._accTrendChart.destroy();
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,280);
+  grad.addColorStop(0, PAL.accent+'38');
+  grad.addColorStop(1, PAL.accent+'00');
+  window._accTrendChart = new Chart(canvas, {
+    type:'line', plugins:[ChartDataLabels],
+    data:{ labels: months.map(m=>m.label), datasets:[{
+      data: values, borderColor: PAL.accent, backgroundColor: grad,
+      borderWidth:2.2, tension:0.35, fill:true,
+      pointRadius:3, pointHoverRadius:6, pointBackgroundColor:PAL.accent, pointBorderColor:'#fff', pointBorderWidth:2,
+      datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' },
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:24 } },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => c.raw==null?'—':c.raw.toFixed(1)+'%' } } },
+      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
+    },
+  });
+}
+
+function computeTopIssues(){
+  const counts = {};
+  for (const r of _accDeduped){
+    if ((r.fs||'').trim() !== 'Delivered') continue;
+    for (const issue of extractIssues(r.isv)){
+      counts[issue] = (counts[issue]||0)+1;
+    }
+  }
+  _accTopIssues = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k])=>k);
+}
+
+function renderAccuracyMiniCharts(){
+  const grid = $('accMiniGrid');
+  if (!grid || !_accTopIssues) return;
+  const periods = accGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped).slice(-4);
+  const PAL = getPal();
+  $('accMiniSub').textContent = accGran === 'week' ? 'Last 4 weeks' : 'Current month and previous 3';
+
+  grid.innerHTML = _accTopIssues.map((issue,i) => `<div class="acc-mini-card"><h4>${esc(issue)}</h4><div style="position:relative;height:80px;"><canvas id="accMini_${i}"></canvas></div></div>`).join('');
+
+  _accTopIssues.forEach((issue, i) => {
+    const values = periods.map(p => {
+      const pop = _accDeduped.filter(r => r._created && r._created >= p.from && r._created < p.to && (r.fs||'').trim()==='Delivered');
+      return pop.reduce((sum,r) => sum + extractIssues(r.isv).filter(x=>x===issue).length, 0);
+    });
+    const canvas = document.getElementById(`accMini_${i}`);
+    if (!canvas) return;
+    new Chart(canvas, {
+      type:'line',
+      data:{ labels: periods.map(p=>p.label), datasets:[{ data: values, borderColor: PAL.orange, borderWidth:2, tension:0.35, pointRadius:2, fill:false }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ ticks:{font:{size:9}} }, y:{ beginAtZero:true, ticks:{font:{size:9}} } } },
+    });
+  });
+}
+
+function renderAccuracyTables(){
+  const groupBy = (keyFn, tableId, colLabel) => {
+    const groups = {};
+    for (const r of _accDeduped){
+      if ((r.fs||'').trim() !== 'Delivered') continue;
+      const key = keyFn(r);
+      if (!key) continue;
+      if (!groups[key]) groups[key] = { total:0, issues:{} };
+      groups[key].total++;
+      for (const issue of extractIssues(r.isv)){
+        groups[key].issues[issue] = (groups[key].issues[issue]||0)+1;
+      }
+    }
+    const rows = Object.entries(groups).sort((a,b)=>b[1].total-a[1].total);
+    const headerHtml = `<th>${esc(colLabel)}</th>` + _accTopIssues.map(i=>`<th>${esc(i)}</th>`).join('');
+    const rowsHtml = rows.map(([name, g]) => {
+      const cells = _accTopIssues.map(issue => {
+        const cnt = g.issues[issue] || 0;
+        const pct = g.total ? (cnt/g.total*100) : 0;
+        return `<td>${pct.toFixed(1)}%</td>`;
+      }).join('');
+      return `<tr><td>${esc(name)}</td>${cells}</tr>`;
+    }).join('');
+    const table = document.getElementById(tableId);
+    if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
+  };
+  groupBy(r=>r.ent, 'accEntTable', 'Enterprise');
+  groupBy(r=>r.tm,  'accTeamTable', 'Team');
 }
 
 function openTrendPopup(id){
@@ -5022,6 +5222,7 @@ const PV = {
 function switchView(view){
   currentView = view;
   document.body.classList.toggle('view-performance', view === 'performance');
+  document.body.classList.toggle('view-accuracy', view === 'accuracy');
   document.querySelectorAll('#viewSwitch button').forEach(b=>{
     b.classList.toggle('sel', b.dataset.view === view);
   });
