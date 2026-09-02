@@ -196,6 +196,7 @@ function mapRow(r) {
     set('cs',  r.crm_status);
     set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
     set('ob',  r.OB);       // "OB" column — fallback shown when CS is blank
+    set('dvid', r.dealerVinId); // "dealerVinId" column — searchable in Find VIN
     set('seg', r.customer_segment);
     set('tt',  r.input_type);
     set('vin', r.vinName);
@@ -204,6 +205,7 @@ function mapRow(r) {
     set('isv', r.issues_by_severity);
     if (r.manual_editing === 'true' || r.manual_editing === true) row.me = 1;
     if (r.is_assisted_by_qc === 'true' || r.is_assisted_by_qc === true) row.aq = 1;
+    set('mc', r.manual_correction); // comma-separated: RBG, Sequence, Placement, Wall Height — used in Accuracy tab's Manual Correction Trends
 
   return row;
 }
