@@ -160,10 +160,9 @@ function mapRow(r) {
           if (ms > 0) tat = Math.round(ms / 36000) / 100;
     }
 
-  // E2E TAT = processedAt -> first_qc_done
-  //   Fallback: if processedAt is null/blank/not a valid date, use createdAt -> first_qc_done
+  // E2E TAT = sku_created_on -> first_qc_done (same start field as TAT)
   let e2e = null;
-    const e2eStart = pa || ca;   // pa is null when processedAt is blank/invalid
+    const e2eStart = sc;
     if (e2eStart && fq) {
           const ms = fq - e2eStart;
           if (ms > 0) e2e = Math.round(ms / 36000) / 100;
