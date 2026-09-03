@@ -83,9 +83,9 @@
   .date-panel.open{display:flex;}
   .dp-presets{width:165px;flex-shrink:0;border-right:1px solid var(--line);padding:8px 0;background:var(--bg);overflow-y:auto;}
   .dp-sec{padding:6px 14px 3px;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
-  .dp-preset{display:block;width:100%;text-align:left;padding:7px 14px;background:none;border:none;border-left:2px solid transparent;font:400 13px 'Inter';color:var(--ink-2);cursor:pointer;transition:background .1s,color .1s;}
-  .dp-preset:hover{background:var(--surface);color:var(--ink);}
-  .dp-preset.sel{color:var(--accent);font-weight:500;border-left-color:var(--accent);background:var(--surface);}
+  .dp-preset,.acc-dp-preset{display:block;width:100%;text-align:left;padding:7px 14px;background:none;border:none;border-left:2px solid transparent;font:400 13px 'Inter';color:var(--ink-2);cursor:pointer;transition:background .1s,color .1s;}
+  .dp-preset:hover,.acc-dp-preset:hover{background:var(--surface);color:var(--ink);}
+  .dp-preset.sel,.acc-dp-preset.sel{color:var(--accent);font-weight:500;border-left-color:var(--accent);background:var(--surface);}
   .dp-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0;}
   .dp-title{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
   .dp-hint{font-family:'Inter',sans-serif;font-size:11px;color:var(--muted);}
@@ -1283,6 +1283,45 @@
 
   <div id="viewAccuracy">
   <div class="filters acc-filters">
+    <div class="date-filter" id="accDateWrap">
+      <label class="f-label">Date range</label>
+      <div class="date-trigger" id="accDateTrigger" tabindex="0">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="12" height="13" rx="2"/><line x1="5" y1="1" x2="5" y2="4"/><line x1="11" y1="1" x2="11" y2="4"/><line x1="2" y1="7" x2="14" y2="7"/></svg>
+        <span class="dt-text" id="accDtLabel">This month</span>
+        <svg class="dt-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="date-panel" id="accDatePanel">
+        <div class="dp-presets">
+          <div class="dp-sec">Quick select</div>
+          <button class="acc-dp-preset" data-p="all">All time</button>
+          <button class="acc-dp-preset" data-p="today">Today</button>
+          <button class="acc-dp-preset" data-p="yesterday">Yesterday</button>
+          <button class="acc-dp-preset" data-p="this_week">This week</button>
+          <button class="acc-dp-preset" data-p="last_week">Last week</button>
+          <div class="dp-sec" style="margin-top:6px">Months</div>
+          <button class="acc-dp-preset sel" data-p="this_month">This month</button>
+          <button class="acc-dp-preset" data-p="last_month">Last month</button>
+          <button class="acc-dp-preset" data-p="last_30">Last 30 days</button>
+          <button class="acc-dp-preset" data-p="last_3_months">Last 3 months</button>
+          <div class="dp-sec" style="margin-top:6px">Custom</div>
+          <button class="acc-dp-preset" data-p="custom">Custom range</button>
+        </div>
+        <div class="dp-body">
+          <div class="dp-title">Custom date range</div>
+          <div class="dp-hint">Click a date to set start, click another to set end and apply.</div>
+          <div class="cal-wrap">
+            <div class="cal-header">
+              <button type="button" class="cal-nav" id="accCalPrev" aria-label="Previous month">‹</button>
+              <span class="cal-month-label" id="accCalLabel">—</span>
+              <button type="button" class="cal-nav" id="accCalNext" aria-label="Next month">›</button>
+            </div>
+            <div class="cal-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+            <div class="cal-days" id="accCalDays"></div>
+          </div>
+          <div class="dp-preview" id="accDpPreview"><span id="accDpPreviewText">Pick a date to begin</span><button class="dp-clear" id="accDpClear" type="button">Clear</button></div>
+        </div>
+      </div>
+    </div>
     <div class="f-group ms-wrap" id="accMsEntWrap">
       <label class="f-label">Enterprise</label>
       <div class="ms-trigger" id="accMsEntTrigger" tabindex="0">
@@ -1562,6 +1601,7 @@ const F = {
 // No date-range fields: the Accuracy tab's charts are month/week trends by
 // design and aren't scoped by a date-range picker.
 const F_ACC = {
+  preset:'this_month', from:null, to:null,
   ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null,
 };
 
@@ -1704,6 +1744,11 @@ function passesNonDateFilters(r){
 // Accuracy tab's own filter check — same shape as passesNonDateFilters but
 // reads F_ACC instead of F, and has no rejReason/date concept (not used there).
 function passesAccFilters(r){
+  if (F_ACC.from && (!r._created || r._created < F_ACC.from)) return false;
+  if (F_ACC.to){
+    const toEnd = new Date(F_ACC.to.getFullYear(), F_ACC.to.getMonth(), F_ACC.to.getDate(), 23,59,59,999);
+    if (!r._created || r._created > toEnd) return false;
+  }
   if (F_ACC.ent      && !F_ACC.ent.has(r.ent))                  return false;
   if (F_ACC.team     && !F_ACC.team.has(r.tm))                  return false;
   if (F_ACC.cs       && !F_ACC.cs.has(r.csCol))                 return false;
@@ -4010,9 +4055,11 @@ document.addEventListener('mousedown', e=>{
 });
 function refreshAccMsTriggers(){ ACC_MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
 $('accResetBtn').addEventListener('click', ()=>{
-  Object.assign(F_ACC, { ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null });
+  const r0 = presetRange('this_month');
+  Object.assign(F_ACC, { preset:'this_month', from:r0.from, to:r0.to, ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null });
   accMsTeam.setOptions(accTeamsForCurrentEntFilter());
   refreshAccMsTriggers();
+  accSyncDateUI();
   renderAccuracy();
 });
 
@@ -4310,6 +4357,133 @@ $('calPrev').addEventListener('click', e=>{ e.stopPropagation();
   cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth()-1, 1); calRender(); });
 $('calNext').addEventListener('click', e=>{ e.stopPropagation();
   cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth()+1, 1); calRender(); });
+
+// ── Accuracy tab's own date-range picker — fully independent of the
+// Operations one above (separate DOM ids, separate F_ACC state), but reuses
+// the shared pure helpers (presetRange, PLABELS, fmtShort, midnight).
+function accSyncDateUI(){
+  const {preset, from, to} = F_ACC;
+  $('accDtLabel').textContent = preset!=='custom' ? PLABELS[preset]||'All time' :
+    (from && to) ? fmtShort(from)+' → '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Custom';
+  document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p===preset));
+  $('accDpPreviewText').textContent = (from && to) ? fmtShort(from)+'  →  '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Pick a date to begin';
+}
+
+const accDtTrigger=$('accDateTrigger'), accDtPanel=$('accDatePanel');
+accDtTrigger.addEventListener('click', e=>{
+  e.stopPropagation();
+  const opening = !accDtPanel.classList.contains('open');
+  accDtPanel.classList.toggle('open', opening);
+  accDtTrigger.classList.toggle('open', opening);
+  if (opening){
+    accCal.rangeStart = F_ACC.from ? midnight(F_ACC.from) : null;
+    accCal.rangeEnd   = F_ACC.to   ? midnight(F_ACC.to)   : null;
+    const ref = accCal.rangeStart || new Date();
+    accCal.view = new Date(ref.getFullYear(), ref.getMonth(), 1);
+    accCalRender();
+  }
+});
+$('accDatePanel').addEventListener('click', e=>e.stopPropagation());
+$('accDatePanel').addEventListener('mousedown', e=>e.stopPropagation());
+document.addEventListener('mousedown', e=>{
+  if (!$('accDateWrap').contains(e.target)){
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+  }
+});
+document.querySelectorAll('.acc-dp-preset').forEach(btn=>{
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const p = btn.dataset.p;
+    if (p === 'custom'){
+      document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+      return;
+    }
+    const r = presetRange(p);
+    F_ACC.preset = p; F_ACC.from = r.from; F_ACC.to = r.to;
+    accSyncDateUI();
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+    setTimeout(()=>renderAccuracy(), 0);
+  });
+});
+$('accDpClear').addEventListener('click', e=>{
+  e.stopPropagation();
+  accCal.rangeStart = null; accCal.rangeEnd = null;
+  accCalRender(); $('accDpPreviewText').textContent = 'Pick a date to begin';
+});
+
+const accCal = { view: new Date(), rangeStart: null, rangeEnd: null, _cells: [] };
+function accCalRender(){
+  const view = accCal.view;
+  $('accCalLabel').textContent = view.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const firstWeekday = view.getDay();
+  const lastDay  = new Date(view.getFullYear(), view.getMonth()+1, 0).getDate();
+  const prevLast = new Date(view.getFullYear(), view.getMonth(), 0).getDate();
+  const cells = [];
+  for (let i=firstWeekday-1; i>=0; i--){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth()-1,prevLast-i), muted:true });
+  }
+  for (let d=1; d<=lastDay; d++){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth(),d), muted:false });
+  }
+  while (cells.length < 42){
+    const last = cells[cells.length-1].date;
+    cells.push({ date:new Date(last.getFullYear(),last.getMonth(),last.getDate()+1), muted:true });
+  }
+  const today = midnight(new Date());
+  const F0 = accCal.rangeStart, T0 = accCal.rangeEnd;
+  $('accCalDays').innerHTML = cells.map((c,i)=>{
+    const d=c.date, ts=d.getTime();
+    const isStart = F0 && ts === F0.getTime();
+    const isEnd   = T0 && ts === T0.getTime();
+    const inRange = F0 && T0 && ts > F0.getTime() && ts < T0.getTime();
+    const isToday = ts === today.getTime();
+    const cls=['cal-day'];
+    if (c.muted) cls.push('muted');
+    if (isToday) cls.push('today');
+    if (isStart) cls.push('start');
+    if (isEnd)   cls.push('end');
+    if (inRange) cls.push('in-range');
+    return `<button type="button" class="${cls.join(' ')}" data-i="${i}">${d.getDate()}</button>`;
+  }).join('');
+  accCal._cells = cells;
+}
+function accOnCalDayClick(e){
+  e.stopPropagation();
+  const btn = e.target.closest('.cal-day');
+  if (!btn) return;
+  const i = parseInt(btn.dataset.i);
+  const d = accCal._cells?.[i]?.date;
+  if (!d) return;
+  const day = midnight(d);
+  if (!accCal.rangeStart || accCal.rangeEnd){
+    accCal.rangeStart = day;
+    accCal.rangeEnd   = null;
+    if (d.getMonth() !== accCal.view.getMonth() || d.getFullYear() !== accCal.view.getFullYear()){
+      accCal.view = new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+    accCalRender();
+    $('accDpPreviewText').textContent = 'From '+fmtShort(accCal.rangeStart);
+  } else {
+    if (day.getTime() < accCal.rangeStart.getTime()){
+      accCal.rangeEnd = accCal.rangeStart; accCal.rangeStart = day;
+    } else {
+      accCal.rangeEnd = day;
+    }
+    accCalRender();
+    F_ACC.preset = 'custom'; F_ACC.from = new Date(accCal.rangeStart); F_ACC.to = new Date(accCal.rangeEnd);
+    accSyncDateUI();
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+    renderAccuracy();
+  }
+  document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+}
+$('accCalDays').addEventListener('click', accOnCalDayClick);
+$('accCalPrev').addEventListener('click', e=>{ e.stopPropagation();
+  accCal.view = new Date(accCal.view.getFullYear(), accCal.view.getMonth()-1, 1); accCalRender(); });
+$('accCalNext').addEventListener('click', e=>{ e.stopPropagation();
+  accCal.view = new Date(accCal.view.getFullYear(), accCal.view.getMonth()+1, 1); accCalRender(); });
 
 // ─────────────────────────────────────────────────────────────
 // TREND TABS
@@ -6355,6 +6529,7 @@ F.from = r0.from; F.to = r0.to;
 renderKpiCards();
 bindSlaCells();
 syncDateUI();
+accSyncDateUI();
 applyLayout();
 syncFromServer();
 </script>
