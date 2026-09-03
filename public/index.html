@@ -1434,9 +1434,15 @@
           <h3>Accuracy trend</h3>
           <div class="panel-sub" id="accTrendSub">Month-wise since April</div>
         </div>
-        <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
-          <button class="trend-tab sel" data-t="line" onclick="setAccTrendChartType('line')" title="Line graph">Graph</button>
-          <button class="trend-tab"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
+            <button class="trend-tab sel" data-t="line" onclick="setAccTrendChartType('line')" title="Line graph">Graph</button>
+            <button class="trend-tab"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
+          </div>
+          <div class="trend-tabs trend-tabs-mini" data-acctrendgran>
+            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise since April">M</button>
+            <button class="trend-tab"     data-g="week"  onclick="setAccTrendGran('week')"  title="Last 4 weeks">W</button>
+          </div>
         </div>
       </div>
       <div style="position:relative;height:280px;padding:8px 4px;">
@@ -4704,6 +4710,7 @@ function extractIssues(mc){
 
 let accGran = 'month';
 let accTrendChartType = 'line';
+let accTrendGran = 'month';
 let accMiniChartType  = 'line';
 let _accDeduped = null, _accTopIssues = null;
 
@@ -4715,6 +4722,11 @@ function accIssueColor(PAL, idx){ return PAL[ACC_ISSUE_COLOR_ORDER[idx % ACC_ISS
 function setAccTrendChartType(t){
   accTrendChartType = t;
   document.querySelectorAll('[data-acctrendtype] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.t===t));
+  renderAccuracyTrendChart();
+}
+function setAccTrendGran(g){
+  accTrendGran = g;
+  document.querySelectorAll('[data-acctrendgran] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
   renderAccuracyTrendChart();
 }
 function setAccMiniChartType(t){
@@ -4739,9 +4751,10 @@ function renderAccuracy(){
 }
 
 function renderAccuracyTrendChart(){
-  const months = getMonthsFromApril(_accDeduped);
+  const periods = accTrendGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped);
   const PAL = getPal();
-  const values = months.map(m => {
+  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
+  const values = periods.map(m => {
     const pop = _accDeduped.filter(r => r._created && r._created >= m.from && r._created < m.to);
     const delivered = pop.filter(r => (r.fs||'').trim()==='Delivered');
     const qcFailed  = pop.filter(r => (r.fs||'').trim()==='QC Failed');
@@ -4768,7 +4781,7 @@ function renderAccuracyTrendChart(){
         datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' } };
   window._accTrendChart = new Chart(canvas, {
     type: isBar ? 'bar' : 'line', plugins:[ChartDataLabels],
-    data:{ labels: months.map(m=>m.label), datasets:[dataset]},
+    data:{ labels: periods.map(m=>m.label), datasets:[dataset]},
     options:{
       responsive:true, maintainAspectRatio:false,
       layout:{ padding:{ top:24 } },
