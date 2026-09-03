@@ -1281,6 +1281,112 @@
   </div><!-- /#viewPerformance -->
 
   <div id="viewAccuracy">
+  <div class="filters acc-filters">
+    <div class="f-group ms-wrap" id="accMsEntWrap">
+      <label class="f-label">Enterprise</label>
+      <div class="ms-trigger" id="accMsEntTrigger" tabindex="0">
+        <span class="ms-text" id="accMsEntText">All enterprises</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsEntPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsEntSearch" placeholder="Search enterprises…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ent">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ent">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsEntList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsTeamWrap">
+      <label class="f-label">Team</label>
+      <div class="ms-trigger" id="accMsTeamTrigger" tabindex="0">
+        <span class="ms-text" id="accMsTeamText">All teams</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsTeamPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsTeamSearch" placeholder="Search teams…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="team">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="team">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsTeamList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsCsWrap">
+      <label class="f-label">CS</label>
+      <div class="ms-trigger" id="accMsCsTrigger" tabindex="0">
+        <span class="ms-text" id="accMsCsText">All CS</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsCsPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsCsSearch" placeholder="Search CS…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="cs">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="cs">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsCsList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsObWrap">
+      <label class="f-label">OB</label>
+      <div class="ms-trigger" id="accMsObTrigger" tabindex="0">
+        <span class="ms-text" id="accMsObText">All OB</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsObPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsObSearch" placeholder="Search OB…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ob">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ob">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsObList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsVerifiedWrap">
+      <label class="f-label">Status</label>
+      <div class="ms-trigger compact" id="accMsVerifiedTrigger" tabindex="0">
+        <span class="ms-text" id="accMsVerifiedText">All statuses</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsVerifiedPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="verified">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="verified">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsVerifiedList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsSlaWrap">
+      <label class="f-label">SLA</label>
+      <div class="ms-trigger compact" id="accMsSlaTrigger" tabindex="0">
+        <span class="ms-text" id="accMsSlaText">All SLA states</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsSlaPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="sla">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="sla">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsSlaList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsSegWrap">
+      <label class="f-label">Segment</label>
+      <div class="ms-trigger compact" id="accMsSegTrigger" tabindex="0">
+        <span class="ms-text" id="accMsSegText">All segments</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsSegPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="seg">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="seg">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsSegList"></div>
+      </div>
+    </div>
+    <button class="btn-reset" id="accResetBtn">Reset</button>
+  </div>
+
     <div class="panel" data-size="full">
       <div class="panel-header">
         <div class="panel-title-wrap">
@@ -1311,7 +1417,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Enterprise list</h3>
-          <div class="panel-sub">percentage of deliveries with each issue</div>
+          <div class="panel-sub">current month · percentage of deliveries with each issue</div>
         </div>
       </div>
       <div class="acc-table-wrap"><table class="acc-table" id="accEntTable"></table></div>
@@ -1321,7 +1427,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Team list</h3>
-          <div class="panel-sub">percentage of deliveries with each issue</div>
+          <div class="panel-sub">current month · percentage of deliveries with each issue</div>
         </div>
       </div>
       <div class="acc-table-wrap"><table class="acc-table" id="accTeamTable"></table></div>
@@ -1438,6 +1544,14 @@ const F = {
   user:null,
   verified:null, sla:null, seg:null, rejReason:null,
   rejReason: null,
+};
+
+// Independent filter state for the Accuracy tab — completely separate from F,
+// so selecting filters on Operations never affects Accuracy and vice versa.
+// No date-range fields: the Accuracy tab's charts are month/week trends by
+// design and aren't scoped by a date-range picker.
+const F_ACC = {
+  ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null,
 };
 
 // Records-table column sort
@@ -1574,6 +1688,39 @@ function passesNonDateFilters(r){
     }
   }
   return true;
+}
+
+// Accuracy tab's own filter check — same shape as passesNonDateFilters but
+// reads F_ACC instead of F, and has no rejReason/date concept (not used there).
+function passesAccFilters(r){
+  if (F_ACC.ent      && !F_ACC.ent.has(r.ent))                  return false;
+  if (F_ACC.team     && !F_ACC.team.has(r.tm))                  return false;
+  if (F_ACC.cs       && !F_ACC.cs.has(r.csCol))                 return false;
+  if (F_ACC.ob       && !F_ACC.ob.has(r.ob))                    return false;
+  if (F_ACC.verified && !F_ACC.verified.has(r.fs||''))          return false;
+  if (F_ACC.sla){
+    if (F_ACC.sla.size === 0) return false;
+    const isWithin = r.sla === 1;
+    const isOut    = r.sla === 0;
+    let ok = false;
+    if (F_ACC.sla.has('Within SLA') && isWithin) ok = true;
+    if (F_ACC.sla.has('Out of SLA') && isOut)    ok = true;
+    if (!ok) return false;
+  }
+  if (F_ACC.seg && !F_ACC.seg.has(normSeg(r.seg))) return false;
+  return true;
+}
+
+// Teams that belong to the currently-selected enterprise(s) in the Accuracy
+// tab's own Enterprise filter (F_ACC.ent) — mirrors teamsForCurrentEntFilter().
+function accTeamsForCurrentEntFilter(){
+  const entSel = F_ACC.ent;
+  const team = new Set();
+  for (const r of RAW){
+    if (entSel && !entSel.has(r.ent)) continue;
+    if (r.tm) team.add(r.tm);
+  }
+  return [...team].sort();
 }
 
 // ── Mini-trend: last 3 months / weeks for SLA · Delivery · Accuracy ──
@@ -3605,6 +3752,13 @@ async function syncFromServer({silent=false, force=false}={}){
     msVerified.setOptions(sc.verifiedList);
     msSla.setOptions(['Within SLA','Out of SLA']);
     msSeg.setOptions(sc.segList);
+    accMsEnt.setOptions(sc.enterpriseList);
+    accMsTeam.setOptions(sc.teamList);
+    accMsCs.setOptions(sc.csList);
+    accMsOb.setOptions(sc.obList);
+    accMsVerified.setOptions(sc.verifiedList);
+    accMsSla.setOptions(['Within SLA','Out of SLA']);
+    accMsSeg.setOptions(sc.segList);
 
     setLoadProgress(100, 'Done!');
     await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
@@ -3624,13 +3778,15 @@ async function syncFromServer({silent=false, force=false}={}){
 // Each instance manages one filter Set on F. The Set is null when "all selected"
 // (no filter applied), or a Set of values when only specific items are included.
 function createMultiSelect({
-  field,                      // F key (e.g. 'ent' or 'team')
+  field,                      // state key (e.g. 'ent' or 'team')
   triggerId, panelId, textId, // DOM ids
   searchId, listId,           // searchId can be null for option-less panels
   singularLabel,              // 'enterprise' / 'team'
   pluralLabel,                // 'enterprises' / 'teams'
   onChange,                   // fn called after every change
+  state,                      // filter-state object this instance reads/writes (defaults to the global F)
 }){
+  state = state || F;
   let options = [];           // string[] (sorted)
   let search = '';
 
@@ -3653,7 +3809,7 @@ function createMultiSelect({
   function isOpen(){ return panel.classList.contains('open'); }
 
   function refreshTrigger(){
-    const sel = F[field]; // Set | null
+    const sel = state[field]; // Set | null
     if (!sel) { text.textContent = `All ${pluralLabel}`; return; }
     if (sel.size === 0) { text.textContent = `No ${pluralLabel} selected`; return; }
     if (sel.size === 1) { text.textContent = [...sel][0] || `(blank)`; return; }
@@ -3662,7 +3818,7 @@ function createMultiSelect({
   }
 
   function renderList(){
-    const sel = F[field];
+    const sel = state[field];
     const q = search.toLowerCase();
     let filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options.slice();
     if (sel){
@@ -3692,18 +3848,18 @@ function createMultiSelect({
   }
 
   function toggle(value, on){
-    let sel = F[field];
+    let sel = state[field];
     if (!sel) sel = new Set(options);
     else      sel = new Set(sel);
     if (on) sel.add(value); else sel.delete(value);
-    if (sel.size === options.length) F[field] = null;
-    else F[field] = sel;
+    if (sel.size === options.length) state[field] = null;
+    else state[field] = sel;
     refreshTrigger();
     onChange && onChange();
   }
 
-  function selectAll(){ F[field] = null;       refreshTrigger(); renderList(); onChange && onChange(); }
-  function clearAll(){  F[field] = new Set();  refreshTrigger(); renderList(); onChange && onChange(); }
+  function selectAll(){ state[field] = null;       refreshTrigger(); renderList(); onChange && onChange(); }
+  function clearAll(){  state[field] = new Set();  refreshTrigger(); renderList(); onChange && onChange(); }
 
   trigger.addEventListener('click', e=>{ e.stopPropagation(); if (isOpen()) close(); else open(); });
   trigger.addEventListener('keydown', e=>{
@@ -3790,6 +3946,64 @@ document.addEventListener('mousedown', e=>{
 });
 
 function refreshMsTriggers(){ MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
+
+// ── Accuracy tab's own, independent filter dropdowns (bound to F_ACC) ──
+const accMsEnt = createMultiSelect({
+  field:'ent', triggerId:'accMsEntTrigger', panelId:'accMsEntPanel',
+  textId:'accMsEntText', searchId:'accMsEntSearch', listId:'accMsEntList',
+  singularLabel:'enterprise', pluralLabel:'enterprises', state:F_ACC,
+  onChange: ()=> { accMsTeam.setOptions(accTeamsForCurrentEntFilter()); setTimeout(()=>renderAccuracy(),0); },
+});
+const accMsTeam = createMultiSelect({
+  field:'team', triggerId:'accMsTeamTrigger', panelId:'accMsTeamPanel',
+  textId:'accMsTeamText', searchId:'accMsTeamSearch', listId:'accMsTeamList',
+  singularLabel:'team', pluralLabel:'teams', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsCs = createMultiSelect({
+  field:'cs', triggerId:'accMsCsTrigger', panelId:'accMsCsPanel',
+  textId:'accMsCsText', searchId:'accMsCsSearch', listId:'accMsCsList',
+  singularLabel:'CS', pluralLabel:'CS', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsOb = createMultiSelect({
+  field:'ob', triggerId:'accMsObTrigger', panelId:'accMsObPanel',
+  textId:'accMsObText', searchId:'accMsObSearch', listId:'accMsObList',
+  singularLabel:'OB', pluralLabel:'OB', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsVerified = createMultiSelect({
+  field:'verified', triggerId:'accMsVerifiedTrigger', panelId:'accMsVerifiedPanel',
+  textId:'accMsVerifiedText', searchId:null, listId:'accMsVerifiedList',
+  singularLabel:'status', pluralLabel:'statuses', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsSla = createMultiSelect({
+  field:'sla', triggerId:'accMsSlaTrigger', panelId:'accMsSlaPanel',
+  textId:'accMsSlaText', searchId:null, listId:'accMsSlaList',
+  singularLabel:'SLA state', pluralLabel:'SLA states', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsSeg = createMultiSelect({
+  field:'seg', triggerId:'accMsSegTrigger', panelId:'accMsSegPanel',
+  textId:'accMsSegText', searchId:null, listId:'accMsSegList',
+  singularLabel:'segment', pluralLabel:'segments', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const ACC_MS_INSTANCES = [accMsEnt, accMsTeam, accMsCs, accMsOb, accMsVerified, accMsSla, accMsSeg];
+const ACC_MS_WRAPS = ['accMsEntWrap','accMsTeamWrap','accMsCsWrap','accMsObWrap','accMsVerifiedWrap','accMsSlaWrap','accMsSegWrap'];
+document.addEventListener('mousedown', e=>{
+  ACC_MS_WRAPS.forEach((id, idx)=>{
+    if (!$(id).contains(e.target)) ACC_MS_INSTANCES[idx].close();
+  });
+});
+function refreshAccMsTriggers(){ ACC_MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
+$('accResetBtn').addEventListener('click', ()=>{
+  Object.assign(F_ACC, { ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null });
+  accMsTeam.setOptions(accTeamsForCurrentEntFilter());
+  refreshAccMsTriggers();
+  renderAccuracy();
+});
 
 // ─────────────────────────────────────────────────────────────
 // RESET FILTER
@@ -4289,7 +4503,7 @@ function setAccGran(g){
 }
 
 function renderAccuracy(){
-  const filtered = RAW.filter(passesNonDateFilters); // trend spans April onward, independent of Date Range filter (same pattern as Throughput trend)
+  const filtered = RAW.filter(passesAccFilters); // Accuracy tab's own filters (F_ACC) — fully independent from Operations' F
   _accDeduped = getDedupedForTrend(filtered);
   renderAccuracyTrendChart();
   computeTopIssues();
@@ -4379,8 +4593,11 @@ let accEntSort  = { col:null, dir:null };
 let accTeamSort = { col:null, dir:null };
 
 function buildAccGroups(keyFn){
+  const months = getMonthsFromApril(_accDeduped);
+  const currentMonth = months[months.length - 1]; // latest month present in data = "current"
   const groups = {};
   for (const r of _accDeduped){
+    if (!(r._created && r._created >= currentMonth.from && r._created < currentMonth.to)) continue;
     const key = keyFn(r);
     if (!key) continue;
     if (!groups[key]) groups[key] = { total:0, issues:{}, received:0, pending:0 };
