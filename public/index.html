@@ -4804,10 +4804,19 @@ function acc5LineColor(PAL, key){
   return { Ent:PAL.accent, Mid:PAL.orange, SMB:PAL.teal, Resellers:PAL.amber, All:PAL.ink }[key] || PAL.ink;
 }
 
+let accTrendHidden = new Set(); // series keys toggled off via legend click
+
 function renderAcc5LineLegend(elId){
   const PAL = getPal();
   const el = $(elId); if (!el) return;
-  el.innerHTML = ACC_5LINE_KEYS.map(k => `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${acc5LineColor(PAL,k)}"></span>${esc(k)}</span>`).join('');
+  el.innerHTML = ACC_5LINE_KEYS.map(k => {
+    const off = accTrendHidden.has(k);
+    return `<span class="mtrend-legend-item" style="cursor:pointer;opacity:${off?0.4:1};" data-serieskey="${esc(k)}" onclick="toggleAccTrendSeries('${esc(k)}')"><span class="mtrend-legend-dot" style="background:${acc5LineColor(PAL,k)}"></span>${esc(k)}</span>`;
+  }).join('');
+}
+function toggleAccTrendSeries(k){
+  if (accTrendHidden.has(k)) accTrendHidden.delete(k); else accTrendHidden.add(k);
+  renderAccuracyTrendChart();
 }
 
 function renderAccuracyTrendChart(){
@@ -4820,21 +4829,40 @@ function renderAccuracyTrendChart(){
   if (!canvas) return;
   if (window._accTrendChart) window._accTrendChart.destroy();
   const isBar = accTrendChartType === 'bar';
-  const datasets = ACC_5LINE_KEYS.map(k => {
-    const color = acc5LineColor(PAL, k);
-    return isBar
-      ? { label:k, data: series[k], backgroundColor: color+(k==='All'?'CC':'99'), borderRadius:4, maxBarThickness:22 }
-      : { label:k, data: series[k], borderColor: color, backgroundColor:'transparent',
-          borderWidth: k==='All' ? 2.5 : 1.5, borderDash: k==='All' ? [] : [4,3],
-          pointRadius: k==='All' ? 3 : 2, tension:0.3, fill:false };
-  });
+  const visible = k => !accTrendHidden.has(k);
+  const valueLabels = { align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' };
+
+  let datasets;
+  if (isBar){
+    // Segments stack together; "All" overlays as a separate line (not part of the stack).
+    datasets = SEG_STACK_ORDER.filter(visible).map(k => ({
+      type:'bar', label:k, data: series[k], backgroundColor: acc5LineColor(PAL,k)+'CC', stack:'seg',
+      datalabels:{ ...valueLabels, align:'center', anchor:'center', color:'#fff' },
+    }));
+    if (visible('All')) datasets.push({
+      type:'line', label:'All', data: series['All'], borderColor: acc5LineColor(PAL,'All'),
+      backgroundColor:'transparent', borderWidth:2.5, pointRadius:3, tension:0.3, fill:false,
+      datalabels: valueLabels,
+    });
+  } else {
+    datasets = ACC_5LINE_KEYS.filter(visible).map(k => ({
+      type:'line', label:k, data: series[k], borderColor: acc5LineColor(PAL,k), backgroundColor:'transparent',
+      borderWidth: k==='All' ? 2.5 : 1.5, borderDash: k==='All' ? [] : [4,3],
+      pointRadius: k==='All' ? 3 : 2, tension:0.3, fill:false,
+      datalabels: valueLabels,
+    }));
+  }
+
   window._accTrendChart = new Chart(canvas, {
-    type: isBar ? 'bar' : 'line',
+    type: isBar ? 'bar' : 'line', plugins:[ChartDataLabels],
     data:{ labels: periods.map(p=>p.label), datasets },
     options:{
       responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:20 } },
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${c.raw==null?'—':c.raw.toFixed(1)+'%'}` } } },
-      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
+      scales: isBar
+        ? { x:{ grid:{display:false}, stacked:true }, y:{ beginAtZero:true, stacked:true, ticks:{ callback: v=>v+'%' } } }
+        : { x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
     },
   });
 }
