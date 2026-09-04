@@ -3853,6 +3853,11 @@ async function syncFromServer({silent=false, force=false}={}){
             }
           }
           console.log(`[background] loaded ${olderMonths.length} older month(s), RAW now ${RAW.length} rows`);
+          // Refresh the current view now that the fuller dataset has landed —
+          // needed so "since April"-style charts (Throughput trend, Accuracy
+          // trend) fill in immediately instead of staying stuck showing only
+          // the initially-loaded recent months.
+          refresh();
         })
         .catch(err => console.warn('[background] older-months load failed:', err));
     }
