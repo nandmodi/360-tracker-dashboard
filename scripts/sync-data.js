@@ -181,6 +181,8 @@ function mapRow(r) {
     const set = (k, v) => { if (v != null && v !== '') row[k] = v; };
 
   set('c',   r.createdAt);
+  set('sc',  r.sku_created_on); // raw sku_created_on — used in Find VIN
+  set('fq',  r.first_qc_done);  // raw first_qc_done — used in Find VIN
     set('u',   r.final_time);
     set('ent', r.enterprise_name);
     set('tm',  r.team_name);
