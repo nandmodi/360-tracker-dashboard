@@ -1050,6 +1050,7 @@
           <h3>QC Failed reasons</h3>
           <div class="panel-sub">Blocker severity issues · all reasons, scroll for more</div>
         </div>
+        <div id="qcReasonsPct" style="text-align:right;flex-shrink:0;"></div>
       </div>
       <div id="cQcReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
@@ -1060,6 +1061,7 @@
           <h3>Validation Failed reasons</h3>
           <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
         </div>
+        <div id="valReasonsPct" style="text-align:right;flex-shrink:0;"></div>
       </div>
       <div id="cValReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
@@ -1070,6 +1072,7 @@
           <h3>Tech &amp; AI Failure reasons</h3>
           <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
         </div>
+        <div id="techReasonsPct" style="text-align:right;flex-shrink:0;"></div>
       </div>
       <div id="cTechReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
@@ -1455,6 +1458,47 @@
         <canvas id="accTrendCanvas"></canvas>
       </div>
       <div id="accTrendBody" style="padding:8px 4px 4px;display:none;"></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Failure reasons</h3>
+          <div class="panel-sub">as per date range filter · % of reviewed</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">QC Failed reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Blocker severity issues</p>
+            </div>
+            <div id="accQcReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accQcReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">Validation Failed reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Failure reasons</p>
+            </div>
+            <div id="accValReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accValReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">Tech &amp; AI Failure reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Failure reasons</p>
+            </div>
+            <div id="accTechReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accTechReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+      </div>
     </div>
 
     <div class="panel" data-size="full">
@@ -2125,9 +2169,11 @@ function aggregate(rows){
   const qcReasons  = {};  // Blocker issues from issues_by_severity
   const valReasons = {};  // failure_reason for Validation Failed
   const techReasons= {};  // failure_reason for Tech Failure + AI Failed
+  let totalReviewed = 0;  // crm_status = qc_done — denominator for reason-card percentages
 
   for (const r of deduped){
     const fs = (r.fs||'').trim();
+    if ((r.cs||'').trim() === 'qc_done') totalReviewed++;
 
     // QC Failed → extract Blocker items from issues_by_severity
     if (fs === 'QC Failed' && r.isv){
@@ -2205,6 +2251,7 @@ function aggregate(rows){
     qcReasons:   top(qcReasons,   500),
     valReasons:  top(valReasons,  500),
     techReasons: top(techReasons, 500),
+    totalReviewed,
     entBreak, teamBreak, qcBreak, entPoc, teamPoc,
     autoDelivered, manualDelivered,
     e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
@@ -3414,15 +3461,27 @@ let entSortBy = 'total', teamSortBy = 'total'; let lastEntBreak = null, lastTeam
   container.appendChild(wrap);
 }
 // ── Reason breakdown card (top N with scroll) ────────────────────────────────
-function mkReasonCard(containerId, countMap, color, drillView){
+function mkReasonCard(containerId, countMap, color, drillView, totalReviewed, pctHeaderId, clickable){
+  clickable = clickable !== false;
   const el = $(containerId);
   if (!el) return;
   const entries = Object.entries(countMap).sort((a,b)=>b[1]-a[1]);
+  const cardTotal = entries.reduce((s,[,c])=>s+c, 0);
+  if (pctHeaderId && $(pctHeaderId)){
+    const headerEl = $(pctHeaderId);
+    if (totalReviewed){
+      const pct = (cardTotal/totalReviewed)*100;
+      headerEl.innerHTML = `<div style="font-size:15px;font-weight:600;color:${color};">${pct.toFixed(1)}%</div><div style="font-size:10px;color:var(--muted);margin-top:1px;">of reviewed · ${num(cardTotal)}</div>`;
+    } else {
+      headerEl.innerHTML = '';
+    }
+  }
   if (!entries.length){ el.innerHTML='<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>'; return; }
   const max = entries[0][1];
   el.innerHTML = entries.map(([label, count]) => {
     const pct    = (count/max)*100;
-    const active = F.rejReason && F.rejReason.label === label;
+    const ofReviewed = totalReviewed ? (count/totalReviewed)*100 : null;
+    const active = clickable && F.rejReason && F.rejReason.label === label;
     return `
       <div class="reason-row" data-reason="${esc(label)}" data-view="${drillView||''}"
            style="margin-bottom:10px;cursor:pointer;border-radius:6px;padding:4px;
@@ -3434,7 +3493,7 @@ function mkReasonCard(containerId, countMap, color, drillView){
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:8px">
           <span style="font-size:11px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%"
                 title="${esc(label)}">${esc(label)}</span>
-          <span style="font-size:11px;font-weight:600;color:var(--ink);font-family:'JetBrains Mono',monospace;flex-shrink:0">${num(count)}</span>
+          <span style="font-size:11px;font-weight:600;color:var(--ink);font-family:'JetBrains Mono',monospace;flex-shrink:0">${num(count)}${ofReviewed!=null?` · <span style="color:${color}">${ofReviewed.toFixed(2)}%</span>`:''}</span>
         </div>
         <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
           <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .3s"></div>
@@ -3444,6 +3503,7 @@ function mkReasonCard(containerId, countMap, color, drillView){
 
   // Wire up click → filter dashboard by reason
   el.querySelectorAll('.reason-row').forEach(row => {
+    if (!clickable){ row.style.cursor = 'default'; row.title=''; return; }
     row.addEventListener('click', () => {
       const reason = row.dataset.reason;
       const type   = row.dataset.view;   // 'qc', 'val', 'tech'
@@ -3654,9 +3714,9 @@ function paint(){
   });
 
   // Reason breakdown cards
-  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc');
-  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val');
-  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech');
+  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc',   k.totalReviewed, 'qcReasonsPct');
+  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val',  k.totalReviewed, 'valReasonsPct');
+  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech', k.totalReviewed, 'techReasonsPct');
   // Trend chart — uses the same filters as the main view BUT ignores date filter
   // and ignores the rejection-reason filter (so the timeline shows full context).
   const trendRows = RAW.filter(r => {
@@ -4753,9 +4813,49 @@ function renderAccuracy(){
   const filtered = RAW.filter(passesAccFilters); // Accuracy tab's own filters (F_ACC) — fully independent from Operations' F
   _accDeduped = getDedupedForTrend(filtered);
   renderAccuracyTrendChart();
+  renderAccReasonCards();
   computeTopIssues();
   renderAccuracyMiniCharts();
   renderAccuracyTables();
+}
+
+// Failure-reason cards for the Accuracy tab, scoped to _accDeduped (respects
+// F_ACC filters including Date Range). Same extraction logic and same
+// "% of reviewed" denominator as the Operations dashboard's reason cards.
+function renderAccReasonCards(){
+  const qcReasons = {}, valReasons = {}, techReasons = {};
+  let totalReviewed = 0;
+  for (const r of _accDeduped){
+    const fs = (r.fs||'').trim();
+    if ((r.cs||'').trim() === 'qc_done') totalReviewed++;
+
+    if (fs === 'QC Failed' && r.isv){
+      const parts = String(r.isv).split('||');
+      let foundBlocker = false;
+      for (const part of parts){
+        const t = part.trim();
+        if (/^blocker/i.test(t)){
+          foundBlocker = true;
+          const items = t.replace(/^blocker\s*-\s*/i,'').split(',');
+          for (const item of items){
+            const k = item.trim();
+            if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+          }
+        }
+      }
+      if (!foundBlocker){ const k = r.rej ? (r.rej||'').trim().slice(0,60) : '(no reason recorded)'; qcReasons[k] = (qcReasons[k]||0)+1; }
+    }
+    // Note: QC Failed rows with blank isv are intentionally skipped entirely here —
+    // matches the Operations dashboard's confirmed behavior (only Blocker-severity
+    // issues count, and a row with no isv at all contributes nothing to this card).
+
+    if (fs === 'Validation Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; valReasons[k] = (valReasons[k]||0)+1; }
+    if (fs === 'Tech Failure' || fs === 'AI Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; techReasons[k] = (techReasons[k]||0)+1; }
+  }
+  const PAL = getPal();
+  mkReasonCard('accQcReasons',   qcReasons,   PAL.red,    '',  totalReviewed, 'accQcReasonsPct', false);
+  mkReasonCard('accValReasons',  valReasons,  PAL.orange, '',  totalReviewed, 'accValReasonsPct', false);
+  mkReasonCard('accTechReasons', techReasons, PAL.amber,  '',  totalReviewed, 'accTechReasonsPct', false);
 }
 
 // ── Shared hover-tooltip for segment-stacked bars ──
