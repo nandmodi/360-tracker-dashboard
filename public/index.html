@@ -4197,6 +4197,7 @@ function doVinSearch(raw){
 const VIN_ALL_COLUMNS = [
   ['vid',  'mediaId',            v => v],
   ['c',    'createdAt',          v => v ? fmtDate(v) : null],
+  ['sc',   'sku_created_on',     v => v ? fmtDate(v) : null],
   ['ent',  'enterprise_name',    v => v],
   ['seg',  'customer_segment',   v => v],
   ['tm',   'team_name',          v => v],
@@ -4211,10 +4212,13 @@ const VIN_ALL_COLUMNS = [
   ['fs',   'final_status',       v => v],
   ['isv',  'issues_by_severity', v => v],
   ['u',    'final_time',         v => v ? fmtDate(v) : null],
+  ['fq',   'first_qc_done',      v => v ? fmtDate(v) : null],
   ['sid',  'ss.spin_id',         v => v],
   ['cs',   'crm_status',         v => v],
   ['me',   'manual_editing',     v => v===1 ? '1' : null],
   ['mc',   'manual_correction',  v => v],
+  ['sla',  'SLA',                v => v===1 ? 'Within' : (v===0 ? 'Out' : null)],
+  ['qc',   'QC User',            v => v],
 ];
 
 function openVinResultsTable(records, notFound){
