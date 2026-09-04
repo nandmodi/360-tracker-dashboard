@@ -4961,9 +4961,11 @@ function renderAccTable(tableId, groups, colLabel, sortState){
     const pcts = {};
     _accTopIssues.forEach(issue => { pcts[issue] = g.total ? (g.issues[issue]||0)/g.total*100 : 0; });
     const fulfillment = g.received ? (g.total / Math.max(g.received - g.pending, 1)) * 100 : 0;
-    return { name, total: g.total, pcts, fulfillment };
+    return { name, total: g.total, received: g.received, pcts, fulfillment };
   });
-  if (sortState.col === '__fulfillment__'){
+  if (sortState.col === '__received__'){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.received-b.received : b.received-a.received);
+  } else if (sortState.col === '__fulfillment__'){
     rows.sort((a,b) => sortState.dir==='asc' ? a.fulfillment-b.fulfillment : b.fulfillment-a.fulfillment);
   } else if (sortState.col){
     rows.sort((a,b) => sortState.dir==='asc' ? a.pcts[sortState.col]-b.pcts[sortState.col] : b.pcts[sortState.col]-a.pcts[sortState.col]);
@@ -4972,8 +4974,10 @@ function renderAccTable(tableId, groups, colLabel, sortState){
   }
   rows = rows.slice(0,20); // top 20, rest via scroll within this set
 
+  const receivedArrow = sortState.col==='__received__' ? (sortState.dir==='asc'?' ↑':' ↓') : '';
   const fulfillArrow = sortState.col==='__fulfillment__' ? (sortState.dir==='asc'?' ↑':' ↓') : '';
   const headerHtml = `<th>${esc(colLabel)}</th>` +
+    `<th class="sortable" data-issue="__received__" data-table="${tableId}">Total Received${receivedArrow}</th>` +
     `<th class="sortable" data-issue="__fulfillment__" data-table="${tableId}">Fulfillment %${fulfillArrow}</th>` +
     _accTopIssues.map(issue => {
       const arrow = sortState.col===issue ? (sortState.dir==='asc'?' ↑':' ↓') : '';
@@ -4981,7 +4985,7 @@ function renderAccTable(tableId, groups, colLabel, sortState){
     }).join('');
   const rowsHtml = rows.map(r => {
     const cells = _accTopIssues.map(issue => `<td>${r.pcts[issue].toFixed(1)}%</td>`).join('');
-    return `<tr><td class="acc-name-link" data-table="${tableId}" data-name="${esc(r.name)}">${esc(r.name)}</td><td>${r.fulfillment.toFixed(1)}%</td>${cells}</tr>`;
+    return `<tr><td class="acc-name-link" data-table="${tableId}" data-name="${esc(r.name)}">${esc(r.name)}</td><td>${num(r.received)}</td><td>${r.fulfillment.toFixed(1)}%</td>${cells}</tr>`;
   }).join('');
   const table = document.getElementById(tableId);
   if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
