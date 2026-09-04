@@ -58,9 +58,14 @@
   .btn-reset:hover{background:var(--bg);}
   #vinSearchWrap{position:relative;align-self:flex-end;}
   #vinSearchToggle{display:flex;align-items:center;gap:6px;}
-  .vin-search-box{position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px var(--shadow-lg);padding:6px;display:none;align-items:center;gap:4px;}
+  .vin-search-box{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);z-index:2000;background:var(--surface);border-radius:16px;box-shadow:0 20px 60px var(--shadow-lg);padding:20px 22px;display:none;flex-direction:column;gap:14px;width:min(92vw,480px);opacity:0;transition:transform .2s cubic-bezier(.32,.72,.32,1),opacity .2s;}
+  .vin-search-box.show{display:flex;transform:translate(-50%,-50%) scale(1);opacity:1;}
+  .vin-search-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1999;display:none;}
+  .vin-search-backdrop.show{display:block;}
+  .vin-search-title-row{display:flex;justify-content:space-between;align-items:center;}
+  .vin-search-title-row h4{font-size:16px;font-weight:600;margin:0;color:var(--ink);}
+  .vin-search-inputwrap{display:flex;align-items:flex-start;gap:8px;background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:10px 12px;}
   .vin-search-box.show{display:flex;}
-  .vin-search-box{align-items:flex-start !important;}
   .vin-search-box textarea{border:none;outline:none;background:transparent;font-size:13px;width:360px;padding:6px 4px;resize:vertical;min-height:34px;max-height:120px;font-family:inherit;}
   .vin-search-submit{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;flex-shrink:0;margin-top:2px;}
   .vin-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
@@ -824,13 +829,20 @@
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
         Find VIN
       </button>
-      <div class="vin-search-box" id="vinSearchBox">
-        <textarea id="vinSearchInput" rows="1" placeholder="VIN/MediaID/DealerVinId"></textarea>
-        <button class="vin-search-submit" id="vinSearchSubmit" type="button">Search</button>
+    </div>
+    <div class="vin-search-backdrop" id="vinSearchBackdrop"></div>
+    <div class="vin-search-box" id="vinSearchBox">
+      <div class="vin-search-title-row">
+        <h4>Find VIN</h4>
         <span class="vin-search-close" id="vinSearchClose">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
         </span>
       </div>
+      <div class="vin-search-inputwrap">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="margin-top:2px;flex-shrink:0;"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+        <textarea id="vinSearchInput" rows="2" placeholder="VIN / spin_sku_id / spin_id / mediaID / dealerVinId — comma or new line for multiple"></textarea>
+      </div>
+      <button class="vin-search-submit" id="vinSearchSubmit" type="button">Search</button>
     </div>
     <button class="btn-reset" id="resetBtn">Reset</button>
   </div>
@@ -4184,20 +4196,20 @@ $('accResetBtn').addEventListener('click', ()=>{
 $('vinSearchToggle').addEventListener('click', ()=>{
   const box = $('vinSearchBox');
   const opening = !box.classList.contains('show');
-  if (opening){
-    const r = $('vinSearchToggle').getBoundingClientRect();
-    box.style.position = 'fixed';
-    box.style.top   = (r.bottom + 6) + 'px';
-    box.style.right = (window.innerWidth - r.right) + 'px';
-  }
   box.classList.toggle('show');
-  if (box.classList.contains('show')) $('vinSearchInput').focus();
+  $('vinSearchBackdrop').classList.toggle('show', opening);
+  if (opening) $('vinSearchInput').focus();
 });
-$('vinSearchClose').addEventListener('click', ()=> $('vinSearchBox').classList.remove('show'));
+function closeVinSearch(){
+  $('vinSearchBox').classList.remove('show');
+  $('vinSearchBackdrop').classList.remove('show');
+}
+$('vinSearchClose').addEventListener('click', closeVinSearch);
+$('vinSearchBackdrop').addEventListener('click', closeVinSearch);
 $('vinSearchSubmit').addEventListener('click', ()=> doVinSearch($('vinSearchInput').value));
 $('vinSearchInput').addEventListener('keydown', e=>{
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doVinSearch($('vinSearchInput').value); }
-  if (e.key === 'Escape'){ $('vinSearchBox').classList.remove('show'); }
+  if (e.key === 'Escape'){ closeVinSearch(); }
 });
 
 // Accepts one value or several (comma / new-line separated). Matches on
@@ -4206,6 +4218,7 @@ $('vinSearchInput').addEventListener('keydown', e=>{
 function doVinSearch(raw){
   const queries = String(raw||'').split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
   if (!queries.length) return;
+  closeVinSearch();
   const results = [], seen = new Set(), notFound = [];
   for (const query of queries){
     const q = query.toLowerCase();
