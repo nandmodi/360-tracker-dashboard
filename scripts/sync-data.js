@@ -15,8 +15,8 @@ const METABASE_CARD_ID  = process.env.METABASE_CARD_ID  || '12025'; // 360-vin-d
 const METABASE_USERNAME = process.env.METABASE_USERNAME;
 const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
 const SLA_H    = 6;
-const OUT      = path.join(__dirname, '..', 'public', 'data.json');
-const KEEP_DAYS= 122; // ~4 months (current + 3 previous) — keeps data.json ~83MB, safely under GitHub's 100MB push limit
+const OUT_DIR  = path.join(__dirname, '..', 'public', 'data');
+const KEEP_DAYS= 365; // ~1 year — safe now that data is split into one file per month (each ~20MB, well under GitHub's 100MB per-file limit)
 
 function fetchCSV(url, redirects = 0) {
     if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
@@ -254,18 +254,59 @@ async function main() {
     const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
     const pending   = rows.filter(r => r.cs === 'qc_unassigned' || r.cs === 'qc_inprogress').length;
 
-  const payload = {
-        rows,
-        lastSynced: new Date().toISOString(),
-        meta: { total: rows.length, delivered, rejected, pending,
-          e2eDiag: { withProcessedAt: _diag.withProcessed, fellBackToCreatedAt: _diag.fallback, sample: _diag.sample } },
-  };
+  // ── Split into one file per month (YYYY-MM), so no single file ever
+  // approaches GitHub's 100MB per-file limit, no matter how much history
+  // accumulates. Each month's rows go in public/data/<YYYY-MM>.json;
+  // public/data/index.json lists which month-files exist + sync metadata.
+  const byMonth = {};
+  for (const r of rows){
+    const mk = (r.c || '').slice(0, 7); // "YYYY-MM"
+    if (!mk) continue;
+    if (!byMonth[mk]) byMonth[mk] = [];
+    byMonth[mk].push(r);
+  }
+  const monthKeys = Object.keys(byMonth).sort();
 
-  const json   = JSON.stringify(payload);
-    console.log(`Output: ${(json.length/1024/1024).toFixed(2)} MB`);
-    fs.mkdirSync(path.dirname(OUT), { recursive: true });
-    fs.writeFileSync(OUT, json);
-    console.log(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  // One-time cleanup: remove the old single-file data.json from before the
+  // monthly-split migration, if it's still around.
+  const oldSingleFile = path.join(__dirname, '..', 'public', 'data.json');
+  if (fs.existsSync(oldSingleFile)){
+    fs.unlinkSync(oldSingleFile);
+    console.log('Removed old public/data.json (replaced by public/data/*.json)');
+  }
+
+  // Remove stale month-files from previous runs that are no longer in range
+  // (e.g. if KEEP_DAYS is ever reduced later) — keeps the folder in sync
+  // with what's actually being generated, instead of accumulating forever.
+  const existing = fs.readdirSync(OUT_DIR).filter(f => /^\d{4}-\d{2}\.json$/.test(f));
+  for (const f of existing){
+    const mk = f.replace('.json', '');
+    if (!monthKeys.includes(mk)){
+      fs.unlinkSync(path.join(OUT_DIR, mk + '.json'));
+      console.log(`Removed stale month file: ${f}`);
+    }
+  }
+
+  let totalBytes = 0;
+  for (const mk of monthKeys){
+    const monthJson = JSON.stringify({ rows: byMonth[mk] });
+    fs.writeFileSync(path.join(OUT_DIR, `${mk}.json`), monthJson);
+    totalBytes += monthJson.length;
+    console.log(`  ${mk}.json — ${byMonth[mk].length} rows, ${(monthJson.length/1024/1024).toFixed(2)} MB`);
+  }
+
+  const indexPayload = {
+    months: monthKeys,
+    lastSynced: new Date().toISOString(),
+    meta: { total: rows.length, delivered, rejected, pending,
+      e2eDiag: { withProcessedAt: _diag.withProcessed, fellBackToCreatedAt: _diag.fallback, sample: _diag.sample } },
+  };
+  fs.writeFileSync(path.join(OUT_DIR, 'index.json'), JSON.stringify(indexPayload));
+
+  console.log(`Total across ${monthKeys.length} month-files: ${(totalBytes/1024/1024).toFixed(2)} MB`);
+  console.log(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 }
 
 main().catch(err => { console.error('Failed:', err.message); process.exit(1); });
