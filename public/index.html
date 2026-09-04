@@ -872,8 +872,7 @@
             <button class="trend-tab" data-r="15days">15 Days</button>
             <button class="trend-tab" data-r="this_month">This month</button>
             <button class="trend-tab" data-r="6weeks">6 Weeks</button>
-            <button class="trend-tab sel" data-r="months">6 Months</button>
-            <button class="trend-tab" data-r="year">1 Year</button>
+            <button class="trend-tab sel" data-r="months">4 Months</button>
           </div>
           <div class="edit-controls" data-panel-ctl="trend"></div>
         </div>
@@ -1161,8 +1160,7 @@
           <button class="gran-tab" data-g="15days">15 Days</button>
           <button class="gran-tab" data-g="this_month">This month</button>
           <button class="gran-tab" data-g="6weeks">6 Weeks</button>
-          <button class="gran-tab sel" data-g="months">6 Months</button>
-          <button class="gran-tab" data-g="year">1 Year</button>
+          <button class="gran-tab sel" data-g="months">4 Months</button>
         </div>
         <button class="user-picker-clear" id="upClear" style="display:none;">Clear</button>
       </div>
@@ -1284,7 +1282,7 @@
     <div id="perfEmpty" class="perf-empty">
       <div class="perf-empty-title">Pick a QC user to begin</div>
       <div class="perf-empty-sub">
-        Search by email above. You'll see efficiency trends, SLA compliance, enterprise-wise breakdown, and rejection summary — over the last 30 days, 6 months, or 12 months. Useful for appraisals and performance reviews.
+        Search by email above. You'll see efficiency trends, SLA compliance, enterprise-wise breakdown, and rejection summary — over the last 30 days or 4 months. Useful for appraisals and performance reviews.
       </div>
     </div>
   </div><!-- /#viewPerformance -->
@@ -1440,7 +1438,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Accuracy trend</h3>
-          <div class="panel-sub" id="accTrendSub">Month-wise since April</div>
+          <div class="panel-sub" id="accTrendSub">Current + previous 3 months</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
@@ -1448,7 +1446,7 @@
             <button class="trend-tab sel"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
           </div>
           <div class="trend-tabs trend-tabs-mini" data-acctrendgran>
-            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise since April">M</button>
+            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise, current + previous 3">M</button>
             <button class="trend-tab"     data-g="week"  onclick="setAccTrendGran('week')"  title="Last 4 weeks">W</button>
           </div>
         </div>
@@ -2293,8 +2291,8 @@ function bucketTrend(rows, range){
       buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
     }
   } else if (range === 'months'){
-    // last 6 months including current
-    for (let i = -5; i <= 0; i++){
+    // last 4 months including current
+    for (let i = -3; i <= 0; i++){
       const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
       const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
       const sameYear = s.getFullYear() === now.getFullYear();
@@ -3739,7 +3737,7 @@ function paint(){
   const buckets = bucketTrend(trendRows, trendRange);
   mkTrend($('cTrend'), buckets);
   $('trendSub').textContent =
-    `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'last 6 months','year':'last 12 months'}[trendRange]} · independent of date filter`;
+    `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'last 4 months','year':'last 12 months'}[trendRange]} · independent of date filter`;
 
 
   // Recent records — apply sort state if any, else default sort by created desc
@@ -4681,11 +4679,15 @@ function getDedupedForTrend(rows){
 }
 
 function getMonthsFromApril(deduped){
+  // Rolling 4-month window (current + 3 previous) — matches sync-data.js's
+  // 4-month data retention (KEEP_DAYS=122). No longer hardcoded to April.
   let maxDate = new Date(2026,3,1);
   for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const endY = maxDate.getFullYear(), endM = maxDate.getMonth();
+  let y = endY, m = endM - 3;
+  if (m < 0){ y -= 1; m += 12; }
   const months = [];
-  let y = 2026, m = 3; // April 2026 (0-based month index 3)
-  while (y < maxDate.getFullYear() || (y === maxDate.getFullYear() && m <= maxDate.getMonth())){
+  while (y < endY || (y === endY && m <= endM)){
     months.push({ from: new Date(y,m,1), to: new Date(y,m+1,1), label: new Date(y,m,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
     m++; if (m>11){ m=0; y++; }
   }
@@ -4931,7 +4933,7 @@ function acc5LineColor(PAL, key){
 
 function renderAccuracyTrendChart(){
   const periods = accTrendGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped);
-  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
+  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Current + previous 3 months';
   const isBar = accTrendChartType === 'bar';
   $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
   $('accTrendBody').style.display = isBar ? 'block' : 'none';
@@ -5228,7 +5230,7 @@ function openTrendPopup(id){
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;">
       <span>April onwards · auto-updates each month</span>
       <div class="trend-tabs trend-tabs-mini" data-trendpopuptoggle>
-        <button class="trend-tab sel" data-g="month" onclick="setTrendPopupGran('month')" title="Month-wise, since April">M</button>
+        <button class="trend-tab sel" data-g="month" onclick="setTrendPopupGran('month')" title="Month-wise, current + previous 3">M</button>
         <button class="trend-tab"     data-g="week"  onclick="setTrendPopupGran('week')"  title="Week-wise, current + previous 4 weeks">W</button>
       </div>
     </div>`;
@@ -6195,8 +6197,8 @@ function buildPerfBuckets(gran){
       buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
     }
   } else if (gran === 'months'){
-    // Last 6 months including current
-    for (let i = -5; i <= 0; i++){
+    // Last 4 months including current
+    for (let i = -3; i <= 0; i++){
       const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
       const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
       const sameYear = s.getFullYear() === now.getFullYear();
@@ -6277,7 +6279,7 @@ function renderPerformance(){
     '15days':    'last 15 days',
     this_month:  'this month, day by day',
     '6weeks':    'last 6 weeks',
-    months:      'last 6 months',
+    months:      'last 4 months',
     year:        'last 12 months',
   })[PV.gran];
   $('upRange').textContent = `${rangeLabel} · ${num(rows.length)} records`;
@@ -6535,7 +6537,7 @@ function renderPerfTrend(buckets){
     '15days':    'last 15 days',
     this_month:  'this month',
     '6weeks':    'last 6 weeks',
-    months:      'last 6 months',
+    months:      'last 4 months',
     year:        'last 12 months',
   })[PV.gran] + ' · received · delivered · rejected · within SLA';
 }
@@ -6728,7 +6730,7 @@ function bindPerfDrillCells(){
 function openCustomDrill(title, rows){
   $('modalTitle').textContent = title;
   $('modalSub').textContent   = `${num(rows.length)} RECORDS`;
-  $('modalChips').innerHTML   = `<span class="chip">User <strong>${esc(PV.user)}</strong></span><span class="chip">${esc(({'15days':'Last 15 days',this_month:'This month','6weeks':'Last 6 weeks',months:'Last 6 months',year:'Last 12 months'})[PV.gran] || PV.gran)}</span>`;
+  $('modalChips').innerHTML   = `<span class="chip">User <strong>${esc(PV.user)}</strong></span><span class="chip">${esc(({'15days':'Last 15 days',this_month:'This month','6weeks':'Last 6 weeks',months:'Last 4 months',year:'Last 12 months'})[PV.gran] || PV.gran)}</span>`;
   $('modal').classList.add('show');
 
   const delivered = rows.filter(isDelivered).length;
