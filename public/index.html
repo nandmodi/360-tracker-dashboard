@@ -872,7 +872,7 @@
             <button class="trend-tab" data-r="15days">15 Days</button>
             <button class="trend-tab" data-r="this_month">This month</button>
             <button class="trend-tab" data-r="6weeks">6 Weeks</button>
-            <button class="trend-tab sel" data-r="months">4 Months</button>
+            <button class="trend-tab sel" data-r="months">Since April</button>
           </div>
           <div class="edit-controls" data-panel-ctl="trend"></div>
         </div>
@@ -1438,7 +1438,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Accuracy trend</h3>
-          <div class="panel-sub" id="accTrendSub">Current + previous 3 months</div>
+          <div class="panel-sub" id="accTrendSub">Month-wise since April</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
@@ -1446,7 +1446,7 @@
             <button class="trend-tab sel"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
           </div>
           <div class="trend-tabs trend-tabs-mini" data-acctrendgran>
-            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise, current + previous 3">M</button>
+            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise since April">M</button>
             <button class="trend-tab"     data-g="week"  onclick="setAccTrendGran('week')"  title="Last 4 weeks">W</button>
           </div>
         </div>
@@ -2291,12 +2291,15 @@ function bucketTrend(rows, range){
       buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
     }
   } else if (range === 'months'){
-    // last 4 months including current
-    for (let i = -3; i <= 0; i++){
-      const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
-      const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
+    // Since April (dynamic — grows month by month as new data arrives)
+    const startY = 2026, startM = 3; // April 2026
+    let y = startY, m = startM;
+    while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth())){
+      const s = new Date(y, m, 1);
+      const e = new Date(y, m+1, 1);
       const sameYear = s.getFullYear() === now.getFullYear();
       buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US', sameYear?{month:'short'}:{month:'short',year:'2-digit'}) });
+      m++; if (m>11){ m=0; y++; }
     }
   } else if (range === 'year'){
     // last 12 months including current
@@ -3737,7 +3740,7 @@ function paint(){
   const buckets = bucketTrend(trendRows, trendRange);
   mkTrend($('cTrend'), buckets);
   $('trendSub').textContent =
-    `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'last 4 months','year':'last 12 months'}[trendRange]} · independent of date filter`;
+    `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'since April','year':'last 12 months'}[trendRange]} · independent of date filter`;
 
 
   // Recent records — apply sort state if any, else default sort by created desc
@@ -3812,21 +3815,50 @@ async function syncFromServer({silent=false, force=false}={}){
       if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
     }, 800);
 
-    const res = await fetch('/data.json' + (force ? '?force=1' : ''));
+    // Data is split into one file per month (public/data/<YYYY-MM>.json) plus
+    // an index (public/data/index.json) listing which months exist.
+    // Progressive load: fetch the most recent 4 months first (the dashboard's
+    // default view needs only these) and render as soon as they're ready;
+    // older months keep loading silently in the background afterward, so
+    // switching to a wider Date Range later doesn't need a fresh fetch.
+    const idxRes = await fetch('/data/index.json' + (force ? '?force=1' : ''));
+    const idxData = await idxRes.json();
+    if (!idxRes.ok) throw new Error(idxData.error || 'Failed to load data index');
+
+    const monthsDesc = [...(idxData.months || [])].sort().reverse();
+    const recentMonths = monthsDesc.slice(0, 4);
+    const olderMonths  = monthsDesc.slice(4);
+
+    const recentResults = await Promise.all(
+      recentMonths.map(mk => fetch(`/data/${mk}.json` + (force ? '?force=1' : '')).then(r => r.json()))
+    );
+    const mergedRows = [];
+    for (const mr of recentResults){ if (mr && mr.rows) mergedRows.push(...mr.rows); }
+    const data = { rows: mergedRows, lastSynced: idxData.lastSynced, meta: idxData.meta };
+    const res = { ok: true };
+
+    // Kick off the older months in the background — not awaited, so the
+    // dashboard renders with recent data first. When they land, push their
+    // rows into RAW silently (no re-render), so a later Date Range change
+    // finds the fuller dataset already there without a fresh network wait.
+    if (olderMonths.length){
+      Promise.all(olderMonths.map(mk => fetch(`/data/${mk}.json`).then(r => r.json())))
+        .then(olderResults => {
+          for (const mr of olderResults){
+            if (!mr || !mr.rows) continue;
+            for (const r of mr.rows){
+              r._created = parseTs(r.c);
+              r._updated = parseTs(r.u);
+              RAW.push(r);
+            }
+          }
+          console.log(`[background] loaded ${olderMonths.length} older month(s), RAW now ${RAW.length} rows`);
+        })
+        .catch(err => console.warn('[background] older-months load failed:', err));
+    }
 
     clearInterval(progressInterval);
     setLoadProgress(85, 'Processing rows…');
-
-    // Handle non-JSON responses (API errors, timeouts)
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch(e) {
-      throw new Error(`Server error: ${text.slice(0, 120)}`);
-    }
-
-    if (!res.ok) throw new Error(data.error || 'Request failed');
 
     setLoadProgress(92, 'Applying filters…');
 
@@ -4679,15 +4711,11 @@ function getDedupedForTrend(rows){
 }
 
 function getMonthsFromApril(deduped){
-  // Rolling 4-month window (current + 3 previous) — matches sync-data.js's
-  // 4-month data retention (KEEP_DAYS=122). No longer hardcoded to April.
   let maxDate = new Date(2026,3,1);
   for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
-  const endY = maxDate.getFullYear(), endM = maxDate.getMonth();
-  let y = endY, m = endM - 3;
-  if (m < 0){ y -= 1; m += 12; }
   const months = [];
-  while (y < endY || (y === endY && m <= endM)){
+  let y = 2026, m = 3; // April 2026 (0-based month index 3)
+  while (y < maxDate.getFullYear() || (y === maxDate.getFullYear() && m <= maxDate.getMonth())){
     months.push({ from: new Date(y,m,1), to: new Date(y,m+1,1), label: new Date(y,m,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
     m++; if (m>11){ m=0; y++; }
   }
@@ -4933,7 +4961,7 @@ function acc5LineColor(PAL, key){
 
 function renderAccuracyTrendChart(){
   const periods = accTrendGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped);
-  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Current + previous 3 months';
+  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
   const isBar = accTrendChartType === 'bar';
   $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
   $('accTrendBody').style.display = isBar ? 'block' : 'none';
