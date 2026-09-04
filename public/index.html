@@ -1444,8 +1444,8 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
-            <button class="trend-tab sel" data-t="line" onclick="setAccTrendChartType('line')" title="Line graph">Graph</button>
-            <button class="trend-tab"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
+            <button class="trend-tab" data-t="line" onclick="setAccTrendChartType('line')" title="Line graph">Graph</button>
+            <button class="trend-tab sel"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
           </div>
           <div class="trend-tabs trend-tabs-mini" data-acctrendgran>
             <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise since April">M</button>
@@ -4777,7 +4777,7 @@ function extractIssues(mc){
 }
 
 let accGran = 'month';
-let accTrendChartType = 'line';
+let accTrendChartType = 'bar';
 let accTrendGran = 'month';
 let accMiniChartType  = 'line';
 let _accDeduped = null, _accTopIssues = null;
@@ -4809,9 +4809,23 @@ function setAccGran(g){
   renderAccuracyMiniCharts();
 }
 
+// Binary-search date-range slice — avoids a full O(n) scan per period.
+// `sortedRows` must already be sorted ascending by r._created.
+function sliceByDateRange(sortedRows, from, to){
+  let lo = 0, hi = sortedRows.length;
+  while (lo < hi){ const mid = (lo+hi)>>1; if (sortedRows[mid]._created < from) lo = mid+1; else hi = mid; }
+  const start = lo;
+  hi = sortedRows.length;
+  while (lo < hi){ const mid = (lo+hi)>>1; if (sortedRows[mid]._created < to) lo = mid+1; else hi = mid; }
+  return sortedRows.slice(start, lo);
+}
+
+let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sliceByDateRange
+
 function renderAccuracy(){
   const filtered = RAW.filter(passesAccFilters); // Accuracy tab's own filters (F_ACC) — fully independent from Operations' F
   _accDeduped = getDedupedForTrend(filtered);
+  _accDedupedSorted = _accDeduped.filter(r => r._created).sort((a,b)=>a._created-b._created);
   renderAccuracyTrendChart();
   renderAccReasonCards();
   computeTopIssues();
@@ -4875,12 +4889,12 @@ function hideAccSegTooltip(){ $('accSegTooltip').style.display = 'none'; }
 // Per-segment accuracy-trend series (Ent/Mid/SMB/Resellers). No "All" — Bar
 // mode shows all 4 segments stacked into one bar per period (matching the
 // SLA/Delivery/Accuracy mini-trend card style); Graph mode shows 4 lines.
-function computeAccTrendSegSeries(rows, periods){
+function computeAccTrendSegSeries(sortedRows, periods){
   const series = {}; SEG_STACK_ORDER.forEach(k => series[k] = []);
   const weights = {}; SEG_STACK_ORDER.forEach(k => weights[k] = []);
   const overall = [];
   periods.forEach(p => {
-    const pop = rows.filter(r => r._created && r._created >= p.from && r._created < p.to);
+    const pop = sliceByDateRange(sortedRows, p.from, p.to);
     const delivered = pop.filter(r => (r.fs||'').trim()==='Delivered');
     const qcFailed  = pop.filter(r => (r.fs||'').trim()==='QC Failed');
     const total = delivered.length + qcFailed.length;
@@ -4927,7 +4941,7 @@ function renderAccuracyTrendChart(){
   $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
   $('accTrendBody').style.display = isBar ? 'block' : 'none';
   renderAccTrendLegend('accTrendLegend', isBar);
-  const { series, weights, overall } = computeAccTrendSegSeries(_accDeduped, periods);
+  const { series, weights, overall } = computeAccTrendSegSeries(_accDedupedSorted, periods);
 
   if (isBar){
     const body = $('accTrendBody');
@@ -5001,9 +5015,13 @@ function renderAccuracyMiniCharts(){
 
   grid.innerHTML = _accTopIssues.map((issue,i) => `<div class="acc-mini-card"><h4>${esc(issue)}</h4><div style="position:relative;height:140px;"><canvas id="accMini_${i}"></canvas></div></div>`).join('');
 
+  // Slice each period once (binary search) and keep only Delivered rows —
+  // every issue below reuses these same small arrays instead of re-scanning
+  // the full dataset per issue.
+  const periodDelivered = periods.map(p => sliceByDateRange(_accDedupedSorted, p.from, p.to).filter(r => (r.fs||'').trim()==='Delivered'));
+
   _accTopIssues.forEach((issue, i) => {
-    const values = periods.map(p => {
-      const pop = _accDeduped.filter(r => r._created && r._created >= p.from && r._created < p.to && (r.fs||'').trim()==='Delivered');
+    const values = periodDelivered.map(pop => {
       if (!pop.length) return null;
       const cnt = pop.reduce((sum,r) => sum + extractIssues(r.mc).filter(x=>x===issue).length, 0);
       return +((cnt/pop.length)*100).toFixed(1);
@@ -5162,6 +5180,7 @@ function renderAccDetailCharts(){
   const grid = document.getElementById('accDetailGrid');
   if (!grid || !_accDetailScope || !_accTopIssues) return;
   const scopedRows = _accDeduped.filter(r => _accDetailScope.keyFn(r) === _accDetailScope.name);
+  const scopedSorted = scopedRows.filter(r => r._created).sort((a,b)=>a._created-b._created);
   const periods = accDetailGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped).slice(-4);
   const PAL = getPal();
   const isBar = accDetailChartType === 'bar';
@@ -5169,9 +5188,10 @@ function renderAccDetailCharts(){
 
   grid.innerHTML = _accTopIssues.map((issue,i) => `<div class="acc-mini-card"><h4>${esc(issue)}</h4><div style="position:relative;height:140px;"><canvas id="accDetailMini_${i}"></canvas></div></div>`).join('');
 
+  const periodDelivered = periods.map(p => sliceByDateRange(scopedSorted, p.from, p.to).filter(r => (r.fs||'').trim()==='Delivered'));
+
   _accTopIssues.forEach((issue, i) => {
-    const values = periods.map(p => {
-      const pop = scopedRows.filter(r => r._created && r._created >= p.from && r._created < p.to && (r.fs||'').trim()==='Delivered');
+    const values = periodDelivered.map(pop => {
       if (!pop.length) return null;
       const cnt = pop.reduce((sum,r) => sum + extractIssues(r.mc).filter(x=>x===issue).length, 0);
       return +((cnt/pop.length)*100).toFixed(1);
