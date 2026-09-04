@@ -1482,7 +1482,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Enterprise list</h3>
-          <div class="panel-sub">current month · percentage of deliveries with each issue</div>
+          <div class="panel-sub">as per date range filter · percentage of deliveries with each issue</div>
         </div>
       </div>
       <div class="acc-table-wrap"><table class="acc-table" id="accEntTable"></table></div>
@@ -1492,7 +1492,7 @@
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Team list</h3>
-          <div class="panel-sub">current month · percentage of deliveries with each issue</div>
+          <div class="panel-sub">as per date range filter · percentage of deliveries with each issue</div>
         </div>
       </div>
       <div class="acc-table-wrap"><table class="acc-table" id="accTeamTable"></table></div>
@@ -4930,11 +4930,8 @@ let accEntSort  = { col:null, dir:null };
 let accTeamSort = { col:null, dir:null };
 
 function buildAccGroups(keyFn){
-  const months = getMonthsFromApril(_accDeduped);
-  const currentMonth = months[months.length - 1]; // latest month present in data = "current"
   const groups = {};
   for (const r of _accDeduped){
-    if (!(r._created && r._created >= currentMonth.from && r._created < currentMonth.to)) continue;
     const key = keyFn(r);
     if (!key) continue;
     if (!groups[key]) groups[key] = { total:0, issues:{}, received:0, pending:0 };
