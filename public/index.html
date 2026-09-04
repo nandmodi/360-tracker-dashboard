@@ -4777,6 +4777,7 @@ function hideAccSegTooltip(){ $('accSegTooltip').style.display = 'none'; }
 // SLA/Delivery/Accuracy mini-trend card style); Graph mode shows 4 lines.
 function computeAccTrendSegSeries(rows, periods){
   const series = {}; SEG_STACK_ORDER.forEach(k => series[k] = []);
+  const weights = {}; SEG_STACK_ORDER.forEach(k => weights[k] = []);
   const overall = [];
   periods.forEach(p => {
     const pop = rows.filter(r => r._created && r._created >= p.from && r._created < p.to);
@@ -4788,9 +4789,10 @@ function computeAccTrendSegSeries(rows, periods){
       const segPop = pop.filter(r => normSeg(r.seg)===sk && ((r.fs||'').trim()==='Delivered' || (r.fs||'').trim()==='QC Failed'));
       const segDelivNoCorr = segPop.filter(r=>(r.fs||'').trim()==='Delivered' && !r.mc).length;
       series[sk].push(segPop.length ? +((segDelivNoCorr/segPop.length)*100).toFixed(1) : null);
+      weights[sk].push(total ? (segPop.length/total)*100 : 0);
     });
   });
-  return { series, overall };
+  return { series, weights, overall };
 }
 
 let accTrendHidden = new Set(); // segment keys toggled off via legend click (Graph mode)
@@ -4800,7 +4802,7 @@ function renderAccTrendLegend(elId, isBar){
   const el = $(elId); if (!el) return;
   if (isBar){
     el.innerHTML = SEG_STACK_ORDER.map(sk => {
-      const c = SEG_COLORS.accuracy[sk] || {bg:'#999'};
+      const c = SEG_COLORS.delivery[sk] || {bg:'#999'};
       return `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${c.bg}"></span>${esc(sk)}</span>`;
     }).join('');
   } else {
@@ -4825,21 +4827,21 @@ function renderAccuracyTrendChart(){
   $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
   $('accTrendBody').style.display = isBar ? 'block' : 'none';
   renderAccTrendLegend('accTrendLegend', isBar);
-  const { series, overall } = computeAccTrendSegSeries(_accDeduped, periods);
+  const { series, weights, overall } = computeAccTrendSegSeries(_accDeduped, periods);
 
   if (isBar){
     const body = $('accTrendBody');
     const items = periods.map((p,idx) => ({ label:p.label, pct:overall[idx],
-      segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: null }])) }));
-    // Equal-height stacking (matches reference): each present segment gets an even share.
+      segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: weights[sk][idx] }])) }));
+    // Segments sized by their actual share of volume that period (matches reference).
     body.innerHTML = `<div class="mtrend-cols" style="height:260px;">` + items.map((it, idx) => {
-      const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null);
-      const share = present.length ? 100/present.length : 0;
+      const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null && it.segBreak[sk].weight > 0.4);
       const barH = it.pct != null ? Math.max(6, Math.round((it.pct/100)*260)) : 6;
       let segHtml = '', tooltipLines = [];
       present.forEach(sk => {
-        const c = SEG_COLORS.accuracy[sk];
+        const c = SEG_COLORS.delivery[sk];
         const rate = it.segBreak[sk].rate;
+        const share = it.segBreak[sk].weight;
         segHtml += `<div style="height:${share}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;"><span style="color:${c.text};font-size:10px;font-weight:500;">${Math.round(rate)}%</span></div>`;
         tooltipLines.push(`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.bg};margin-right:5px;"></span>${esc(sk)}: ${Math.round(rate)}%`);
       });
