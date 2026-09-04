@@ -117,7 +117,7 @@
   .acc-seg-tooltip{position:fixed;display:none;background:var(--ink);color:#fff;font-size:11px;line-height:1.6;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:9999;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.25);}
   .mtrend-stack{cursor:default;}
   #accTrendBody .mtrend-stack{max-width:160px;}
-  #accTrendBody .mtrend-cols{height:260px;gap:24px;}
+  #accTrendBody .mtrend-cols{height:340px;gap:24px;}
   .acc-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
   .acc-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
   .acc-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
@@ -4195,30 +4195,26 @@ function doVinSearch(raw){
 // and a formatter. Columns are shown even if blank for most rows (so the
 // table stays consistent record-to-record); truly absent fields show "—".
 const VIN_ALL_COLUMNS = [
-  ['vin',  'VIN',            v => v],
-  ['sku',  'SKU',            v => v],
-  ['fs',   'Status',         null], // rendered via statusBadge, not cell()
-  ['ent',  'Enterprise',     v => v],
-  ['tm',   'Team',           v => v],
-  ['seg',  'Segment',        v => v],
-  ['csCol','CS',             v => v],
-  ['ob',   'OB',             v => v],
-  ['cs',   'CRM status',     v => v],
-  ['c',    'Created on',     v => v ? fmtDate(v) : null],
-  ['u',    'Final time',     v => v ? fmtDate(v) : null],
-  ['tt',   'Input type',     v => v],
-  ['vm',   'Platform',       v => v],
-  ['sid',  'Spin ID',        v => v],
-  ['vid',  'Media ID',       v => v],
-  ['dvid', 'Dealer VIN ID',  v => v],
-  ['qc',   'QC user',        v => v],
-  ['tat',  'TAT (hrs)',      v => (typeof v==='number') ? v.toFixed(2) : null],
-  ['e2e',  'E2E TAT (hrs)',  v => (typeof v==='number') ? v.toFixed(2) : null],
-  ['sla',  'SLA',            v => v===1 ? 'Within' : (v===0 ? 'Out' : null)],
-  ['rej',  'Failure reason', v => v],
-  ['isv',  'Issues',         v => v],
-  ['me',   'Manual editing', v => v===1 ? 'Yes' : null],
-  ['aq',   'Assisted by QC', v => v===1 ? 'Yes' : null],
+  ['vid',  'mediaId',            v => v],
+  ['c',    'createdAt',          v => v ? fmtDate(v) : null],
+  ['ent',  'enterprise_name',    v => v],
+  ['seg',  'customer_segment',   v => v],
+  ['tm',   'team_name',          v => v],
+  ['csCol','CS',                 v => v],
+  ['ob',   'OB',                 v => v],
+  ['vin',  'vinName',            v => v],
+  ['dvid', 'dealerVinId',        v => v],
+  ['sku',  'spin_sku_id',        v => v],
+  ['vm',   'fd.platform',        v => v],
+  ['tt',   'input_type',         v => v],
+  ['rej',  'failure_reason',     v => v],
+  ['fs',   'final_status',       v => v],
+  ['isv',  'issues_by_severity', v => v],
+  ['u',    'final_time',         v => v ? fmtDate(v) : null],
+  ['sid',  'ss.spin_id',         v => v],
+  ['cs',   'crm_status',         v => v],
+  ['me',   'manual_editing',     v => v===1 ? '1' : null],
+  ['mc',   'manual_correction',  v => v],
 ];
 
 function openVinResultsTable(records, notFound){
@@ -4231,27 +4227,22 @@ function openVinResultsTable(records, notFound){
   $('modalSub').textContent   = notFound.length ? `No match for: ${notFound.join(', ')}` : (records.length===1 ? ((records[0].ent||'—')+' · SKU '+(records[0].sku||'—')) : 'Search results');
   $('modalCount').textContent = `${records.length} record${records.length===1?'':'s'}`;
 
-  const statusBadge = fsRaw => {
-    const fs = (fsRaw||'').trim();
-    const color = fs==='Delivered' ? 'green' : (['QC Failed','Validation Failed','Tech Failure','AI Failed'].includes(fs) ? 'red' : 'amber');
-    return `<span class="kpi-value ${color}" style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px;white-space:nowrap;">${esc(fs||'—')}</span>`;
-  };
   const cell = v => v ? esc(v) : '<span style="color:var(--ink-2);">—</span>';
 
   const headerHtml = VIN_ALL_COLUMNS.map(([key,label]) => `<th>${esc(label)}</th>`).join('');
   const rowsHtml = records.map(r => {
     const cellsHtml = VIN_ALL_COLUMNS.map(([key,label,fmt]) => {
-      if (key === 'fs') return `<td>${statusBadge(r.fs)}</td>`;
       const raw = r[key];
       const val = fmt ? fmt(raw) : raw;
       return `<td>${cell(val)}</td>`;
     }).join('');
-    return `<tr>${cellsHtml}</tr>`;
+    const isDelivered = (r.fs||'').trim() === 'Delivered';
+    return `<tr${isDelivered ? ' style="background:color-mix(in srgb, var(--green) 15%, transparent);"' : ''}>${cellsHtml}</tr>`;
   }).join('');
 
   $('modalBody').innerHTML = `
     <div style="padding:8px 28px 28px;">
-      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;">
+      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;padding-bottom:10px;">
         <table class="vin-table">
           <thead><tr>${headerHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
@@ -4948,9 +4939,12 @@ function renderAccuracyTrendChart(){
     const items = periods.map((p,idx) => ({ label:p.label, pct:overall[idx],
       segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: weights[sk][idx] }])) }));
     // Segments sized by their actual share of volume that period (matches reference).
-    body.innerHTML = `<div class="mtrend-cols" style="height:260px;">` + items.map((it, idx) => {
+    const CHART_H = 340;
+    const maxPct = Math.max(...items.map(it=>it.pct).filter(v=>v!=null), 1);
+    const scaleMax = maxPct * 1.25; // headroom so the tallest bar doesn't touch the top
+    body.innerHTML = `<div class="mtrend-cols" style="height:${CHART_H}px;">` + items.map((it, idx) => {
       const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null && it.segBreak[sk].weight > 0.4);
-      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/100)*260)) : 6;
+      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/scaleMax)*CHART_H)) : 6;
       let segHtml = '', tooltipLines = [];
       present.forEach(sk => {
         const c = SEG_COLORS.delivery[sk];
