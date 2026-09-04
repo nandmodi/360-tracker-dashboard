@@ -1449,9 +1449,10 @@
         </div>
       </div>
       <div class="mtrend-legend" id="accTrendLegend"></div>
-      <div style="position:relative;height:280px;padding:8px 4px;">
+      <div style="position:relative;height:280px;padding:8px 4px;" id="accTrendCanvasWrap">
         <canvas id="accTrendCanvas"></canvas>
       </div>
+      <div id="accTrendBody" style="padding:8px 4px 4px;display:none;"></div>
     </div>
 
     <div class="panel" data-size="full">
@@ -4769,100 +4770,107 @@ function moveAccSegTooltip(e){
 }
 function hideAccSegTooltip(){ $('accSegTooltip').style.display = 'none'; }
 
-function renderAccSegLegend(elId, segColors){
-  const el = $(elId); if (!el) return;
-  el.innerHTML = SEG_STACK_ORDER.map(sk => {
-    const c = segColors[sk] || {bg:'#999'};
-    return `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${c.bg}"></span>${esc(sk)}</span>`;
-  }).join('');
-}
-
-// Renders a row of period columns, each a segment-stacked bar (Ent/Mid/SMB/
-// Resellers), matching the SLA/Delivery/Accuracy mini-trend card style.
-// Hovering any bar shows every segment's rate in a tooltip.
-// 5-series data for Accuracy Trend: Ent, Mid, SMB, Resellers, All.
-function computeAccTrend5Line(rows, periods){
-  const keys = [...SEG_STACK_ORDER, 'All'];
-  const series = {}; keys.forEach(k => series[k] = []);
+// Per-segment accuracy-trend series (Ent/Mid/SMB/Resellers). No "All" — Bar
+// mode shows all 4 segments stacked into one bar per period (matching the
+// SLA/Delivery/Accuracy mini-trend card style); Graph mode shows 4 lines.
+function computeAccTrendSegSeries(rows, periods){
+  const series = {}; SEG_STACK_ORDER.forEach(k => series[k] = []);
+  const overall = [];
   periods.forEach(p => {
     const pop = rows.filter(r => r._created && r._created >= p.from && r._created < p.to);
     const delivered = pop.filter(r => (r.fs||'').trim()==='Delivered');
     const qcFailed  = pop.filter(r => (r.fs||'').trim()==='QC Failed');
     const total = delivered.length + qcFailed.length;
-    series['All'].push(total ? +((delivered.filter(r=>!r.mc).length/total)*100).toFixed(1) : null);
+    overall.push(total ? +((delivered.filter(r=>!r.mc).length/total)*100).toFixed(1) : null);
     SEG_STACK_ORDER.forEach(sk => {
       const segPop = pop.filter(r => normSeg(r.seg)===sk && ((r.fs||'').trim()==='Delivered' || (r.fs||'').trim()==='QC Failed'));
       const segDelivNoCorr = segPop.filter(r=>(r.fs||'').trim()==='Delivered' && !r.mc).length;
       series[sk].push(segPop.length ? +((segDelivNoCorr/segPop.length)*100).toFixed(1) : null);
     });
   });
-  return series;
+  return { series, overall };
 }
 
-const ACC_5LINE_KEYS = ['Ent','Mid','SMB','Resellers','All'];
-function acc5LineColor(PAL, key){
-  return { Ent:PAL.accent, Mid:PAL.orange, SMB:PAL.teal, Resellers:PAL.amber, All:PAL.ink }[key] || PAL.ink;
-}
+let accTrendHidden = new Set(); // segment keys toggled off via legend click (Graph mode)
 
-let accTrendHidden = new Set(); // series keys toggled off via legend click
-
-function renderAcc5LineLegend(elId){
+function renderAccTrendLegend(elId, isBar){
   const PAL = getPal();
   const el = $(elId); if (!el) return;
-  el.innerHTML = ACC_5LINE_KEYS.map(k => {
-    const off = accTrendHidden.has(k);
-    return `<span class="mtrend-legend-item" style="cursor:pointer;opacity:${off?0.4:1};" data-serieskey="${esc(k)}" onclick="toggleAccTrendSeries('${esc(k)}')"><span class="mtrend-legend-dot" style="background:${acc5LineColor(PAL,k)}"></span>${esc(k)}</span>`;
-  }).join('');
+  if (isBar){
+    el.innerHTML = SEG_STACK_ORDER.map(sk => {
+      const c = SEG_COLORS.accuracy[sk] || {bg:'#999'};
+      return `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${c.bg}"></span>${esc(sk)}</span>`;
+    }).join('');
+  } else {
+    el.innerHTML = SEG_STACK_ORDER.map(sk => {
+      const off = accTrendHidden.has(sk);
+      return `<span class="mtrend-legend-item" style="cursor:pointer;opacity:${off?0.4:1};" onclick="toggleAccTrendSeries('${esc(sk)}')"><span class="mtrend-legend-dot" style="background:${acc5LineColor(PAL,sk)}"></span>${esc(sk)}</span>`;
+    }).join('');
+  }
 }
 function toggleAccTrendSeries(k){
   if (accTrendHidden.has(k)) accTrendHidden.delete(k); else accTrendHidden.add(k);
   renderAccuracyTrendChart();
 }
+function acc5LineColor(PAL, key){
+  return { Ent:PAL.accent, Mid:PAL.orange, SMB:PAL.teal, Resellers:PAL.amber }[key] || PAL.ink;
+}
 
 function renderAccuracyTrendChart(){
   const periods = accTrendGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped);
   $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
-  renderAcc5LineLegend('accTrendLegend');
-  const series = computeAccTrend5Line(_accDeduped, periods);
+  const isBar = accTrendChartType === 'bar';
+  $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
+  $('accTrendBody').style.display = isBar ? 'block' : 'none';
+  renderAccTrendLegend('accTrendLegend', isBar);
+  const { series, overall } = computeAccTrendSegSeries(_accDeduped, periods);
+
+  if (isBar){
+    const body = $('accTrendBody');
+    const items = periods.map((p,idx) => ({ label:p.label, pct:overall[idx],
+      segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: null }])) }));
+    // Equal-height stacking (matches reference): each present segment gets an even share.
+    body.innerHTML = `<div class="mtrend-cols" style="height:208px;">` + items.map((it, idx) => {
+      const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null);
+      const share = present.length ? 100/present.length : 0;
+      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/100)*208)) : 6;
+      let segHtml = '', tooltipLines = [];
+      present.forEach(sk => {
+        const c = SEG_COLORS.accuracy[sk];
+        const rate = it.segBreak[sk].rate;
+        segHtml += `<div style="height:${share}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;"><span style="color:${c.text};font-size:10px;font-weight:500;">${Math.round(rate)}%</span></div>`;
+        tooltipLines.push(`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.bg};margin-right:5px;"></span>${esc(sk)}: ${Math.round(rate)}%`);
+      });
+      let arrow = '';
+      if (idx > 0 && overall[idx-1] != null && it.pct != null) arrow = it.pct >= overall[idx-1] ? ' ▲' : ' ▼';
+      const totalTxt = it.pct != null ? it.pct.toFixed(1)+'%'+arrow : '—';
+      return `<div class="mtrend-col">
+          <div class="mtrend-stack" style="height:${barH}px;display:flex;flex-direction:column;" data-tooltip="${esc(tooltipLines.join('<br>')||'No data')}" onmouseenter="showAccSegTooltip(event)" onmousemove="moveAccSegTooltip(event)" onmouseleave="hideAccSegTooltip()">${segHtml}</div>
+          <div class="mtrend-val">${totalTxt}</div>
+          <div class="mtrend-lbl">${esc(it.label)}</div>
+        </div>`;
+    }).join('') + '</div>';
+    return;
+  }
+
   const PAL = getPal();
   const canvas = document.getElementById('accTrendCanvas');
   if (!canvas) return;
   if (window._accTrendChart) window._accTrendChart.destroy();
-  const isBar = accTrendChartType === 'bar';
   const visible = k => !accTrendHidden.has(k);
-  const valueLabels = { align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' };
-
-  let datasets;
-  if (isBar){
-    // Segments stack together; "All" overlays as a separate line (not part of the stack).
-    datasets = SEG_STACK_ORDER.filter(visible).map(k => ({
-      type:'bar', label:k, data: series[k], backgroundColor: acc5LineColor(PAL,k)+'CC', stack:'seg',
-      datalabels:{ ...valueLabels, align:'center', anchor:'center', color:'#fff' },
-    }));
-    if (visible('All')) datasets.push({
-      type:'line', label:'All', data: series['All'], borderColor: acc5LineColor(PAL,'All'),
-      backgroundColor:'transparent', borderWidth:2.5, pointRadius:3, tension:0.3, fill:false,
-      datalabels: valueLabels,
-    });
-  } else {
-    datasets = ACC_5LINE_KEYS.filter(visible).map(k => ({
-      type:'line', label:k, data: series[k], borderColor: acc5LineColor(PAL,k), backgroundColor:'transparent',
-      borderWidth: k==='All' ? 2.5 : 1.5, borderDash: k==='All' ? [] : [4,3],
-      pointRadius: k==='All' ? 3 : 2, tension:0.3, fill:false,
-      datalabels: valueLabels,
-    }));
-  }
-
+  const datasets = SEG_STACK_ORDER.filter(visible).map(k => ({
+    label:k, data: series[k], borderColor: acc5LineColor(PAL,k), backgroundColor:'transparent',
+    borderWidth:1.8, pointRadius:3, tension:0.3, fill:false,
+    datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' },
+  }));
   window._accTrendChart = new Chart(canvas, {
-    type: isBar ? 'bar' : 'line', plugins:[ChartDataLabels],
+    type:'line', plugins:[ChartDataLabels],
     data:{ labels: periods.map(p=>p.label), datasets },
     options:{
       responsive:true, maintainAspectRatio:false,
       layout:{ padding:{ top:20 } },
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${c.raw==null?'—':c.raw.toFixed(1)+'%'}` } } },
-      scales: isBar
-        ? { x:{ grid:{display:false}, stacked:true }, y:{ beginAtZero:true, stacked:true, ticks:{ callback: v=>v+'%' } } }
-        : { x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
+      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
     },
   });
 }
