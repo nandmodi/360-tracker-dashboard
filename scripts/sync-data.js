@@ -16,7 +16,7 @@ const METABASE_USERNAME = process.env.METABASE_USERNAME;
 const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
 const SLA_H    = 6;
 const OUT      = path.join(__dirname, '..', 'public', 'data.json');
-const KEEP_DAYS= 183; // 6 months
+const KEEP_DAYS= 122; // ~4 months (current + 3 previous) — keeps data.json ~83MB, safely under GitHub's 100MB push limit
 
 function fetchCSV(url, redirects = 0) {
     if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
