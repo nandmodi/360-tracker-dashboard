@@ -116,6 +116,8 @@
   .acc-name-link{cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px;}
   .acc-seg-tooltip{position:fixed;display:none;background:var(--ink);color:#fff;font-size:11px;line-height:1.6;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:9999;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.25);}
   .mtrend-stack{cursor:default;}
+  #accTrendBody .mtrend-stack{max-width:160px;}
+  #accTrendBody .mtrend-cols{height:260px;gap:24px;}
   .acc-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
   .acc-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
   .acc-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
@@ -4830,10 +4832,10 @@ function renderAccuracyTrendChart(){
     const items = periods.map((p,idx) => ({ label:p.label, pct:overall[idx],
       segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: null }])) }));
     // Equal-height stacking (matches reference): each present segment gets an even share.
-    body.innerHTML = `<div class="mtrend-cols" style="height:208px;">` + items.map((it, idx) => {
+    body.innerHTML = `<div class="mtrend-cols" style="height:260px;">` + items.map((it, idx) => {
       const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null);
       const share = present.length ? 100/present.length : 0;
-      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/100)*208)) : 6;
+      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/100)*260)) : 6;
       let segHtml = '', tooltipLines = [];
       present.forEach(sk => {
         const c = SEG_COLORS.accuracy[sk];
