@@ -1818,6 +1818,15 @@ function passesAccFilters(r){
     const toEnd = new Date(F_ACC.to.getFullYear(), F_ACC.to.getMonth(), F_ACC.to.getDate(), 23,59,59,999);
     if (!r._created || r._created > toEnd) return false;
   }
+  return passesAccNonDateFilters(r);
+}
+
+// Same as passesAccFilters but WITHOUT the Date Range check — used by
+// Accuracy Trend and Manual Correction Trends, which show their own
+// month/week windows independent of the Date Range picker (matching how
+// "Throughput trend" ignores the Operations date filter). Enterprise/Team/
+// CS/OB/Status/SLA/Segment still apply everywhere, including these.
+function passesAccNonDateFilters(r){
   if (F_ACC.ent      && !F_ACC.ent.has(r.ent))                  return false;
   if (F_ACC.team     && !F_ACC.team.has(r.tm))                  return false;
   if (F_ACC.cs       && !F_ACC.cs.has(r.csCol))                 return false;
@@ -4823,7 +4832,7 @@ let accGran = 'month';
 let accTrendChartType = 'bar';
 let accTrendGran = 'month';
 let accMiniChartType  = 'line';
-let _accDeduped = null, _accTopIssues = null;
+let _accDeduped = null, _accDedupedNoDate = null, _accTopIssues = null;
 
 // Distinct color per issue category (matches the multi-hue style used
 // elsewhere in the dashboard, e.g. the segment-wise stacked bars).
@@ -4866,9 +4875,17 @@ function sliceByDateRange(sortedRows, from, to){
 let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sliceByDateRange
 
 function renderAccuracy(){
-  const filtered = RAW.filter(passesAccFilters); // Accuracy tab's own filters (F_ACC) — fully independent from Operations' F
+  // Full filters (incl. Date Range) — feeds Failure reasons, Enterprise list, Team list.
+  const filtered = RAW.filter(passesAccFilters);
   _accDeduped = getDedupedForTrend(filtered);
-  _accDedupedSorted = _accDeduped.filter(r => r._created).sort((a,b)=>a._created-b._created);
+
+  // Non-date filters only — feeds Accuracy trend + Manual correction trends,
+  // which show their own month/week windows independent of Date Range
+  // (same pattern as Operations' "Throughput trend").
+  const filteredNoDate = RAW.filter(passesAccNonDateFilters);
+  _accDedupedNoDate = getDedupedForTrend(filteredNoDate);
+  _accDedupedSorted = _accDedupedNoDate.filter(r => r._created).sort((a,b)=>a._created-b._created);
+
   renderAccuracyTrendChart();
   renderAccReasonCards();
   computeTopIssues();
@@ -4978,7 +4995,7 @@ function acc5LineColor(PAL, key){
 }
 
 function renderAccuracyTrendChart(){
-  const periods = accTrendGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped);
+  const periods = accTrendGran === 'week' ? getLastNWeeks(_accDedupedNoDate, 4) : getMonthsFromApril(_accDedupedNoDate);
   $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
   const isBar = accTrendChartType === 'bar';
   $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
@@ -5041,7 +5058,7 @@ function renderAccuracyTrendChart(){
 
 function computeTopIssues(){
   const counts = {};
-  for (const r of _accDeduped){
+  for (const r of _accDedupedNoDate){
     if ((r.fs||'').trim() !== 'Delivered') continue;
     for (const issue of extractIssues(r.mc)){
       counts[issue] = (counts[issue]||0)+1;
@@ -5053,7 +5070,7 @@ function computeTopIssues(){
 function renderAccuracyMiniCharts(){
   const grid = $('accMiniGrid');
   if (!grid || !_accTopIssues) return;
-  const periods = accGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped).slice(-4);
+  const periods = accGran === 'week' ? getLastNWeeks(_accDedupedNoDate, 4) : getMonthsFromApril(_accDedupedNoDate).slice(-4);
   const PAL = getPal();
   const isBar = accMiniChartType === 'bar';
   $('accMiniSub').textContent = accGran === 'week' ? 'Last 4 weeks' : 'Current month and previous 3';
