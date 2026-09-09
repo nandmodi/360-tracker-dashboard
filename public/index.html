@@ -111,6 +111,14 @@
   body.view-accuracy #viewOperations{display:none;}
   body.view-accuracy .filters:not(.acc-filters){display:none;}
   body.view-accuracy #viewAccuracy{display:block;}
+  #viewReports{display:none;}
+  body.view-reports #viewOperations{display:none;}
+  body.view-reports .filters:not(.rpt-filters){display:none;}
+  body.view-reports #viewReports{display:block;}
+  .rpt-chip{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--ink-2);}
+  .rpt-chip.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
+  .rpt-glance-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+  .rpt-heat{border-radius:4px;padding:3px 8px;display:inline-block;min-width:52px;text-align:right;font-size:11px;font-family:'JetBrains Mono',monospace;}
   .acc-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .acc-mini-card{background:var(--surface-2);border:0.5px solid var(--line);border-radius:10px;padding:12px 14px;}
   .acc-mini-card h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.03em;}
@@ -666,6 +674,10 @@
         <button data-view="accuracy" title="Accuracy view">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.4"/></svg>
           Accuracy
+        </button>
+        <button data-view="reports" title="Reports view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13V7M8 13V3M13 13v-4"/></svg>
+          Reports
         </button>
       </div>
       <span class="sync-info" id="syncInfo">—</span>
@@ -1552,6 +1564,92 @@
       <div class="acc-table-wrap"><table class="acc-table" id="accTeamTable"></table></div>
     </div>
   </div><!-- /#viewAccuracy -->
+
+  <div id="viewReports">
+    <div id="rptTooltip" class="acc-seg-tooltip"></div>
+    <div class="filters rpt-filters">
+      <div class="f-group">
+        <label class="f-label">Period</label>
+        <div class="trend-tabs" id="rptGranTabs">
+          <button class="trend-tab" data-g="week" onclick="setRptGran('week')">Weekly</button>
+          <button class="trend-tab sel" data-g="month" onclick="setRptGran('month')">Monthly</button>
+        </div>
+      </div>
+      <div class="f-group">
+        <label class="f-label">Segment</label>
+        <select class="ms-trigger" id="rptSegSel" style="min-width:150px;">
+          <option value="all">All segments</option>
+          <option value="Ent">Enterprise</option>
+          <option value="Mid">Mid</option>
+          <option value="SMB">SMB</option>
+          <option value="Resellers">Resellers</option>
+        </select>
+      </div>
+      <div class="f-group" id="rptRegionGroup">
+        <label class="f-label">Region</label>
+        <div class="chips" id="rptRegionChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>At a glance</h3>
+          <div class="panel-sub" id="rptGlanceSub">Latest period · change vs period before it</div>
+        </div>
+      </div>
+      <div id="rptGlanceGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;"></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Trend</h3>
+          <div class="panel-sub" id="rptTrendSub"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="trend-tabs" id="rptMetricTabs"></div>
+          <div class="trend-tabs" id="rptSplitTabs">
+            <button class="trend-tab sel" data-split="lane" onclick="setRptTrendSplit('lane')">Cut</button>
+            <button class="trend-tab" data-split="segment" onclick="setRptTrendSplit('segment')">Segment</button>
+            <button class="trend-tab" data-split="region" onclick="setRptTrendSplit('region')">Region</button>
+          </div>
+        </div>
+      </div>
+      <div class="mtrend-legend" id="rptTrendLegend"></div>
+      <div style="position:relative;height:300px;padding:8px 4px;">
+        <canvas id="rptTrendCanvas"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Drill down</h3>
+          <div class="panel-sub">Oldest period on the left · colour runs worst (red) to best (green) within each grid</div>
+        </div>
+        <div class="trend-tabs" id="rptMatrixMetricTabs"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="font-size:13px;font-weight:600;margin:0;">By region</h4>
+            <span style="font-size:11px;color:var(--muted);">Click a row for detail</span>
+          </div>
+          <div class="acc-table-wrap"><table class="acc-table" id="rptRegionMatrix"></table></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="font-size:13px;font-weight:600;margin:0;">By segment</h4>
+            <div class="trend-tabs" id="rptMatrixLaneTabs"></div>
+          </div>
+          <div class="acc-table-wrap"><table class="acc-table" id="rptSegmentMatrix"></table></div>
+        </div>
+      </div>
+      <div id="rptDrillPanel" style="margin-top:16px;display:none;"></div>
+    </div>
+  </div><!-- /#viewReports -->
+
 </main>
 
 <div class="modal-backdrop" id="modal">
@@ -4874,6 +4972,279 @@ function sliceByDateRange(sortedRows, from, to){
 
 let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sliceByDateRange
 
+// ============================================================
+// REPORTS TAB — VIN / Rooftop / Region lanes, SLA/TAT/Fulfilment metrics
+// ============================================================
+const RPT_LANES = [
+  { id:'vin',    label:'VIN',     color:'#2a78d6', blurb:'Every SKU, no grouping' },
+  { id:'rt',     label:'Rooftop', color:'#eb6834', blurb:'Mean across teams' },
+  { id:'region', label:'Region',  color:'#1baf7a', blurb:'Mean across regions', dim:'region' },
+];
+const RPT_METRICS = [
+  { id:'sla_pct',         label:'SLA met',    kind:'pct', better:'high' },
+  { id:'p99_tat',         label:'TAT (P99)',  kind:'hrs', better:'low'  },
+  { id:'p95_tat',         label:'TAT (P95)',  kind:'hrs', better:'low'  },
+  { id:'fulfillment_pct', label:'Fulfilment', kind:'pct', better:'high' },
+];
+const RPT_SEGMENTS = [
+  { id:'all', label:'All' }, { id:'Ent', label:'Enterprise' }, { id:'Mid', label:'Mid' },
+  { id:'SMB', label:'SMB' }, { id:'Resellers', label:'Resellers' },
+];
+const RPT = {
+  gran:'month', segment:'all', regions:new Set(), regionsInit:false,
+  trendMetric:'sla_pct', trendSplit:'lane',
+  matrixMetric:'sla_pct', matrixLane:'vin', drillRegion:null,
+};
+let _rptDeduped = [];
+
+function rptAllRegions(){
+  const s = new Set();
+  for (const r of _rptDeduped){ if (r.region) s.add(r.region); }
+  return [...s].sort();
+}
+function rptActiveRegions(){
+  const all = rptAllRegions();
+  const sel = all.filter(r => RPT.regions.has(r));
+  return sel.length ? sel : all;
+}
+function rptPeriods(){
+  const n = 4;
+  let maxDate = new Date(2026,3,1);
+  for (const r of _rptDeduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const out = [];
+  if (RPT.gran === 'week'){
+    const dow = maxDate.getDay() || 7;
+    const thisMon = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - dow + 1);
+    for (let i = -(n-1); i <= 0; i++){
+      const s = new Date(thisMon); s.setDate(thisMon.getDate() + i*7);
+      const e = new Date(s); e.setDate(s.getDate()+7);
+      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
+    }
+  } else {
+    for (let i = -(n-1); i <= 0; i++){
+      const s = new Date(maxDate.getFullYear(), maxDate.getMonth()+i, 1);
+      const e = new Date(maxDate.getFullYear(), maxDate.getMonth()+i+1, 1);
+      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US',{month:'short'}) });
+    }
+  }
+  return out;
+}
+function rptSegFilter(r){
+  if (RPT.segment === 'all') return true;
+  return normSeg(r.seg) === RPT.segment;
+}
+function rptRowsInPeriod(period){
+  return _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to && rptSegFilter(r));
+}
+function rptMetric(rows, metricId){
+  if (!rows.length) return null;
+  if (metricId === 'fulfillment_pct'){
+    const received = rows.length, pending = rows.filter(isPending).length, delivered = rows.filter(isDelivered).length;
+    return +((delivered/Math.max(received-pending,1))*100).toFixed(1);
+  }
+  const tatEligible = rows.filter(r => ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered'].includes((r.fs||'').trim()));
+  if (metricId === 'sla_pct'){
+    const withSla = tatEligible.filter(r => r.sla===1 || r.sla===0);
+    if (!withSla.length) return null;
+    return +((withSla.filter(r=>r.sla===1).length/withSla.length)*100).toFixed(1);
+  }
+  const e2eVals = rows.filter(r=>isDelivered(r) && typeof r.e2e==='number' && r.e2e>0).map(r=>r.e2e).sort((a,b)=>a-b);
+  if (!e2eVals.length) return null;
+  const pct = metricId==='p99_tat' ? 0.99 : 0.95;
+  const idx = Math.min(e2eVals.length-1, Math.ceil(pct*e2eVals.length)-1);
+  return +e2eVals[idx].toFixed(2);
+}
+function rptLaneSeries(laneId, metricId, regionFilter){
+  return rptPeriods().map(p => {
+    const pop = rptRowsInPeriod(p);
+    if (laneId === 'vin') return rptMetric(pop, metricId);
+    if (laneId === 'region'){
+      const regs = regionFilter || rptActiveRegions();
+      const vals = regs.map(rg => rptMetric(pop.filter(r=>r.region===rg), metricId)).filter(v=>v!=null);
+      return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
+    }
+    const teams = [...new Set(pop.map(r=>r.tm).filter(Boolean))];
+    const vals = teams.map(tm => rptMetric(pop.filter(r=>r.tm===tm), metricId)).filter(v=>v!=null);
+    return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
+  });
+}
+function rptFmt(metric, v){
+  if (v==null) return '—';
+  if (metric.kind==='pct') return v.toFixed(1)+'%';
+  return v>=100 ? Math.round(v).toLocaleString()+'h' : v.toFixed(1)+'h';
+}
+function rptDelta(metric, series){
+  const idx=[]; series.forEach((v,i)=>{ if(v!=null) idx.push(i); });
+  const n=idx.length;
+  const cur = n?series[idx[n-1]]:null, prev = n>1?series[idx[n-2]]:null;
+  if (cur==null || prev==null) return null;
+  const d = cur-prev;
+  const txt = metric.kind==='pct' ? (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'pp' : (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'h';
+  const good = metric.better==='high' ? d>0 : d<0;
+  return { txt, cls: Math.abs(d)<0.05?'':(good?'green':'red') };
+}
+function rptHeatStyle(metric, v, min, max){
+  if (v==null || max===min) return 'background:var(--surface-2);color:var(--muted)';
+  let t = (v-min)/(max-min);
+  if (metric.better==='low') t = 1-t;
+  const bad=[179,38,30], good=[27,122,70];
+  const r=Math.round(bad[0]+(good[0]-bad[0])*t), g=Math.round(bad[1]+(good[1]-bad[1])*t), b=Math.round(bad[2]+(good[2]-bad[2])*t);
+  return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
+}
+
+function renderReports(){
+  _rptDeduped = getDedupedForTrend(RAW);
+  if (!RPT.regionsInit){ rptAllRegions().forEach(r=>RPT.regions.add(r)); RPT.regionsInit = true; }
+  rptRenderFilters();
+  rptRenderGlance();
+  rptRenderTrendControls();
+  rptRenderTrend();
+  rptRenderMatrix();
+}
+
+function rptRenderFilters(){
+  document.querySelectorAll('#rptGranTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===RPT.gran));
+  const sel = $('rptSegSel'); if (sel && sel.value !== RPT.segment) sel.value = RPT.segment;
+  const regs = rptAllRegions();
+  $('rptRegionChips').innerHTML = regs.map(r =>
+    `<span class="rpt-chip${RPT.regions.has(r)?' sel':''}" onclick="toggleRptRegion('${esc(r)}')">${esc(r)}</span>`
+  ).join('') + (regs.length ? `<span class="rpt-chip" onclick="toggleAllRptRegions()">${RPT.regions.size===regs.length?'Clear all':'Select all'}</span>` : '');
+}
+function setRptGran(g){ RPT.gran = g; renderReports(); }
+function toggleRptRegion(r){
+  if (RPT.regions.has(r)) RPT.regions.delete(r); else RPT.regions.add(r);
+  renderReports();
+}
+function toggleAllRptRegions(){
+  const all = rptAllRegions();
+  if (RPT.regions.size===all.length) RPT.regions.clear(); else all.forEach(r=>RPT.regions.add(r));
+  renderReports();
+}
+function setRptTrendSplit(s){ RPT.trendSplit = s; renderReports(); }
+
+function rptRenderGlance(){
+  const periods = rptPeriods();
+  $('rptGlanceSub').textContent = `${periods[periods.length-1].label} · change vs period before it`;
+  $('rptGlanceGrid').innerHTML = RPT_LANES.map(lane => {
+    const cards = RPT_METRICS.map(m => {
+      const series = rptLaneSeries(lane.id, m.id);
+      const cur = series[series.length-1];
+      const d = rptDelta(m, series);
+      return `<div class="rpt-glance-card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-size:12px;color:var(--muted);">${esc(m.label)}</span>
+          ${d ? `<span style="font-size:11px;font-weight:600;color:var(--${d.cls||'muted'});">${d.txt}</span>` : ''}
+        </div>
+        <div style="font-size:20px;font-weight:600;margin-top:2px;">${rptFmt(m,cur)}</div>
+      </div>`;
+    }).join('');
+    return `<div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="width:9px;height:9px;border-radius:2px;background:${lane.color};display:inline-block;"></span>
+        <span style="font-size:14px;font-weight:600;">${esc(lane.label)}</span>
+        <span style="font-size:11px;color:var(--muted);">${esc(lane.blurb)}${lane.id==='region'?' · '+rptActiveRegions().length+' selected':''}</span>
+      </div>
+      ${cards}
+    </div>`;
+  }).join('');
+}
+
+function rptRenderTrendControls(){
+  $('rptMetricTabs').innerHTML = RPT_METRICS.map(m =>
+    `<button class="trend-tab${m.id===RPT.trendMetric?' sel':''}" onclick="setRptTrendMetric('${m.id}')">${esc(m.label)}</button>`).join('');
+  $('rptMatrixMetricTabs').innerHTML = RPT_METRICS.map(m =>
+    `<button class="trend-tab${m.id===RPT.matrixMetric?' sel':''}" onclick="setRptMatrixMetric('${m.id}')">${esc(m.label)}</button>`).join('');
+  $('rptMatrixLaneTabs').innerHTML = RPT_LANES.map(l =>
+    `<button class="trend-tab${l.id===RPT.matrixLane?' sel':''}" onclick="setRptMatrixLane('${l.id}')">${esc(l.label)}</button>`).join('');
+}
+function setRptTrendMetric(id){ RPT.trendMetric = id; renderReports(); }
+function setRptMatrixMetric(id){ RPT.matrixMetric = id; renderReports(); }
+function setRptMatrixLane(id){ RPT.matrixLane = id; renderReports(); }
+
+function rptTrendSeriesList(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  if (RPT.trendSplit==='lane') return RPT_LANES.map(l => ({ name:l.label, values: rptLaneSeries(l.id, m.id), color:l.color }));
+  if (RPT.trendSplit==='segment') return RPT_SEGMENTS.filter(s=>s.id!=='all').map((s,i) => ({
+    name:s.label, color:['#2a78d6','#eb6834','#1baf7a','#eda100'][i%4],
+    values: rptPeriods().map(p => rptMetric(rptRowsInPeriod(p).filter(r=>normSeg(r.seg)===s.id), m.id)),
+  }));
+  return rptActiveRegions().map((rg,i) => ({
+    name:rg, color:['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'][i%5],
+    values: rptPeriods().map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===rg), m.id)),
+  }));
+}
+function rptRenderTrend(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  const periods = rptPeriods();
+  const list = rptTrendSeriesList();
+  $('rptTrendSub').textContent = RPT.trendSplit==='lane' ? 'VIN, Rooftop (mean across teams), Region (mean across selected regions)' :
+    RPT.trendSplit==='segment' ? `Segment split · reads from ${RPT_LANES.find(l=>l.id===RPT.matrixLane).label}` : 'One line per selected region';
+  $('rptTrendLegend').innerHTML = list.map(s => `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${s.color}"></span>${esc(s.name)}</span>`).join('');
+  const canvas = document.getElementById('rptTrendCanvas');
+  if (!canvas) return;
+  if (window._rptTrendChart) window._rptTrendChart.destroy();
+  window._rptTrendChart = new Chart(canvas, {
+    type:'line',
+    data:{ labels: periods.map(p=>p.label), datasets: list.map(s => ({
+      label:s.name, data:s.values, borderColor:s.color, backgroundColor:'transparent', borderWidth:2, pointRadius:3, tension:0.3, fill:false,
+    })) },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${rptFmt(m,c.raw)}` } } },
+      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero: m.kind==='pct', ticks:{ callback: v => m.kind==='pct'?v+'%':v+'h' } } } },
+  });
+}
+
+function rptRenderMatrix(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.matrixMetric);
+  const periods = rptPeriods();
+  const regs = rptActiveRegions();
+  const headHtml = `<tr><th></th>${periods.map(p=>`<th>${esc(p.label)}</th>`).join('')}</tr>`;
+
+  const rRows = regs.map(rg => ({ name:rg, vals: periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===rg), m.id)) }));
+  const rAll = rRows.flatMap(r=>r.vals).filter(v=>v!=null);
+  const rMin = rAll.length?Math.min(...rAll):0, rMax = rAll.length?Math.max(...rAll):1;
+  $('rptRegionMatrix').innerHTML = headHtml + '<tbody>' + rRows.map(row =>
+    `<tr class="acc-name-link" onclick="rptDrillRegion('${esc(row.name)}')" style="cursor:pointer;">
+      <td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,rMin,rMax)}">${rptFmt(m,v)}</span></td>`).join('')}
+    </tr>`).join('') + '</tbody>';
+
+  const sRows = RPT_SEGMENTS.filter(s=>s.id!=='all').map(s => ({
+    name:s.label, vals: periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>normSeg(r.seg)===s.id), m.id)) }));
+  const sAll = sRows.flatMap(r=>r.vals).filter(v=>v!=null);
+  const sMin = sAll.length?Math.min(...sAll):0, sMax = sAll.length?Math.max(...sAll):1;
+  $('rptSegmentMatrix').innerHTML = headHtml + '<tbody>' + sRows.map(row =>
+    `<tr><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,sMin,sMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`).join('') + '</tbody>';
+
+  rptRenderDrillPanel();
+}
+function rptDrillRegion(name){
+  RPT.drillRegion = RPT.drillRegion===name ? null : name;
+  rptRenderDrillPanel();
+}
+function rptRenderDrillPanel(){
+  const panel = $('rptDrillPanel');
+  if (!RPT.drillRegion){ panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  const periods = rptPeriods();
+  let html = `<div style="border-top:1px solid var(--line);padding-top:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h4 style="font-size:13px;font-weight:600;margin:0;">${esc(RPT.drillRegion)} — every metric, every segment</h4>
+      <span style="cursor:pointer;color:var(--accent);font-size:12px;" onclick="rptDrillRegion('${esc(RPT.drillRegion)}')">Close</span>
+    </div>
+    <div class="acc-table-wrap"><table class="acc-table"><tr><th>Segment</th><th>Metric</th>${periods.map(p=>`<th>${esc(p.label)}</th>`).join('')}</tr><tbody>`;
+  RPT_SEGMENTS.filter(s=>s.id!=='all').forEach((s,si) => {
+    RPT_METRICS.forEach((m,mi) => {
+      const vals = periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===RPT.drillRegion && normSeg(r.seg)===s.id), m.id));
+      html += `<tr>${mi===0?`<td rowspan="${RPT_METRICS.length}" style="font-weight:600;vertical-align:top;">${esc(s.label)}</td>`:''}
+        <td>${esc(m.label)}</td>${vals.map(v=>`<td>${rptFmt(m,v)}</td>`).join('')}</tr>`;
+    });
+  });
+  panel.innerHTML = html + '</tbody></table></div></div>';
+}
+
+document.addEventListener('change', e=>{
+  if (e.target && e.target.id === 'rptSegSel'){ RPT.segment = e.target.value; renderReports(); }
+});
+
 function renderAccuracy(){
   // Full filters (incl. Date Range) — feeds Failure reasons, Enterprise list, Team list.
   const filtered = RAW.filter(passesAccFilters);
@@ -6096,14 +6467,15 @@ function switchView(view){
   currentView = view;
   document.body.classList.toggle('view-performance', view === 'performance');
   document.body.classList.toggle('view-accuracy', view === 'accuracy');
+  document.body.classList.toggle('view-reports', view === 'reports');
   document.querySelectorAll('#viewSwitch button').forEach(b=>{
     b.classList.toggle('sel', b.dataset.view === view);
   });
-  // Hide filter bar in performance view? — keep visible but it's only used by operations.
-  // Refresh the active view to ensure charts size correctly.
   if (view === 'performance'){
     populatePerfUserList();
     renderPerformance();
+  } else if (view === 'reports'){
+    renderReports();
   } else {
     refresh();
   }
