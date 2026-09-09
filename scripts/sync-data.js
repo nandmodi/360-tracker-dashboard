@@ -198,6 +198,7 @@ function mapRow(r) {
     set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
     set('ob',  r.OB);       // "OB" column — fallback shown when CS is blank
     set('dvid', r.dealerVinId); // "dealerVinId" column — searchable in Find VIN
+    set('region', r.region);  // AMER / EMEA / APAC / OTHERS — for Reports tab
     set('seg', r.customer_segment);
     set('tt',  r.input_type);
     set('vin', r.vinName);
