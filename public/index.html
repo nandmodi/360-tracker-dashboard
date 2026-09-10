@@ -4996,6 +4996,7 @@ const RPT = {
   matrixMetric:'sla_pct', matrixLane:'vin', drillRegion:null,
 };
 let _rptDeduped = [];
+let _rptPeriodsCache = null, _rptPopCache = null;
 
 function rptAllRegions(){
   const s = new Set();
@@ -5008,6 +5009,7 @@ function rptActiveRegions(){
   return sel.length ? sel : all;
 }
 function rptPeriods(){
+  if (_rptPeriodsCache) return _rptPeriodsCache;
   const n = 4;
   let maxDate = new Date(2026,3,1);
   for (const r of _rptDeduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
@@ -5027,6 +5029,7 @@ function rptPeriods(){
       out.push({ from:s, to:e, label: s.toLocaleDateString('en-US',{month:'short'}) });
     }
   }
+  _rptPeriodsCache = out;
   return out;
 }
 function rptSegFilter(r){
@@ -5034,7 +5037,12 @@ function rptSegFilter(r){
   return normSeg(r.seg) === RPT.segment;
 }
 function rptRowsInPeriod(period){
-  return _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to && rptSegFilter(r));
+  if (!_rptPopCache) _rptPopCache = new Map();
+  const key = period.from.getTime();
+  if (_rptPopCache.has(key)) return _rptPopCache.get(key);
+  const pop = _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to && rptSegFilter(r));
+  _rptPopCache.set(key, pop);
+  return pop;
 }
 function rptMetric(rows, metricId){
   if (!rows.length) return null;
@@ -5094,6 +5102,8 @@ function rptHeatStyle(metric, v, min, max){
 
 function renderReports(){
   _rptDeduped = getDedupedForTrend(RAW);
+  _rptPeriodsCache = null;
+  _rptPopCache = null;
   if (!RPT.regionsInit){ rptAllRegions().forEach(r=>RPT.regions.add(r)); RPT.regionsInit = true; }
   rptRenderFilters();
   rptRenderGlance();
@@ -5122,6 +5132,23 @@ function toggleAllRptRegions(){
 }
 function setRptTrendSplit(s){ RPT.trendSplit = s; renderReports(); }
 
+function rptSparkline(values, color){
+  const w=100, h=28, pad=3;
+  const vals = values.filter(v=>v!=null);
+  if (vals.length<2) return `<svg width="${w}" height="${h}"></svg>`;
+  const min=Math.min(...vals), max=Math.max(...vals);
+  const range = max-min || 1;
+  const step = (w-pad*2)/(values.length-1);
+  let d='', started=false;
+  values.forEach((v,i)=>{
+    if (v==null) return;
+    const x = pad + i*step;
+    const y = h-pad - ((v-min)/range)*(h-pad*2);
+    d += (started?'L':'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    started = true;
+  });
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
 function rptRenderGlance(){
   const periods = rptPeriods();
   $('rptGlanceSub').textContent = `${periods[periods.length-1].label} · change vs period before it`;
@@ -5135,7 +5162,10 @@ function rptRenderGlance(){
           <span style="font-size:12px;color:var(--muted);">${esc(m.label)}</span>
           ${d ? `<span style="font-size:11px;font-weight:600;color:var(--${d.cls||'muted'});">${d.txt}</span>` : ''}
         </div>
-        <div style="font-size:20px;font-weight:600;margin-top:2px;">${rptFmt(m,cur)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:2px;">
+          <span style="font-size:20px;font-weight:600;">${rptFmt(m,cur)}</span>
+          ${rptSparkline(series, lane.color)}
+        </div>
       </div>`;
     }).join('');
     return `<div>
