@@ -5030,11 +5030,20 @@ function rptSegFilter(r){
   if (RPT.segment === 'all') return true;
   return normSeg(r.seg) === RPT.segment;
 }
+let _rptRawPopCache = null; // date-range only, keyed by gran — survives segment/region changes
+function rptRawRowsInPeriod(period){
+  if (!_rptRawPopCache) _rptRawPopCache = new Map();
+  const key = RPT.gran + '|' + period.from.getTime();
+  if (_rptRawPopCache.has(key)) return _rptRawPopCache.get(key);
+  const pop = _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to);
+  _rptRawPopCache.set(key, pop);
+  return pop;
+}
 function rptRowsInPeriod(period){
   if (!_rptPopCache) _rptPopCache = new Map();
-  const key = period.from.getTime();
+  const key = RPT.segment + '|' + period.from.getTime();
   if (_rptPopCache.has(key)) return _rptPopCache.get(key);
-  const pop = _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to && rptSegFilter(r));
+  const pop = RPT.segment === 'all' ? rptRawRowsInPeriod(period) : rptRawRowsInPeriod(period).filter(rptSegFilter);
   _rptPopCache.set(key, pop);
   return pop;
 }
@@ -5107,13 +5116,21 @@ function rptHeatStyle(metric, v, min, max){
   return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
 }
 
-let _rptDedupedRawLen = -1;
+let _rptDedupedRawLen = -1, _rptLastGran = null;
 function renderReports(){
-  if (_rptDedupedRawLen !== RAW.length){
+  const datasetChanged = _rptDedupedRawLen !== RAW.length;
+  if (datasetChanged){
     _rptDeduped = getDedupedForTrend(RAW);
     _rptDedupedRawLen = RAW.length;
   }
-  _rptPeriodsCache = null;
+  const granChanged = _rptLastGran !== RPT.gran;
+  if (datasetChanged || granChanged){
+    _rptPeriodsCache = null;
+    _rptRawPopCache = null;
+    _rptLastGran = RPT.gran;
+  }
+  // Segment/region changes only need these two — cheap now, since they build
+  // on top of the already-cached raw (date-only) per-period rows.
   _rptPopCache = null;
   _rptGroupCache = null;
   if (!RPT.regionsInit){ rptAllRegions().forEach(r=>RPT.regions.add(r)); RPT.regionsInit = true; }
