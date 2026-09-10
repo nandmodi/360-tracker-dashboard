@@ -1577,13 +1577,7 @@
       </div>
       <div class="f-group">
         <label class="f-label">Segment</label>
-        <select class="ms-trigger" id="rptSegSel" style="min-width:150px;">
-          <option value="all">All segments</option>
-          <option value="Ent">Enterprise</option>
-          <option value="Mid">Mid</option>
-          <option value="SMB">SMB</option>
-          <option value="Resellers">Resellers</option>
-        </select>
+        <div id="rptSegChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
       <div class="f-group" id="rptRegionGroup">
         <label class="f-label">Region</label>
@@ -5062,17 +5056,30 @@ function rptMetric(rows, metricId){
   const idx = Math.min(e2eVals.length-1, Math.ceil(pct*e2eVals.length)-1);
   return +e2eVals[idx].toFixed(2);
 }
+let _rptGroupCache = null;
+function rptGroupedRowSets(laneId, period){
+  if (!_rptGroupCache) _rptGroupCache = new Map();
+  const key = laneId + '|' + period.from.getTime();
+  if (_rptGroupCache.has(key)) return _rptGroupCache.get(key);
+  const pop = rptRowsInPeriod(period);
+  const dim = laneId === 'region' ? 'region' : 'tm';
+  const byKey = new Map();
+  for (const r of pop){
+    const k = r[dim];
+    if (!k) continue;
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
+  }
+  _rptGroupCache.set(key, byKey);
+  return byKey;
+}
 function rptLaneSeries(laneId, metricId, regionFilter){
   return rptPeriods().map(p => {
     const pop = rptRowsInPeriod(p);
     if (laneId === 'vin') return rptMetric(pop, metricId);
-    if (laneId === 'region'){
-      const regs = regionFilter || rptActiveRegions();
-      const vals = regs.map(rg => rptMetric(pop.filter(r=>r.region===rg), metricId)).filter(v=>v!=null);
-      return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
-    }
-    const teams = [...new Set(pop.map(r=>r.tm).filter(Boolean))];
-    const vals = teams.map(tm => rptMetric(pop.filter(r=>r.tm===tm), metricId)).filter(v=>v!=null);
+    const byKey = rptGroupedRowSets(laneId, p);
+    const keys = laneId === 'region' ? (regionFilter || rptActiveRegions()) : [...byKey.keys()];
+    const vals = keys.map(k => byKey.has(k) ? rptMetric(byKey.get(k), metricId) : null).filter(v=>v!=null);
     return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
   });
 }
@@ -5100,10 +5107,15 @@ function rptHeatStyle(metric, v, min, max){
   return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
 }
 
+let _rptDedupedRawLen = -1;
 function renderReports(){
-  _rptDeduped = getDedupedForTrend(RAW);
+  if (_rptDedupedRawLen !== RAW.length){
+    _rptDeduped = getDedupedForTrend(RAW);
+    _rptDedupedRawLen = RAW.length;
+  }
   _rptPeriodsCache = null;
   _rptPopCache = null;
+  _rptGroupCache = null;
   if (!RPT.regionsInit){ rptAllRegions().forEach(r=>RPT.regions.add(r)); RPT.regionsInit = true; }
   rptRenderFilters();
   rptRenderGlance();
@@ -5114,12 +5126,15 @@ function renderReports(){
 
 function rptRenderFilters(){
   document.querySelectorAll('#rptGranTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===RPT.gran));
-  const sel = $('rptSegSel'); if (sel && sel.value !== RPT.segment) sel.value = RPT.segment;
+  $('rptSegChips').innerHTML = RPT_SEGMENTS.map(s =>
+    `<span class="rpt-chip${RPT.segment===s.id?' sel':''}" onclick="setRptSegment('${esc(s.id)}')">${esc(s.label)}</span>`
+  ).join('');
   const regs = rptAllRegions();
   $('rptRegionChips').innerHTML = regs.map(r =>
     `<span class="rpt-chip${RPT.regions.has(r)?' sel':''}" onclick="toggleRptRegion('${esc(r)}')">${esc(r)}</span>`
   ).join('') + (regs.length ? `<span class="rpt-chip" onclick="toggleAllRptRegions()">${RPT.regions.size===regs.length?'Clear all':'Select all'}</span>` : '');
 }
+function setRptSegment(id){ RPT.segment = id; renderReports(); }
 function setRptGran(g){ RPT.gran = g; renderReports(); }
 function toggleRptRegion(r){
   if (RPT.regions.has(r)) RPT.regions.delete(r); else RPT.regions.add(r);
@@ -5283,10 +5298,6 @@ function rptRenderDrillPanel(){
   });
   panel.innerHTML = html + '</tbody></table></div></div>';
 }
-
-document.addEventListener('change', e=>{
-  if (e.target && e.target.id === 'rptSegSel'){ RPT.segment = e.target.value; renderReports(); }
-});
 
 function renderAccuracy(){
   // Full filters (incl. Date Range) — feeds Failure reasons, Enterprise list, Team list.
