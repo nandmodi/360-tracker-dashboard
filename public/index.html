@@ -5004,23 +5004,25 @@ function rptActiveRegions(){
 }
 function rptPeriods(){
   if (_rptPeriodsCache) return _rptPeriodsCache;
-  const n = 4;
   let maxDate = new Date(2026,3,1);
   for (const r of _rptDeduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
   const out = [];
   if (RPT.gran === 'week'){
+    // Last 4 COMPLETE Mon–Sun weeks. The week containing maxDate may still be
+    // in progress, so it's excluded — i=-1 is the most recent finished week.
     const dow = maxDate.getDay() || 7;
     const thisMon = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - dow + 1);
-    for (let i = -(n-1); i <= 0; i++){
+    for (let i = -4; i <= -1; i++){
       const s = new Date(thisMon); s.setDate(thisMon.getDate() + i*7);
       const e = new Date(s); e.setDate(s.getDate()+7);
-      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
+      out.push({ from:s, to:e, label: 'W'+(i) });
     }
   } else {
-    for (let i = -(n-1); i <= 0; i++){
+    // Current month (MTD, may be partial) + 4 previous complete months.
+    for (let i = -4; i <= 0; i++){
       const s = new Date(maxDate.getFullYear(), maxDate.getMonth()+i, 1);
       const e = new Date(maxDate.getFullYear(), maxDate.getMonth()+i+1, 1);
-      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US',{month:'short'}) });
+      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US', s.getFullYear()===maxDate.getFullYear()?{month:'short'}:{month:'short',year:'2-digit'}) });
     }
   }
   _rptPeriodsCache = out;
