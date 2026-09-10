@@ -117,7 +117,7 @@
   body.view-reports #viewReports{display:block;}
   .rpt-chip{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--ink-2);}
   .rpt-chip.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
-  .rpt-glance-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+  .rpt-glance-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px 10px;margin-bottom:10px;}
   .rpt-heat{border-radius:4px;padding:3px 8px;display:inline-block;min-width:52px;text-align:right;font-size:11px;font-family:'JetBrains Mono',monospace;}
   .acc-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .acc-mini-card{background:var(--surface-2);border:0.5px solid var(--line);border-radius:10px;padding:12px 14px;}
@@ -5132,22 +5132,33 @@ function toggleAllRptRegions(){
 }
 function setRptTrendSplit(s){ RPT.trendSplit = s; renderReports(); }
 
-function rptSparkline(values, color){
-  const w=100, h=28, pad=3;
-  const vals = values.filter(v=>v!=null);
-  if (vals.length<2) return `<svg width="${w}" height="${h}"></svg>`;
-  const min=Math.min(...vals), max=Math.max(...vals);
-  const range = max-min || 1;
-  const step = (w-pad*2)/(values.length-1);
-  let d='', started=false;
-  values.forEach((v,i)=>{
-    if (v==null) return;
-    const x = pad + i*step;
-    const y = h-pad - ((v-min)/range)*(h-pad*2);
-    d += (started?'L':'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
-    started = true;
+function rptSparkline(metric, series, labels){
+  const idx=[]; series.forEach((v,i)=>{ if(v!=null) idx.push(i); });
+  if (idx.length<2) return `<svg width="100%" height="82" viewBox="0 0 240 82"></svg>`;
+  const W=240,H=82,padT=17,padB=18,padX=24;
+  const vals = idx.map(i=>series[i]);
+  const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
+  const n=series.length, base=H-padB;
+  const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
+  const y = v => padT+(base-padT)*(1-(v-min)/span);
+  const d = rptDelta(metric, series);
+  const color = !d ? '#8a8f9e' : (d.cls==='green' ? '#1b7a46' : d.cls==='red' ? '#b3261e' : '#8a8f9e');
+  const pts = idx.map(i=>[x(i),y(series[i]),i]);
+  const line = pts.map((p,k)=>(k?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area = line+' L'+pts[pts.length-1][0].toFixed(1)+' '+base+' L'+pts[0][0].toFixed(1)+' '+base+' Z';
+  let svg = `<svg width="100%" height="82" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(metric.label)} trend">`;
+  svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
+  svg += `<path d="${area}" fill="${color}" opacity=".09"/>`;
+  svg += `<path d="${line}" fill="none" stroke="${color}" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>`;
+  pts.forEach((p,k)=>{
+    const isLast = k===pts.length-1;
+    svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?color:'var(--surface)'}" stroke="${color}" stroke-width="1.7"/>`;
+    svg += `<text x="${p[0].toFixed(1)}" y="${Math.max(11,p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'500'}" fill="${isLast?color:'var(--ink-2)'}">${rptFmt(metric, series[p[2]])}</text>`;
   });
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  (labels||[]).forEach((lab,i)=>{
+    svg += `<text x="${x(i).toFixed(1)}" y="${H-5}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
+  });
+  return svg+'</svg>';
 }
 function rptRenderGlance(){
   const periods = rptPeriods();
@@ -5157,15 +5168,17 @@ function rptRenderGlance(){
       const series = rptLaneSeries(lane.id, m.id);
       const cur = series[series.length-1];
       const d = rptDelta(m, series);
+      const prevVal = (() => { const idx=[]; series.forEach((v,i)=>{if(v!=null)idx.push(i);}); return idx.length>1 ? series[idx[idx.length-2]] : null; })();
+      const pillBg = !d ? 'var(--surface-2)' : d.cls==='green' ? 'rgba(27,122,70,.12)' : d.cls==='red' ? 'rgba(179,38,30,.12)' : 'var(--surface-2)';
+      const pillColor = !d ? 'var(--muted)' : d.cls==='green' ? '#1b7a46' : d.cls==='red' ? '#b3261e' : 'var(--muted)';
       return `<div class="rpt-glance-card">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
-          <span style="font-size:12px;color:var(--muted);">${esc(m.label)}</span>
-          ${d ? `<span style="font-size:11px;font-weight:600;color:var(--${d.cls||'muted'});">${d.txt}</span>` : ''}
+          <span style="font-size:13px;font-weight:500;color:var(--ink);">${esc(m.label)}${lane.id!=='vin'?' <span style="font-weight:400;color:var(--muted);font-size:11px;">avg</span>':''}</span>
+          ${d ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${pillBg};color:${pillColor};">${d.txt}</span>` : ''}
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:2px;">
-          <span style="font-size:20px;font-weight:600;">${rptFmt(m,cur)}</span>
-          ${rptSparkline(series, lane.color)}
-        </div>
+        <div style="font-size:26px;font-weight:700;margin-top:4px;">${rptFmt(m,cur)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">was ${rptFmt(m,prevVal)}</div>
+        ${rptSparkline(m, series, rptPeriods().map(p=>p.label))}
       </div>`;
     }).join('');
     return `<div>
