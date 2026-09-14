@@ -85,7 +85,7 @@ async function getMetabaseSession() {
 
 // Fetches a card/model's data as CSV using an authenticated session token
 // (works for both regular questions and Models — both are "cards" in Metabase's API).
-function fetchCardCSV(cardId, sessionToken, redirects = 0) {
+function fetchCardCSV(cardId, sessionToken, redirects = 0, attempt = 1) {
     if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
     const url = `${METABASE_BASE}/api/card/${cardId}/query/csv`;
     const postData = 'parameters=%5B%5D'; // form-encoded empty parameters array
@@ -100,7 +100,7 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0) {
                   },
           }, res => {
                   if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
-                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1));
+                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1, attempt));
                   if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} fetching card CSV`));
                   let stream = res;
                   const enc = res.headers['content-encoding'];
@@ -108,10 +108,29 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0) {
                   if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
                   const chunks = [];
                   stream.on('data', c => chunks.push(c));
-                  stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+                  stream.on('end', () => {
+                        // res.complete is false if the connection closed before the full
+                        // response body arrived (e.g. a timeout mid-export) — Node still
+                        // fires 'end' on the piped stream in this case, so without this
+                        // check a truncated CSV is silently accepted as valid.
+                        if (!res.complete){
+                              const msg = `Response truncated (incomplete) after ${Buffer.concat(chunks).length} bytes`;
+                              if (attempt < 3){
+                                    console.warn(`${msg} — retrying (attempt ${attempt+1}/3)…`);
+                                    return resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
+                              }
+                              return reject(new Error(msg + ' — gave up after 3 attempts'));
+                        }
+                        resolve(Buffer.concat(chunks).toString('utf8'));
+                  });
                   stream.on('error', reject);
           });
           req.on('error', reject);
+          // Large exports can take a while to generate on Metabase's side — give
+          // this plenty of room, but still fail (and retry) rather than hang forever.
+          req.setTimeout(180000, () => {
+                req.destroy(new Error('Request timed out after 180s'));
+          });
           req.write(postData);
           req.end();
     });
