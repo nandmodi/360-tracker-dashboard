@@ -2342,7 +2342,7 @@ function aggregate(rows){
     p99Tat = +sortedE2e[idx].toFixed(2);
   }
 
-  const totalReceived = skuSet.size;
+  const totalReceived = deduped.length;
   return {
     totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
     totalTechFailed, totalAiFailed, totalPending, totalProcessing,
