@@ -3934,16 +3934,17 @@ async function syncFromServer({silent=false, force=false}={}){
     // default view needs only these) and render as soon as they're ready;
     // older months keep loading silently in the background afterward, so
     // switching to a wider Date Range later doesn't need a fresh fetch.
-    const idxRes = await fetch('/data/index.json' + (force ? '?force=1' : ''));
+    const idxRes = await fetch('/data/index.json?t=' + Date.now());
     const idxData = await idxRes.json();
     if (!idxRes.ok) throw new Error(idxData.error || 'Failed to load data index');
 
     const monthsDesc = [...(idxData.months || [])].sort().reverse();
     const recentMonths = monthsDesc.slice(0, 4);
     const olderMonths  = monthsDesc.slice(4);
+    const cacheBust = Date.now();
 
     const recentResults = await Promise.all(
-      recentMonths.map(mk => fetch(`/data/${mk}.json` + (force ? '?force=1' : '')).then(r => r.json()))
+      recentMonths.map(mk => fetch(`/data/${mk}.json?t=${cacheBust}`).then(r => r.json()))
     );
     const mergedRows = [];
     for (const mr of recentResults){ if (mr && mr.rows) mergedRows.push(...mr.rows); }
@@ -3955,7 +3956,7 @@ async function syncFromServer({silent=false, force=false}={}){
     // rows into RAW silently (no re-render), so a later Date Range change
     // finds the fuller dataset already there without a fresh network wait.
     if (olderMonths.length){
-      Promise.all(olderMonths.map(mk => fetch(`/data/${mk}.json`).then(r => r.json())))
+      Promise.all(olderMonths.map(mk => fetch(`/data/${mk}.json?t=${cacheBust}`).then(r => r.json())))
         .then(olderResults => {
           for (const mr of olderResults){
             if (!mr || !mr.rows) continue;
