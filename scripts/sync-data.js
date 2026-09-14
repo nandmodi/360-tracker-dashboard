@@ -125,7 +125,14 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0, attempt = 1) {
                   });
                   stream.on('error', reject);
           });
-          req.on('error', reject);
+          req.on('error', err => {
+                if (attempt < 3){
+                      console.warn(`Request error (${err.message}) — retrying (attempt ${attempt+1}/3)…`);
+                      resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
+                } else {
+                      reject(new Error(`${err.message} — gave up after 3 attempts`));
+                }
+          });
           // Large exports can take a while to generate on Metabase's side — give
           // this plenty of room, but still fail (and retry) rather than hang forever.
           req.setTimeout(180000, () => {
@@ -211,9 +218,9 @@ function mapRow(r) {
     if (e2e !== null) row.e2e = e2e;
     set('rej', r.failure_reason);
     set('vid', r.mediaId);
-    set('tid', r.teamId);  // numeric team ID — team_name text ki jagah unique-identifier ke liye
     set('sid', r['ss.spin_id']);
     set('vm',  r['fd.platform']);
+    set('tid', r.teamId);  // numeric team ID — used instead of team_name (which may not be unique) for VIN unique-count analysis
     set('src', r['fd.source']);  // V1/V2 identifier — for VIN unique-count list
     set('cs',  r.crm_status);
     set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
