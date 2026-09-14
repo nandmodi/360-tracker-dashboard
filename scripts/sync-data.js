@@ -211,6 +211,7 @@ function mapRow(r) {
     if (e2e !== null) row.e2e = e2e;
     set('rej', r.failure_reason);
     set('vid', r.mediaId);
+    set('tid', r.teamId);  // numeric team ID — team_name text ki jagah unique-identifier ke liye
     set('sid', r['ss.spin_id']);
     set('vm',  r['fd.platform']);
     set('src', r['fd.source']);  // V1/V2 identifier — for VIN unique-count list
