@@ -213,6 +213,7 @@ function mapRow(r) {
     set('vid', r.mediaId);
     set('sid', r['ss.spin_id']);
     set('vm',  r['fd.platform']);
+    set('src', r['fd.source']);  // V1/V2 identifier — for VIN unique-count list
     set('cs',  r.crm_status);
     set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
     set('ob',  r.OB);       // "OB" column — fallback shown when CS is blank
