@@ -276,6 +276,17 @@ async function main() {
   }
 
   console.log(`Kept: ${rows.length} | Skipped: ${skipped}`);
+
+  // Safety guard: if this run produced far fewer rows than a sane minimum,
+  // something went wrong upstream (bad fetch, auth issue, etc.) — abort
+  // BEFORE writing or deleting anything, so a bad run can never wipe out
+  // otherwise-good existing data. Better to leave yesterday's data in place
+  // than to overwrite it with garbage.
+  const MIN_SANE_ROWS = 150000; // normal syncs run ~190K-202K; this catches total/partial failures (0, 105K, 132K all seen before) while staying safely below normal variance
+  if (rows.length < MIN_SANE_ROWS){
+    console.error(`ABORTING: only ${rows.length} rows kept (minimum sane threshold is ${MIN_SANE_ROWS}). Leaving existing public/data/ untouched.`);
+    process.exit(1);
+  }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
