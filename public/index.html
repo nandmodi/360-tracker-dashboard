@@ -1583,19 +1583,32 @@
         <label class="f-label">Region</label>
         <div class="chips" id="rptRegionChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
+      <div class="f-group" style="margin-left:auto;">
+        <label class="f-label">&nbsp;</label>
+        <div style="display:flex;align-items:center;gap:10px;height:34px;">
+          <span id="rptSyncTxt" style="font-size:11px;color:var(--muted);"></span>
+          <button class="btn-reset" id="rptRefreshBtn" onclick="rptLoadAll()">Refresh data</button>
+        </div>
+      </div>
     </div>
 
-    <div class="panel" data-size="full">
+    <div id="rptStatus"></div>
+
+    <div class="panel" data-size="full" id="rptGlancePanel" style="display:none;">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>At a glance</h3>
           <div class="panel-sub" id="rptGlanceSub">Latest period · change vs period before it</div>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--muted);">Cards</span>
+          <div id="rptCardToggles" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
       </div>
       <div id="rptGlanceGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;"></div>
     </div>
 
-    <div class="panel" data-size="full">
+    <div class="panel" data-size="full" id="rptTrendPanel" style="display:none;">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Trend</h3>
@@ -1608,15 +1621,18 @@
             <button class="trend-tab" data-split="segment" onclick="setRptTrendSplit('segment')">Segment</button>
             <button class="trend-tab" data-split="region" onclick="setRptTrendSplit('region')">Region</button>
           </div>
+          <div class="trend-tabs" id="rptColourTabs">
+            <button class="trend-tab sel" data-cmode="auto" onclick="setRptColourMode('auto')">Movement</button>
+            <button class="trend-tab" data-cmode="series" onclick="setRptColourMode('series')">Series</button>
+          </div>
         </div>
       </div>
-      <div class="mtrend-legend" id="rptTrendLegend"></div>
-      <div style="position:relative;height:300px;padding:8px 4px;">
-        <canvas id="rptTrendCanvas"></canvas>
-      </div>
+      <div id="rptTrendChart" style="position:relative;min-height:300px;padding:8px 4px;"></div>
+      <div class="mtrend-legend" id="rptTrendLegend" style="cursor:pointer;"></div>
+      <div class="acc-table-wrap" style="margin-top:14px;"><table class="acc-table" id="rptTrendSummary"></table></div>
     </div>
 
-    <div class="panel" data-size="full">
+    <div class="panel" data-size="full" id="rptMatrixPanel" style="display:none;">
       <div class="panel-header">
         <div class="panel-title-wrap">
           <h3>Drill down</h3>
@@ -1641,6 +1657,21 @@
         </div>
       </div>
       <div id="rptDrillPanel" style="margin-top:16px;display:none;"></div>
+    </div>
+
+    <div class="panel" data-size="full" id="rptRecordsPanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Records</h3>
+          <div class="panel-sub" id="rptRecordsSub"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="trend-tabs" id="rptRecordsLaneTabs"></div>
+          <input type="text" id="rptRecordsSearch" placeholder="Filter periods or regions" style="height:34px;border:1px solid var(--line);border-radius:6px;padding:0 10px;font-size:12px;min-width:170px;">
+          <button class="btn-reset" id="rptCsvBtn">Download CSV</button>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="rptRecordsTable"></table></div>
     </div>
   </div><!-- /#viewReports -->
 
@@ -4969,252 +5000,340 @@ function sliceByDateRange(sortedRows, from, to){
 let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sliceByDateRange
 
 // ============================================================
-// REPORTS TAB — VIN / Rooftop / Region lanes, SLA/TAT/Fulfilment metrics
+// REPORTS TAB — live from Google Sheets (360_spin/360_rt/360_region),
+// matching the Delivery Metrics "360 Live" tab exactly (UI + logic).
+// No sign-in gate — this dashboard already has its own access model.
 // ============================================================
+const RPT_SHEET_ID = '1f_Ds-wXmAPFvyFez2QkiC9mtGiTEXphPrkvjEl1tCj0';
 const RPT_LANES = [
-  { id:'vin',    label:'VIN',     color:'#2a78d6', blurb:'Every SKU, no grouping' },
-  { id:'rt',     label:'Rooftop', color:'#eb6834', blurb:'Mean across teams' },
-  { id:'region', label:'Region',  color:'#1baf7a', blurb:'Mean across regions', dim:'region' },
+  { id:'spin',   label:'Spin',    sheet:'360_spin',   color:'#2a78d6', blurb:'Every spin delivered' },
+  { id:'rt',     label:'Rooftop', sheet:'360_rt',     color:'#eb6834', blurb:'Rolled up per dealership' },
+  { id:'region', label:'Region',  sheet:'360_region', color:'#1baf7a', blurb:'Split by delivery region', dim:'region' },
 ];
 const RPT_METRICS = [
   { id:'sla_pct',         label:'SLA met',    kind:'pct', better:'high' },
-  { id:'p99_tat',         label:'TAT (P99)',  kind:'hrs', better:'low'  },
-  { id:'p95_tat',         label:'TAT (P95)',  kind:'hrs', better:'low'  },
-  { id:'fulfillment_pct', label:'Fulfilment', kind:'pct', better:'high' },
+  { id:'p99_tat_hrs',     label:'TAT (P99)',  kind:'hrs', better:'low'  },
+  { id:'p95_tat_hrs',     label:'TAT (P95)',  kind:'hrs', better:'low'  },
+  { id:'delivery_pct',    label:'Fulfilment', kind:'pct', better:'high' },
 ];
 const RPT_SEGMENTS = [
-  { id:'all', label:'All' }, { id:'Ent', label:'Enterprise' }, { id:'Mid', label:'Mid' },
-  { id:'SMB', label:'SMB' }, { id:'Resellers', label:'Resellers' },
+  { id:'all', label:'All segments', prefix:'' },
+  { id:'ent', label:'Enterprise', prefix:'ent_' },
+  { id:'mid', label:'Mid-market', prefix:'mid_' },
+  { id:'resellers', label:'Resellers', prefix:'resellers_' },
+  { id:'smb', label:'SMB', prefix:'smb_' },
 ];
-const RPT = {
-  gran:'month', segment:'all', regions:new Set(), regionsInit:false,
-  trendMetric:'sla_pct', trendSplit:'lane',
-  matrixMetric:'sla_pct', matrixLane:'vin', drillRegion:null,
-};
-let _rptDeduped = [];
-let _rptPeriodsCache = null, _rptPopCache = null;
+const RPT_SERIES_COLORS = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'];
 
+const RPT = {
+  granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
+  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(),
+  matrixMetric:'sla_pct', matrixLane:'spin',
+  drillRegion:null, recordsLane:'spin', recordsQuery:'', hidden:new Set(),
+  sortCol:null, sortDir:-1,
+  data:{}, loading:false, error:null, synced:null,
+};
+function rptRaw(laneId){ return RPT.data[laneId] || []; }
+function rptRegSet(){ return RPT.regions; }
+
+// ── Data fetch (gviz — public read, no auth needed for a link-viewable sheet) ──
+function rptGvizBase(sheet){
+  return 'https://docs.google.com/spreadsheets/d/'+RPT_SHEET_ID+'/gviz/tq?headers=1&sheet='+encodeURIComponent(sheet)+'&_='+Date.now();
+}
+let _rptJsonpN = 0;
+function rptLoadViaJsonp(sheet){
+  return new Promise(function(resolve, reject){
+    const cb = '__rpt_gviz_cb_'+(++_rptJsonpN);
+    const s = document.createElement('script');
+    let settled = false;
+    function cleanup(){ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if (s.parentNode) s.parentNode.removeChild(s); }
+    window[cb] = function(resp){
+      settled = true; cleanup();
+      if (!resp || resp.status === 'error') reject(new Error((resp&&resp.errors&&resp.errors[0]&&resp.errors[0].detailed_message)||('Sheet "'+sheet+'" could not be read')));
+      else resolve(resp.table);
+    };
+    s.onerror = function(){ if(!settled){ cleanup(); reject(new Error("Couldn't reach Google Sheets — check the connection")); } };
+    s.src = rptGvizBase(sheet)+'&tqx=out:json;responseHandler:'+cb;
+    document.head.appendChild(s);
+    setTimeout(function(){ if(!settled){ cleanup(); reject(new Error('Sheet "'+sheet+'" timed out')); } }, 25000);
+  });
+}
+async function rptFetchTable(sheet){
+  try{
+    const res = await fetch(rptGvizBase(sheet)+'&tqx=out:json');
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    return rptParseGviz(await res.text());
+  }catch(e){ return rptLoadViaJsonp(sheet); }
+}
+function rptParseGviz(text){
+  const s = text.indexOf('{'), e = text.lastIndexOf('}');
+  if (s<0) throw new Error('Unexpected response from Google Sheets');
+  const j = JSON.parse(text.slice(s, e+1));
+  if (j.status === 'error') throw new Error((j.errors&&j.errors[0]&&j.errors[0].detailed_message)||'Sheet query failed');
+  return j.table;
+}
+function rptNormGran(v){
+  const g = String(v==null?'':v).trim().toLowerCase();
+  if (g.indexOf('week')===0) return 'week';
+  if (g.indexOf('month')===0) return 'month';
+  return g;
+}
+function rptPeriodRank(p){
+  const t = String(p==null?'':p).trim();
+  const m = /^([MW])-(\d+)$/i.exec(t);
+  if (m) return -parseInt(m[2],10);
+  if (/^(MTD|WTD)$/i.test(t)) return 0;
+  return null;
+}
+function rptComparePeriods(a,b){
+  const ra=rptPeriodRank(a.period), rb=rptPeriodRank(b.period);
+  if (ra!=null && rb!=null && ra!==rb) return ra-rb;
+  if (a.date && b.date) return a.date-b.date;
+  return 0;
+}
+function rptToDate(v){
+  if (v==null) return null;
+  if (v instanceof Date) return v;
+  const m = /^Date\((\d+),(\d+),(\d+)/.exec(String(v));
+  return m ? new Date(+m[1],+m[2],+m[3]) : new Date(v);
+}
+async function rptLoadSheet(sheet){
+  const table = await rptFetchTable(sheet);
+  const labels = table.cols.map((c,i)=>(c.label||c.id||('col'+i)).trim());
+  return table.rows.map(r=>{
+    const o = { v:{} };
+    labels.forEach((lab,i)=>{
+      const cell = r.c && r.c[i], val = cell ? cell.v : null;
+      if (lab === 'sort_date') o.date = rptToDate(val);
+      else if (lab === 'granularity') o.granularity = rptNormGran(val);
+      else if (lab === 'period') o.period = val==null ? '' : String(val);
+      else if (lab === 'region') o.region = val==null ? 'Unknown' : String(val);
+      else if (lab === 'sort_group') o.group = val;
+      else if (lab === 'last_updated') { /* not needed per-row */ }
+      else o.v[lab] = (val==='' || val==null) ? null : Number(val);
+    });
+    return o;
+  }).filter(r=>r.period);
+}
+async function rptLoadAll(){
+  RPT.loading = true; RPT.error = null; renderReports();
+  try{
+    const results = await Promise.all(RPT_LANES.map(l=>rptLoadSheet(l.sheet)));
+    RPT_LANES.forEach((l,i)=>{ RPT.data[l.id] = results[i]; });
+    if (!RPT.regionsInit){ rptAllRegions().forEach(r=>rptRegSet().add(r)); RPT.regionsInit = true; }
+    RPT.synced = new Date();
+  }catch(err){ RPT.error = err.message || String(err); }
+  RPT.loading = false; renderReports();
+}
+
+// ── Selectors ────────────────────────────────────────────────
+function rptLaneById(id){ return RPT_LANES.find(l=>l.id===id); }
+function rptRowsFor(laneId){
+  return rptRaw(laneId).filter(r=>r.granularity===RPT.granularity).sort(rptComparePeriods);
+}
 function rptAllRegions(){
   const s = new Set();
-  for (const r of _rptDeduped){ if (r.region) s.add(r.region); }
+  rptRaw('region').forEach(r=>{ if (r.region) s.add(r.region); });
   return [...s].sort();
 }
 function rptActiveRegions(){
   const all = rptAllRegions();
-  const sel = all.filter(r => RPT.regions.has(r));
+  const sel = all.filter(r=>rptRegSet().has(r));
   return sel.length ? sel : all;
 }
-function rptPeriods(){
-  if (_rptPeriodsCache) return _rptPeriodsCache;
-  let maxDate = new Date(2026,3,1);
-  for (const r of _rptDeduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
-  const out = [];
-  if (RPT.gran === 'week'){
-    // Last 4 COMPLETE Mon–Sun weeks. The week containing maxDate may still be
-    // in progress, so it's excluded — i=-1 is the most recent finished week.
-    const dow = maxDate.getDay() || 7;
-    const thisMon = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - dow + 1);
-    for (let i = -4; i <= -1; i++){
-      const s = new Date(thisMon); s.setDate(thisMon.getDate() + i*7);
-      const e = new Date(s); e.setDate(s.getDate()+7);
-      out.push({ from:s, to:e, label: 'W'+(i) });
-    }
-  } else {
-    // Current month (MTD, may be partial) + 4 previous complete months.
-    for (let i = -4; i <= 0; i++){
-      const s = new Date(maxDate.getFullYear(), maxDate.getMonth()+i, 1);
-      const e = new Date(maxDate.getFullYear(), maxDate.getMonth()+i+1, 1);
-      out.push({ from:s, to:e, label: s.toLocaleDateString('en-US', s.getFullYear()===maxDate.getFullYear()?{month:'short'}:{month:'short',year:'2-digit'}) });
-    }
-  }
-  _rptPeriodsCache = out;
-  return out;
+function rptCol(metricId){ return (RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).prefix + metricId; }
+function rptPeriodsOf(){
+  const a = rptRowsFor('spin'), b = rptRowsFor('rt');
+  const src = a.length ? a : b;
+  const out = [], seen = new Set();
+  src.forEach(r=>{ if(!seen.has(r.period)){ seen.add(r.period); out.push(r.period); } });
+  if (out.length) return out;
+  const set = new Set(); rptRowsFor('region').forEach(r=>set.add(r.period));
+  return [...set];
 }
-function rptSegFilter(r){
-  if (RPT.segment === 'all') return true;
-  return normSeg(r.seg) === RPT.segment;
-}
-let _rptRawPopCache = null; // date-range only, keyed by gran — survives segment/region changes
-function rptRawRowsInPeriod(period){
-  if (!_rptRawPopCache) _rptRawPopCache = new Map();
-  const key = RPT.gran + '|' + period.from.getTime();
-  if (_rptRawPopCache.has(key)) return _rptRawPopCache.get(key);
-  const pop = _rptDeduped.filter(r => r._created && r._created >= period.from && r._created < period.to);
-  _rptRawPopCache.set(key, pop);
-  return pop;
-}
-function rptRowsInPeriod(period){
-  if (!_rptPopCache) _rptPopCache = new Map();
-  const key = RPT.segment + '|' + period.from.getTime();
-  if (_rptPopCache.has(key)) return _rptPopCache.get(key);
-  const pop = RPT.segment === 'all' ? rptRawRowsInPeriod(period) : rptRawRowsInPeriod(period).filter(rptSegFilter);
-  _rptPopCache.set(key, pop);
-  return pop;
-}
-function rptMetric(rows, metricId){
-  if (!rows.length) return null;
-  if (metricId === 'fulfillment_pct'){
-    const received = rows.length, pending = rows.filter(isPending).length, delivered = rows.filter(isDelivered).length;
-    return +((delivered/Math.max(received-pending,1))*100).toFixed(1);
-  }
-  const tatEligible = rows.filter(r => ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered'].includes((r.fs||'').trim()));
-  if (metricId === 'sla_pct'){
-    const withSla = tatEligible.filter(r => r.sla===1 || r.sla===0);
-    if (!withSla.length) return null;
-    return +((withSla.filter(r=>r.sla===1).length/withSla.length)*100).toFixed(1);
-  }
-  const e2eVals = tatEligible.filter(r=>typeof r.e2e==='number' && r.e2e>=0).map(r=>r.e2e).sort((a,b)=>a-b);
-  if (!e2eVals.length) return null;
-  const pct = metricId==='p99_tat' ? 0.99 : 0.95;
-  const idx = Math.min(e2eVals.length-1, Math.ceil(pct*e2eVals.length)-1);
-  return +e2eVals[idx].toFixed(2);
-}
-let _rptGroupCache = null;
-function rptGroupedRowSets(laneId, period){
-  if (!_rptGroupCache) _rptGroupCache = new Map();
-  const key = laneId + '|' + period.from.getTime();
-  if (_rptGroupCache.has(key)) return _rptGroupCache.get(key);
-  const pop = rptRowsInPeriod(period);
-  const dim = laneId === 'region' ? 'region' : 'tm';
-  const byKey = new Map();
-  for (const r of pop){
-    const k = r[dim];
-    if (!k) continue;
-    if (!byKey.has(k)) byKey.set(k, []);
-    byKey.get(k).push(r);
-  }
-  _rptGroupCache.set(key, byKey);
-  return byKey;
-}
-function rptLaneSeries(laneId, metricId, regionFilter){
-  return rptPeriods().map(p => {
-    const pop = rptRowsInPeriod(p);
-    if (laneId === 'vin') return rptMetric(pop, metricId);
-    const byKey = rptGroupedRowSets(laneId, p);
-    const keys = laneId === 'region' ? (regionFilter || rptActiveRegions()) : [...byKey.keys()];
-    const vals = keys.map(k => byKey.has(k) ? rptMetric(byKey.get(k), metricId) : null).filter(v=>v!=null);
-    return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
+function rptRegionSeries(colName, regionFilter){
+  const rows = rptRowsFor('region'), keep = regionFilter || rptActiveRegions();
+  const byPeriod = new Map();
+  rows.forEach(r=>{
+    if (!keep.includes(r.region)) return;
+    const val = r.v[colName];
+    if (val==null || isNaN(val)) return;
+    if (!byPeriod.has(r.period)) byPeriod.set(r.period, []);
+    byPeriod.get(r.period).push(val);
+  });
+  return rptPeriodsOf().map(p=>{
+    const a = byPeriod.get(p);
+    return a && a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
   });
 }
+function rptLaneSeries(laneId, colName){
+  if (laneId === 'region') return rptRegionSeries(colName);
+  const map = new Map(rptRowsFor(laneId).map(r=>[r.period, r.v[colName]]));
+  return rptPeriodsOf().map(p=>{ const v = map.get(p); return (v==null||isNaN(v)) ? null : v; });
+}
+function rptLastTwo(series){
+  const idx = []; series.forEach((v,i)=>{ if (v!=null) idx.push(i); });
+  const n = idx.length;
+  return { cur: n?series[idx[n-1]]:null, prev: n>1?series[idx[n-2]]:null, curIdx: n?idx[n-1]:null, prevIdx: n>1?idx[n-2]:null };
+}
+
+// ── Formatting ───────────────────────────────────────────────
 function rptFmt(metric, v){
-  if (v==null) return '—';
+  if (v==null || isNaN(v)) return '—';
   if (metric.kind==='pct') return v.toFixed(1)+'%';
   return v>=100 ? Math.round(v).toLocaleString()+'h' : v.toFixed(1)+'h';
 }
-function rptDelta(metric, series){
-  const idx=[]; series.forEach((v,i)=>{ if(v!=null) idx.push(i); });
-  const n=idx.length;
-  const cur = n?series[idx[n-1]]:null, prev = n>1?series[idx[n-2]]:null;
+function rptFmtDelta(metric, cur, prev){
   if (cur==null || prev==null) return null;
   const d = cur-prev;
-  const txt = metric.kind==='pct' ? (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'pp' : (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'h';
+  const txt = metric.kind==='pct' ? (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'pp' : (d>=0?'+':'−')+(Math.abs(d)>=100?Math.round(Math.abs(d)):Math.abs(d).toFixed(1))+'h';
   const good = metric.better==='high' ? d>0 : d<0;
-  return { txt, cls: Math.abs(d)<0.05?'':(good?'green':'red') };
+  const tone = Math.abs(d)<0.05 ? 'flat' : (good?'up':'down');
+  return { txt, tone };
 }
-function rptHeatStyle(metric, v, min, max){
-  if (v==null || max===min) return 'background:var(--surface-2);color:var(--muted)';
-  let t = (v-min)/(max-min);
-  if (metric.better==='low') t = 1-t;
-  const bad=[179,38,30], good=[27,122,70];
-  const r=Math.round(bad[0]+(good[0]-bad[0])*t), g=Math.round(bad[1]+(good[1]-bad[1])*t), b=Math.round(bad[2]+(good[2]-bad[2])*t);
-  return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
+function rptPeriodName(p){
+  const map = { MTD:'Month to date', 'M-1':'Last month', 'M-2':'2 months back', 'M-3':'3 months back', 'M-4':'4 months back',
+    WTD:'This week', 'W-1':'Last week', 'W-2':'2 weeks back', 'W-3':'3 weeks back', 'W-4':'4 weeks back' };
+  return map[p] || p;
 }
-
-let _rptDedupedRawLen = -1, _rptLastGran = null;
-function renderReports(){
-  const datasetChanged = _rptDedupedRawLen !== RAW.length;
-  if (datasetChanged){
-    _rptDeduped = getDedupedForTrend(RAW);
-    _rptDedupedRawLen = RAW.length;
-  }
-  const granChanged = _rptLastGran !== RPT.gran;
-  if (datasetChanged || granChanged){
-    _rptPeriodsCache = null;
-    _rptRawPopCache = null;
-    _rptLastGran = RPT.gran;
-  }
-  // Segment/region changes only need these two — cheap now, since they build
-  // on top of the already-cached raw (date-only) per-period rows.
-  _rptPopCache = null;
-  _rptGroupCache = null;
-  if (!RPT.regionsInit){ rptAllRegions().forEach(r=>RPT.regions.add(r)); RPT.regionsInit = true; }
-  rptRenderFilters();
-  rptRenderGlance();
-  rptRenderTrendControls();
-  rptRenderTrend();
-  rptRenderMatrix();
+function rptToneColor(t){ return t==='up' ? 'var(--green)' : t==='down' ? 'var(--red)' : 'var(--muted)'; }
+function rptStepTone(metric, prev, cur){
+  if (prev==null || cur==null || isNaN(prev) || isNaN(cur)) return 'flat';
+  const d = cur-prev;
+  if (Math.abs(d)<0.0005) return 'flat';
+  return (metric.better==='high' ? d>0 : d<0) ? 'up' : 'down';
 }
 
-function rptRenderFilters(){
-  document.querySelectorAll('#rptGranTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===RPT.gran));
-  $('rptSegChips').innerHTML = RPT_SEGMENTS.map(s =>
-    `<span class="rpt-chip${RPT.segment===s.id?' sel':''}" onclick="setRptSegment('${esc(s.id)}')">${esc(s.label)}</span>`
-  ).join('');
-  const regs = rptAllRegions();
-  $('rptRegionChips').innerHTML = regs.map(r =>
-    `<span class="rpt-chip${RPT.regions.has(r)?' sel':''}" onclick="toggleRptRegion('${esc(r)}')">${esc(r)}</span>`
-  ).join('') + (regs.length ? `<span class="rpt-chip" onclick="toggleAllRptRegions()">${RPT.regions.size===regs.length?'Clear all':'Select all'}</span>` : '');
-}
-function setRptSegment(id){ RPT.segment = id; renderReports(); }
-function setRptGran(g){ RPT.gran = g; renderReports(); }
-function toggleRptRegion(r){
-  if (RPT.regions.has(r)) RPT.regions.delete(r); else RPT.regions.add(r);
-  renderReports();
-}
-function toggleAllRptRegions(){
-  const all = rptAllRegions();
-  if (RPT.regions.size===all.length) RPT.regions.clear(); else all.forEach(r=>RPT.regions.add(r));
-  renderReports();
-}
-function setRptTrendSplit(s){ RPT.trendSplit = s; renderReports(); }
-
-function rptSparkline(metric, series, labels){
-  const idx=[]; series.forEach((v,i)=>{ if(v!=null) idx.push(i); });
-  if (idx.length<2) return `<svg width="100%" height="82" viewBox="0 0 240 82"></svg>`;
-  const W=240,H=82,padT=17,padB=18,padX=24;
+// ── Sparkline (movement-coloured, matches the reference exactly) ──
+function rptSparkline(series, metric, labels){
+  const idx = []; series.forEach((v,i)=>{ if (v!=null) idx.push(i); });
+  if (idx.length<2) return '<div style="height:100px"></div>';
+  const W=240,H=110,padT=18,padB=18,padX=22;
   const vals = idx.map(i=>series[i]);
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
   const n=series.length, base=H-padB;
   const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
   const y = v => padT+(base-padT)*(1-(v-min)/span);
-  const d = rptDelta(metric, series);
-  const color = !d ? '#8a8f9e' : (d.cls==='green' ? '#1b7a46' : d.cls==='red' ? '#b3261e' : '#8a8f9e');
-  const pts = idx.map(i=>[x(i),y(series[i]),i]);
-  const line = pts.map((p,k)=>(k?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
-  const area = line+' L'+pts[pts.length-1][0].toFixed(1)+' '+base+' L'+pts[0][0].toFixed(1)+' '+base+' Z';
-  let svg = `<svg width="100%" height="82" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(metric.label)} trend">`;
+  const pts = idx.map(i=>[x(i), y(series[i]), i]);
+  const tones = pts.map((p,k)=> k===0 ? null : rptStepTone(metric, series[pts[k-1][2]], series[p[2]]));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(metric.label)} trend">`;
   svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
-  svg += `<path d="${area}" fill="${color}" opacity=".09"/>`;
-  svg += `<path d="${line}" fill="none" stroke="${color}" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>`;
+  for (let k=1;k<pts.length;k++){
+    const a=pts[k-1], b=pts[k], c=rptToneColor(tones[k]);
+    svg += `<path d="M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)} L${b[0].toFixed(1)} ${base} L${a[0].toFixed(1)} ${base} Z" fill="${c}" opacity=".09"/>`;
+    svg += `<path d="M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`;
+  }
   pts.forEach((p,k)=>{
     const isLast = k===pts.length-1;
-    svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?color:'var(--surface)'}" stroke="${color}" stroke-width="1.7"/>`;
-    svg += `<text x="${p[0].toFixed(1)}" y="${Math.max(11,p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'500'}" fill="${isLast?color:'var(--ink-2)'}">${rptFmt(metric, series[p[2]])}</text>`;
+    const c = rptToneColor(k===0?tones[1]:tones[k]);
+    svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?c:'var(--surface)'}" stroke="${c}" stroke-width="1.7"/>`;
+    svg += `<text x="${p[0].toFixed(1)}" y="${Math.max(11,p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${k===0?'var(--ink-2)':c}">${rptFmt(metric, series[p[2]])}</text>`;
   });
   (labels||[]).forEach((lab,i)=>{
-    svg += `<text x="${x(i).toFixed(1)}" y="${H-5}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
+    svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
   });
   return svg+'</svg>';
 }
+
+// ── Full trend line chart (Chart.js) ──────────────────────────
+function rptTrendSeriesList(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  const c = rptCol(m.id);
+  if (RPT.trendSplit==='lane') return RPT_LANES.map(l=>({ name:l.label+(l.id==='region'?' (avg)':''), values: rptLaneSeries(l.id,c) }));
+  if (RPT.trendSplit==='segment') return RPT_SEGMENTS.filter(s=>s.id!=='all').map(s=>({ name:s.label, values: rptLaneSeries(RPT.matrixLane, s.prefix+m.id) }));
+  return rptActiveRegions().map(r=>({ name:r, values: rptRegionSeries(c,[r]) }));
+}
+function rptRenderTrend(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  const labels = rptPeriodsOf();
+  const all = rptTrendSeriesList().map((sr,i)=>Object.assign({}, sr, { color: RPT_SERIES_COLORS[i%RPT_SERIES_COLORS.length] }));
+  const shown = all.filter(sr=>!RPT.hidden.has(sr.name));
+  const colorMode = RPT.colorMode==='auto' ? (shown.length===1?'movement':'series') : RPT.colorMode;
+
+  document.querySelectorAll('#rptColourTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.cmode===RPT.colorMode));
+  const splitNote = RPT.trendSplit==='segment' ? `Segment split reads from the ${esc((rptLaneById(RPT.matrixLane)||{}).label||'')} sheet.`
+    : (RPT.trendSplit==='region' ? 'One line per selected region.' : 'Spin and rooftop as reported; region is the mean of the selected regions.');
+  $('rptTrendSub').textContent = splitNote + ' Click a name to hide its line.';
+
+  $('rptTrendLegend').innerHTML = all.map(sr =>
+    `<span class="mtrend-legend-item" style="opacity:${RPT.hidden.has(sr.name)?0.4:1};" onclick="toggleRptSeries('${esc(sr.name)}')"><span class="mtrend-legend-dot" style="background:${sr.color}"></span>${esc(sr.name)}</span>`
+  ).join('');
+
+  const chartEl = $('rptTrendChart');
+  if (!shown.length){
+    chartEl.innerHTML = '<p style="text-align:center;color:var(--muted);padding:40px 0;">Every line is hidden — click a name below to bring it back.</p>';
+  } else {
+    chartEl.innerHTML = '<canvas id="rptTrendCanvas"></canvas>';
+    const canvas = $('rptTrendCanvas');
+    if (window._rptTrendChart) window._rptTrendChart.destroy();
+    const byMove = colorMode === 'movement';
+    const datasets = shown.map(sr => {
+      if (!byMove) return { label: sr.name, data: sr.values, borderColor: sr.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 4, tension: 0.25, fill: false };
+      // Movement mode: colour each point by whether that step improved or worsened — build per-segment paths.
+      const segDatasets = [];
+      for (let k=1;k<sr.values.length;k++){
+        const tone = rptStepTone(m, sr.values[k-1], sr.values[k]);
+        const color = rptToneColor(tone);
+        const seg = new Array(sr.values.length).fill(null);
+        seg[k-1] = sr.values[k-1]; seg[k] = sr.values[k];
+        segDatasets.push({ label: sr.name, data: seg, borderColor: color, backgroundColor: 'transparent', borderWidth: 2.6, pointRadius: 4, pointBackgroundColor: color, spanGaps: false, tension: 0 });
+      }
+      return segDatasets;
+    });
+    const flatDatasets = [].concat(...datasets);
+    window._rptTrendChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: flatDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${rptFmt(m,c.raw)}` } } },
+        scales: { x:{ grid:{display:false} }, y:{ beginAtZero: m.kind==='pct', ticks:{ callback: v => m.kind==='pct'?v+'%':v+'h' } } },
+      },
+    });
+  }
+
+  const summary = all.map(sr => {
+    const vals = sr.values.map((v,i)=>[v,i]).filter(p=>p[0]!=null);
+    const t = rptLastTwo(sr.values), d = rptFmtDelta(m, t.cur, t.prev);
+    let best=null, worst=null;
+    vals.forEach(p=>{
+      if (best===null || (m.better==='high' ? p[0]>best[0] : p[0]<best[0])) best=p;
+      if (worst===null || (m.better==='high' ? p[0]<worst[0] : p[0]>worst[0])) worst=p;
+    });
+    return `<tr style="${RPT.hidden.has(sr.name)?'opacity:.4':''}">
+      <td><span class="mtrend-legend-dot" style="background:${sr.color};display:inline-block;margin-right:6px;"></span>${esc(sr.name)}</td>
+      <td style="font-weight:600;">${rptFmt(m,t.cur)}</td><td>${rptFmt(m,t.prev)}</td>
+      <td>${d?`<span style="color:${rptToneColor(d.tone)};font-weight:600;">${d.txt}</span>`:'—'}</td>
+      <td>${best?rptFmt(m,best[0])+' <span style="color:var(--muted);">'+esc(labels[best[1]]||'')+'</span>':'—'}</td>
+      <td>${worst?rptFmt(m,worst[0])+' <span style="color:var(--muted);">'+esc(labels[worst[1]]||'')+'</span>':'—'}</td>
+    </tr>`;
+  }).join('');
+  $('rptTrendSummary').innerHTML = `<tr><th>Series</th><th>Latest</th><th>Previous</th><th>Change</th><th>Best period</th><th>Worst period</th></tr><tbody>${summary}</tbody>`;
+}
+function toggleRptSeries(name){ if (RPT.hidden.has(name)) RPT.hidden.delete(name); else RPT.hidden.add(name); rptRenderTrend(); }
+function setRptColourMode(mode){ RPT.colorMode = mode; rptRenderTrend(); }
+
+// ── Glance cards ───────────────────────────────────────────────
 function rptRenderGlance(){
-  const periods = rptPeriods();
-  $('rptGlanceSub').textContent = `${periods[periods.length-1].label} · change vs period before it`;
+  const periods = rptPeriodsOf();
+  const latest = periods.length ? periods[periods.length-1] : '';
+  $('rptGlanceSub').textContent = `${rptPeriodName(latest)} · ${(RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).label.toLowerCase()} · change vs period before it`;
+  $('rptCardToggles').innerHTML = RPT_METRICS.map(x =>
+    `<span class="rpt-chip${!RPT.hiddenCards.has(x.id)?' sel':''}" onclick="toggleRptCard('${x.id}')">${esc(x.label)}</span>`).join('');
+
   $('rptGlanceGrid').innerHTML = RPT_LANES.map(lane => {
-    const cards = RPT_METRICS.map(m => {
-      const series = rptLaneSeries(lane.id, m.id);
-      const cur = series[series.length-1];
-      const d = rptDelta(m, series);
-      const prevVal = (() => { const idx=[]; series.forEach((v,i)=>{if(v!=null)idx.push(i);}); return idx.length>1 ? series[idx[idx.length-2]] : null; })();
-      const pillBg = !d ? 'var(--surface-2)' : d.cls==='green' ? 'rgba(27,122,70,.12)' : d.cls==='red' ? 'rgba(179,38,30,.12)' : 'var(--surface-2)';
-      const pillColor = !d ? 'var(--muted)' : d.cls==='green' ? '#1b7a46' : d.cls==='red' ? '#b3261e' : 'var(--muted)';
+    const cards = RPT_METRICS.filter(m=>!RPT.hiddenCards.has(m.id)).map(m => {
+      const series = rptLaneSeries(lane.id, rptCol(m.id));
+      const t = rptLastTwo(series), d = rptFmtDelta(m, t.cur, t.prev);
+      const pillBg = !d ? 'var(--surface-2)' : `color-mix(in srgb, ${rptToneColor(d.tone)} 15%, transparent)`;
       return `<div class="rpt-glance-card">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
-          <span style="font-size:13px;font-weight:500;color:var(--ink);">${esc(m.label)}${lane.id!=='vin'?' <span style="font-weight:400;color:var(--muted);font-size:11px;">avg</span>':''}</span>
-          ${d ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${pillBg};color:${pillColor};">${d.txt}</span>` : ''}
+          <span style="font-size:13px;font-weight:500;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;">avg</span>':''}</span>
+          ${d?`<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${pillBg};color:${rptToneColor(d.tone)};">${d.txt}</span>`:''}
         </div>
-        <div style="font-size:26px;font-weight:700;margin-top:4px;">${rptFmt(m,cur)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">was ${rptFmt(m,prevVal)}</div>
-        ${rptSparkline(m, series, rptPeriods().map(p=>p.label))}
+        <div style="font-size:26px;font-weight:700;margin-top:4px;">${rptFmt(m,t.cur)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${t.prev!=null?'was '+rptFmt(m,t.prev):'no prior period'}</div>
+        ${rptSparkline(series, m, periods)}
       </div>`;
     }).join('');
     return `<div>
@@ -5227,99 +5346,178 @@ function rptRenderGlance(){
     </div>`;
   }).join('');
 }
+function toggleRptCard(id){ if (RPT.hiddenCards.has(id)) RPT.hiddenCards.delete(id); else RPT.hiddenCards.add(id); renderReports(); }
 
-function rptRenderTrendControls(){
-  $('rptMetricTabs').innerHTML = RPT_METRICS.map(m =>
-    `<button class="trend-tab${m.id===RPT.trendMetric?' sel':''}" onclick="setRptTrendMetric('${m.id}')">${esc(m.label)}</button>`).join('');
-  $('rptMatrixMetricTabs').innerHTML = RPT_METRICS.map(m =>
-    `<button class="trend-tab${m.id===RPT.matrixMetric?' sel':''}" onclick="setRptMatrixMetric('${m.id}')">${esc(m.label)}</button>`).join('');
-  $('rptMatrixLaneTabs').innerHTML = RPT_LANES.map(l =>
-    `<button class="trend-tab${l.id===RPT.matrixLane?' sel':''}" onclick="setRptMatrixLane('${l.id}')">${esc(l.label)}</button>`).join('');
+// ── Drill-down matrix ────────────────────────────────────────
+function rptHeatStyle(metric, v, min, max){
+  if (v==null || isNaN(v) || max===min) return 'background:var(--surface-2);color:var(--muted)';
+  let t = (v-min)/(max-min);
+  if (metric.better==='low') t = 1-t;
+  const bad=[179,38,30], good=[27,122,70];
+  const r=Math.round(bad[0]+(good[0]-bad[0])*t), g=Math.round(bad[1]+(good[1]-bad[1])*t), b=Math.round(bad[2]+(good[2]-bad[2])*t);
+  return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
 }
-function setRptTrendMetric(id){ RPT.trendMetric = id; renderReports(); }
-function setRptMatrixMetric(id){ RPT.matrixMetric = id; renderReports(); }
-function setRptMatrixLane(id){ RPT.matrixLane = id; renderReports(); }
-
-function rptTrendSeriesList(){
-  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
-  if (RPT.trendSplit==='lane') return RPT_LANES.map(l => ({ name:l.label, values: rptLaneSeries(l.id, m.id), color:l.color }));
-  if (RPT.trendSplit==='segment') return RPT_SEGMENTS.filter(s=>s.id!=='all').map((s,i) => ({
-    name:s.label, color:['#2a78d6','#eb6834','#1baf7a','#eda100'][i%4],
-    values: rptPeriods().map(p => rptMetric(rptRowsInPeriod(p).filter(r=>normSeg(r.seg)===s.id), m.id)),
-  }));
-  return rptActiveRegions().map((rg,i) => ({
-    name:rg, color:['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'][i%5],
-    values: rptPeriods().map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===rg), m.id)),
-  }));
-}
-function rptRenderTrend(){
-  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
-  const periods = rptPeriods();
-  const list = rptTrendSeriesList();
-  $('rptTrendSub').textContent = RPT.trendSplit==='lane' ? 'VIN, Rooftop (mean across teams), Region (mean across selected regions)' :
-    RPT.trendSplit==='segment' ? `Segment split · reads from ${RPT_LANES.find(l=>l.id===RPT.matrixLane).label}` : 'One line per selected region';
-  $('rptTrendLegend').innerHTML = list.map(s => `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${s.color}"></span>${esc(s.name)}</span>`).join('');
-  const canvas = document.getElementById('rptTrendCanvas');
-  if (!canvas) return;
-  if (window._rptTrendChart) window._rptTrendChart.destroy();
-  window._rptTrendChart = new Chart(canvas, {
-    type:'line',
-    data:{ labels: periods.map(p=>p.label), datasets: list.map(s => ({
-      label:s.name, data:s.values, borderColor:s.color, backgroundColor:'transparent', borderWidth:2, pointRadius:3, tension:0.3, fill:false,
-    })) },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${rptFmt(m,c.raw)}` } } },
-      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero: m.kind==='pct', ticks:{ callback: v => m.kind==='pct'?v+'%':v+'h' } } } },
-  });
-}
-
 function rptRenderMatrix(){
   const m = RPT_METRICS.find(x=>x.id===RPT.matrixMetric);
-  const periods = rptPeriods();
+  const periods = rptPeriodsOf();
   const regs = rptActiveRegions();
-  const headHtml = `<tr><th></th>${periods.map(p=>`<th>${esc(p.label)}</th>`).join('')}</tr>`;
 
-  const rRows = regs.map(rg => ({ name:rg, vals: periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===rg), m.id)) }));
-  const rAll = rRows.flatMap(r=>r.vals).filter(v=>v!=null);
-  const rMin = rAll.length?Math.min(...rAll):0, rMax = rAll.length?Math.max(...rAll):1;
-  $('rptRegionMatrix').innerHTML = headHtml + '<tbody>' + rRows.map(row =>
-    `<tr class="acc-name-link" onclick="rptDrillRegion('${esc(row.name)}')" style="cursor:pointer;">
-      <td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,rMin,rMax)}">${rptFmt(m,v)}</span></td>`).join('')}
-    </tr>`).join('') + '</tbody>';
+  document.querySelectorAll('#rptMatrixMetricTabs').forEach(el => {
+    el.innerHTML = RPT_METRICS.map(x => `<button class="trend-tab${x.id===RPT.matrixMetric?' sel':''}" onclick="setRptMatrixMetric('${x.id}')">${esc(x.label)}</button>`).join('');
+  });
+  $('rptMatrixLaneTabs').innerHTML = RPT_LANES.map(l => `<button class="trend-tab${l.id===RPT.matrixLane?' sel':''}" onclick="setRptMatrixLane('${l.id}')">${esc(l.label)}</button>`).join('');
 
-  const sRows = RPT_SEGMENTS.filter(s=>s.id!=='all').map(s => ({
-    name:s.label, vals: periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>normSeg(r.seg)===s.id), m.id)) }));
-  const sAll = sRows.flatMap(r=>r.vals).filter(v=>v!=null);
-  const sMin = sAll.length?Math.min(...sAll):0, sMax = sAll.length?Math.max(...sAll):1;
-  $('rptSegmentMatrix').innerHTML = headHtml + '<tbody>' + sRows.map(row =>
-    `<tr><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,sMin,sMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`).join('') + '</tbody>';
+  const head = first => `<tr><th>${esc(first)}</th>${periods.map(p=>`<th>${esc(p)}</th>`).join('')}</tr>`;
+
+  const rVals=[]; const rRows = regs.map(r => { const vals = rptRegionSeries(rptCol(m.id),[r]); vals.forEach(v=>{if(v!=null)rVals.push(v);}); return {name:r, vals}; });
+  const rMin = rVals.length?Math.min(...rVals):0, rMax = rVals.length?Math.max(...rVals):1;
+  $('rptRegionMatrix').innerHTML = head('Region') + '<tbody>' + (rRows.length ? rRows.map(row =>
+    `<tr class="acc-name-link" onclick="rptDrillRegion('${esc(row.name)}')" style="cursor:pointer;"><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,rMin,rMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`
+  ).join('') : `<tr><td colspan="${periods.length+1}" style="text-align:center;color:var(--muted);padding:24px;">No regions selected</td></tr>`) + '</tbody>';
+
+  const sVals=[]; const sRows = RPT_SEGMENTS.map(s => { const vals = rptLaneSeries(RPT.matrixLane, s.prefix+m.id); vals.forEach(v=>{if(v!=null)sVals.push(v);}); return {name:s.label, vals}; });
+  const sMin = sVals.length?Math.min(...sVals):0, sMax = sVals.length?Math.max(...sVals):1;
+  $('rptSegmentMatrix').innerHTML = head('Segment') + '<tbody>' + sRows.map(row =>
+    `<tr><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,sMin,sMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`
+  ).join('') + '</tbody>';
 
   rptRenderDrillPanel();
 }
-function rptDrillRegion(name){
-  RPT.drillRegion = RPT.drillRegion===name ? null : name;
-  rptRenderDrillPanel();
-}
+function setRptMatrixMetric(id){ RPT.matrixMetric = id; renderReports(); }
+function setRptMatrixLane(id){ RPT.matrixLane = id; renderReports(); }
+function rptDrillRegion(name){ RPT.drillRegion = RPT.drillRegion===name ? null : name; rptRenderDrillPanel(); }
 function rptRenderDrillPanel(){
   const panel = $('rptDrillPanel');
   if (!RPT.drillRegion){ panel.style.display='none'; return; }
   panel.style.display = 'block';
-  const periods = rptPeriods();
+  const periods = rptPeriodsOf();
+  const rows = rptRowsFor('region').filter(r=>r.region===RPT.drillRegion);
+  const byPeriod = new Map(rows.map(r=>[r.period, r]));
   let html = `<div style="border-top:1px solid var(--line);padding-top:14px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <h4 style="font-size:13px;font-weight:600;margin:0;">${esc(RPT.drillRegion)} — every metric, every segment</h4>
       <span style="cursor:pointer;color:var(--accent);font-size:12px;" onclick="rptDrillRegion('${esc(RPT.drillRegion)}')">Close</span>
     </div>
-    <div class="acc-table-wrap"><table class="acc-table"><tr><th>Segment</th><th>Metric</th>${periods.map(p=>`<th>${esc(p.label)}</th>`).join('')}</tr><tbody>`;
-  RPT_SEGMENTS.filter(s=>s.id!=='all').forEach((s,si) => {
+    <div class="acc-table-wrap"><table class="acc-table"><tr><th>Segment</th><th>Metric</th>${periods.map(p=>`<th>${esc(p)}</th>`).join('')}</tr><tbody>`;
+  RPT_SEGMENTS.forEach((s,si) => {
     RPT_METRICS.forEach((m,mi) => {
-      const vals = periods.map(p => rptMetric(rptRowsInPeriod(p).filter(r=>r.region===RPT.drillRegion && normSeg(r.seg)===s.id), m.id));
-      html += `<tr>${mi===0?`<td rowspan="${RPT_METRICS.length}" style="font-weight:600;vertical-align:top;">${esc(s.label)}</td>`:''}
-        <td>${esc(m.label)}</td>${vals.map(v=>`<td>${rptFmt(m,v)}</td>`).join('')}</tr>`;
+      html += `<tr>${mi===0?`<td rowspan="${RPT_METRICS.length}" style="font-weight:600;vertical-align:top;">${esc(s.label)}</td>`:''}<td>${esc(m.label)}</td>${periods.map(p=>{ const r=byPeriod.get(p), v=r?r.v[s.prefix+m.id]:null; return `<td>${rptFmt(m,v)}</td>`; }).join('')}</tr>`;
     });
   });
   panel.innerHTML = html + '</tbody></table></div></div>';
 }
 
+// ── Records table + CSV ────────────────────────────────────────
+function rptRecordFields(laneId){
+  const keys = new Set();
+  rptRaw(laneId).forEach(r=>Object.keys(r.v).forEach(k=>keys.add(k)));
+  return [...keys];
+}
+function rptRecordRows(){
+  const laneId = RPT.recordsLane;
+  const dim = (rptLaneById(laneId)||{}).dim;
+  let rows = rptRaw(laneId).filter(r=>r.granularity===RPT.granularity);
+  if (dim==='region') rows = rows.filter(r=>rptActiveRegions().includes(r.region));
+  const q = RPT.recordsQuery.trim().toLowerCase();
+  if (q) rows = rows.filter(r=>(r.period+' '+(r.region||'')).toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    if (RPT.sortCol){ const av=a.v[RPT.sortCol], bv=b.v[RPT.sortCol]; if(av==null)return 1; if(bv==null)return -1; return (av-bv)*RPT.sortDir; }
+    return -rptComparePeriods(a,b);
+  });
+  return rows;
+}
+function rptRenderRecords(){
+  const laneId = RPT.recordsLane;
+  const dim = (rptLaneById(laneId)||{}).dim;
+  const fields = rptRecordFields(laneId);
+  const rows = rptRecordRows();
+  $('rptRecordsSub').textContent = `${rows.length} row${rows.length===1?'':'s'} from ${(rptLaneById(laneId)||{}).sheet||''} · sorted newest first unless you pick a column`;
+  $('rptRecordsLaneTabs').innerHTML = RPT_LANES.map(l => `<button class="trend-tab${l.id===RPT.recordsLane?' sel':''}" onclick="setRptRecordsLane('${l.id}')">${esc(l.label)}</button>`).join('');
+  const head = `<tr><th>Period</th><th>Date</th>${dim?'<th>Region</th>':''}${fields.map(f=>`<th style="cursor:pointer;" onclick="setRptSort('${esc(f)}')">${esc(f)}${RPT.sortCol===f?(RPT.sortDir<0?' ↓':' ↑'):''}</th>`).join('')}</tr>`;
+  const body = rows.map(r => `<tr><td style="font-weight:500;">${esc(r.period)}</td><td style="color:var(--muted);">${r.date?r.date.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'2-digit'}):'—'}</td>${dim?`<td>${esc(r.region||'')}</td>`:''}${fields.map(f=>{ const v=r.v[f]; return `<td>${v==null||isNaN(v)?'—':(Math.abs(v)>=100?Math.round(v).toLocaleString():v.toFixed(2))}</td>`; }).join('')}</tr>`).join('');
+  $('rptRecordsTable').innerHTML = head + '<tbody>' + (rows.length ? body : `<tr><td colspan="${fields.length+3}" style="text-align:center;color:var(--muted);padding:28px;">Nothing matches that filter</td></tr>`) + '</tbody>';
+}
+function setRptRecordsLane(id){ RPT.recordsLane = id; RPT.sortCol = null; renderReports(); }
+function setRptSort(f){ if (RPT.sortCol===f) RPT.sortDir *= -1; else { RPT.sortCol=f; RPT.sortDir=-1; } rptRenderRecords(); }
+function rptDownloadCSV(){
+  const laneId = RPT.recordsLane, dim = (rptLaneById(laneId)||{}).dim;
+  const fields = rptRecordFields(laneId), rows = rptRecordRows();
+  const head = ['period','date'].concat(dim?['region']:[]).concat(fields);
+  const lines = [head.join(',')].concat(rows.map(r=>{
+    const base = [r.period, r.date?r.date.toISOString().slice(0,10):''].concat(dim?[r.region||'']:[]);
+    return base.concat(fields.map(f=>r.v[f]==null?'':r.v[f])).map(c=>{ const s=String(c); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(',');
+  }));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = laneId+'_'+RPT.granularity+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ── Filters ────────────────────────────────────────────────────
+function rptRenderFilters(){
+  document.querySelectorAll('#rptGranTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===RPT.granularity));
+  $('rptSegChips').innerHTML = RPT_SEGMENTS.map(s => `<span class="rpt-chip${RPT.segment===s.id?' sel':''}" onclick="setRptSegment('${s.id}')">${esc(s.label)}</span>`).join('');
+  const regs = rptAllRegions();
+  $('rptRegionChips').innerHTML = regs.map(r => `<span class="rpt-chip${rptRegSet().has(r)?' sel':''}" onclick="toggleRptRegion('${esc(r)}')">${esc(r)}</span>`).join('')
+    + (regs.length ? `<span class="rpt-chip" onclick="toggleAllRptRegions()">${rptRegSet().size===regs.length?'Clear all':'Select all'}</span>` : '');
+  document.querySelectorAll('#rptMetricTabs').forEach(el => { el.innerHTML = RPT_METRICS.map(x => `<button class="trend-tab${x.id===RPT.trendMetric?' sel':''}" onclick="setRptTrendMetric('${x.id}')">${esc(x.label)}</button>`).join(''); });
+}
+function setRptGran(g){ RPT.granularity = g; renderReports(); }
+function setRptSegment(id){ RPT.segment = id; renderReports(); }
+function toggleRptRegion(r){ if (rptRegSet().has(r)) rptRegSet().delete(r); else rptRegSet().add(r); if (RPT.drillRegion && !rptRegSet().has(RPT.drillRegion)) RPT.drillRegion=null; renderReports(); }
+function toggleAllRptRegions(){ const all=rptAllRegions(); if (rptRegSet().size===all.length) rptRegSet().clear(); else all.forEach(r=>rptRegSet().add(r)); renderReports(); }
+function setRptTrendMetric(id){ RPT.trendMetric = id; renderReports(); }
+function setRptTrendSplit(s){ RPT.trendSplit = s; RPT.hidden.clear(); renderReports(); }
+
+// ── Main render ──────────────────────────────────────────────
+function renderReports(){
+  rptRenderFilters();
+  const syncTxt = $('rptSyncTxt'), refreshBtn = $('rptRefreshBtn');
+  if (refreshBtn) refreshBtn.disabled = RPT.loading;
+  if (refreshBtn) refreshBtn.textContent = RPT.loading ? 'Refreshing…' : 'Refresh data';
+  if (syncTxt){
+    if (RPT.error) syncTxt.textContent = 'Sheet unreachable';
+    else if (RPT.loading) syncTxt.textContent = 'Reading the workbook…';
+    else if (RPT.synced) syncTxt.textContent = 'Synced ' + RPT.synced.toLocaleTimeString();
+    else syncTxt.textContent = '';
+  }
+  const status = $('rptStatus');
+  const panels = ['rptGlancePanel','rptTrendPanel','rptMatrixPanel','rptRecordsPanel'];
+  const haveData = rptRaw('spin').length > 0;
+
+  if (RPT.loading && !haveData){
+    panels.forEach(id => $(id).style.display = 'none');
+    status.innerHTML = '<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Pulling the workbook</h3><p style="margin:0;">Reading 360_spin, 360_rt and 360_region.</p></div>';
+    return;
+  }
+  if (RPT.error){
+    panels.forEach(id => $(id).style.display = 'none');
+    status.innerHTML = `<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Couldn't read the sheet</h3><p style="margin:0 0 12px;">${esc(RPT.error)}</p><p style="margin:0 0 14px;">The workbook has to be shared as "Anyone with the link — Viewer" for this page to read it.</p><button class="btn-reset" onclick="rptLoadAll()">Try again</button></div>`;
+    return;
+  }
+  status.innerHTML = '';
+  panels.forEach(id => $(id).style.display = 'block');
+
+  if (!RPT_METRICS.some(m=>m.id===RPT.trendMetric)) RPT.trendMetric = RPT_METRICS[0].id;
+  if (!RPT_METRICS.some(m=>m.id===RPT.matrixMetric)) RPT.matrixMetric = RPT_METRICS[0].id;
+  if (!rptLaneById(RPT.matrixLane)) RPT.matrixLane = RPT_LANES[0].id;
+  if (!rptLaneById(RPT.recordsLane)) RPT.recordsLane = RPT_LANES[0].id;
+
+  rptRenderGlance();
+  rptRenderTrend();
+  rptRenderMatrix();
+  rptRenderRecords();
+
+  const search = $('rptRecordsSearch');
+  if (search && search.value !== RPT.recordsQuery) search.value = RPT.recordsQuery;
+  if (search && !search._rptWired){
+    search._rptWired = true;
+    search.addEventListener('input', () => { RPT.recordsQuery = search.value; rptRenderRecords(); });
+  }
+  const csv = $('rptCsvBtn');
+  if (csv && !csv._rptWired){ csv._rptWired = true; csv.addEventListener('click', rptDownloadCSV); }
+}
 function renderAccuracy(){
   // Full filters (incl. Date Range) — feeds Failure reasons, Enterprise list, Team list.
   const filtered = RAW.filter(passesAccFilters);
@@ -6550,7 +6748,7 @@ function switchView(view){
     populatePerfUserList();
     renderPerformance();
   } else if (view === 'reports'){
-    renderReports();
+    if (!rptRaw('spin').length && !RPT.loading) rptLoadAll(); else renderReports();
   } else {
     refresh();
   }
