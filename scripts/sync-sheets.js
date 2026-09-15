@@ -88,10 +88,11 @@ function getPeriods(allRows) {
   for (const r of allRows) { if (r._pa && r._pa > maxDate) maxDate = r._pa; }
 
   const periods = [];
-  // Weekly: W-0 (current, may be partial) through W-3
+  // Weekly: W-1 (previous complete Mon-Sun week) through W-4 — the current,
+  // possibly-still-in-progress week is intentionally excluded.
   const dow = maxDate.getDay() || 7;
   const thisMon = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - dow + 1);
-  for (let i = 0; i <= 3; i++) {
+  for (let i = 1; i <= 4; i++) {
     const s = new Date(thisMon); s.setDate(thisMon.getDate() - i * 7);
     const e = new Date(s); e.setDate(s.getDate() + 7);
     periods.push({ sort_group: 0, sort_date: s, granularity: 'week', period: 'W-' + i, from: s, to: e });
