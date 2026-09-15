@@ -250,6 +250,40 @@ const REGION_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'regi
   'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs',
   'delivery_pct', 'ent_delivery_pct', 'mid_delivery_pct', 'resellers_delivery_pct', 'smb_delivery_pct', 'last_updated'];
 
+function getSpreadsheetInfo(accessToken) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties.title`;
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { Authorization: `Bearer ${accessToken}` } }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(JSON.parse(data));
+        else reject(new Error(`Sheets API ${res.statusCode} (get spreadsheet): ${data.slice(0, 300)}`));
+      });
+    }).on('error', reject);
+  });
+}
+function ensureTabsExist(accessToken, existingTitles, neededTitles) {
+  const missing = neededTitles.filter(t => !existingTitles.includes(t));
+  if (!missing.length) return Promise.resolve();
+  const body = JSON.stringify({ requests: missing.map(title => ({ addSheet: { properties: { title } } })) });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`;
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) { console.log(`Created missing tab(s): ${missing.join(', ')}`); resolve(); }
+        else reject(new Error(`Sheets API ${res.statusCode} (create tabs): ${data.slice(0, 300)}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(body); req.end();
+  });
+}
+
 async function main() {
   if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID env var not set');
   const credsRaw = process.env.GOOGLE_SHEETS_CREDENTIALS;
@@ -269,6 +303,12 @@ async function main() {
 
   console.log('Authenticating with Google…');
   const token = await getAccessToken(creds);
+
+  console.log('Checking spreadsheet tabs…');
+  const info = await getSpreadsheetInfo(token);
+  const existingTitles = (info.sheets || []).map(s => s.properties.title);
+  console.log(`Existing tabs: ${existingTitles.join(', ') || '(none)'}`);
+  await ensureTabsExist(token, existingTitles, ['360_spin', '360_region', '360_rt']);
 
   console.log('Writing 360_spin…');
   await writeSheet(token, '360_spin', SPIN_RT_HEADER, spinRows);
