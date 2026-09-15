@@ -218,7 +218,27 @@ function getAccessToken(creds) {
   });
 }
 
-function writeSheet(accessToken, sheetName, headerOrder, rows) {
+function clearSheet(accessToken, sheetName) {
+  const range = encodeURIComponent(`${sheetName}!A1:Z10000`); // generous range — comfortably covers any realistic row/column count
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:clear`;
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Length': 0 },
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve();
+        else reject(new Error(`Sheets API ${res.statusCode} (clear ${sheetName}): ${data.slice(0, 300)}`));
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function writeSheet(accessToken, sheetName, headerOrder, rows) {
+  await clearSheet(accessToken, sheetName); // wipe any stale rows from a previous run before writing fresh data
   const values = [headerOrder, ...rows.map(r => headerOrder.map(h => (r[h] == null ? '' : r[h])))];
   const body = JSON.stringify({ values });
   const range = encodeURIComponent(`${sheetName}!A1`);
