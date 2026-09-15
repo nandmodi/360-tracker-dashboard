@@ -39,3 +39,10 @@ jobs:
             git pull --rebase origin main
             git push
           )
+
+      - name: Sync 360_spin / 360_region / 360_rt to Google Sheets
+        continue-on-error: true  # dashboard sync above already succeeded; don't let a Sheets-side issue show as an overall failure
+        run: node scripts/sync-sheets.js
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          GOOGLE_SHEET_ID: '1f_Ds-wXmAPFvyFez2QkiC9mtGiTEXphPrkvjEl1tCj0'
