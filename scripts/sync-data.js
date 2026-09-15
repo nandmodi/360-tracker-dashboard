@@ -175,29 +175,33 @@ const _diag = { withProcessed:0, fallback:0, sample:[] };
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
   const pa  = parseDate(r.processedAt || r.processed_at || r.processed_on); // processed timestamp (E2E start)
-  const sc  = parseDate(r.sku_created_on); // sku_created_on (for TAT/SLA)
+  let scRaw = parseDate(r.sku_created_on); // sku_created_on (for TAT/SLA)
+  if (scRaw && scRaw.getTime() < 86400000) scRaw = null; // treat epoch-placeholder (~1970-01-01, meaning "no real value") as blank
+  const sc  = scRaw || ca; // fall back to createdAt when sku_created_on is blank/epoch (e.g. no spin_sku_id was ever generated)
   const ft  = parseDate(r.final_time);
-    const fq  = parseDate(r.first_qc_done);  // first QC done time
+    let fq  = parseDate(r.first_qc_done);  // first QC done time
+  const fqRaw = fq;
+  if (!fq) fq = ft; // fall back to final_time when first_qc_done is blank (e.g. Validation Failed before QC) — per business decision, these are NOT excluded from TAT/E2E/SLA/Fulfilment
 
-  // TAT = sku_created_on to first_qc_done
+  // TAT = sku_created_on (or createdAt fallback) to first_qc_done (or final_time fallback)
   let tat = null;
     if (sc && fq) {
           const ms = fq - sc;
-          if (ms > 0) tat = Math.round(ms / 36000) / 100;
+          if (ms >= 0) tat = Math.round(ms / 36000) / 100; // >=0 so instant Validation-Failed records (final_time == start) register as 0h, not silently excluded
     }
 
-  // E2E TAT = sku_created_on -> first_qc_done (same start field as TAT)
+  // E2E TAT = same start/end logic as TAT
   let e2e = null;
     const e2eStart = sc;
     if (e2eStart && fq) {
           const ms = fq - e2eStart;
-          if (ms > 0) e2e = Math.round(ms / 36000) / 100;
+          if (ms >= 0) e2e = Math.round(ms / 36000) / 100;
     }
     // --- E2E diagnostics ---
     if (pa) _diag.withProcessed++; else _diag.fallback++;
-    if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, e2e });
+    if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
-  // SLA = sku_created_on to first_qc_done <= 6h
+  // SLA = sku_created_on to first_qc_done (both with fallbacks above) <= 6h
   const finalStatus = (r.final_status || '').trim();
     let sla = null;
     if (tat !== null && finalStatus !== 'Under Review')
