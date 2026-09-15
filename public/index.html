@@ -2162,7 +2162,7 @@ function aggregate(rows){
   for (const r of rows){
     if (!isTatEligible(r)) continue;        // Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered
     if (!r.qc) continue;                    // skip null qc_user_id
-    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat > 0){
+    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat >= 0){
       tatSum += r.tat;
       tatCount++;
     }
@@ -2199,11 +2199,11 @@ function aggregate(rows){
     // E2E TAT / Within 6h — computed across ALL TAT-eligible statuses
     // (Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered), not just Delivered.
     if (isTatEligible(r)){
-      if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e > 0){
+      if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e >= 0){
         e2eTatSum += r.e2e; e2eTatCount++;
         e2eValues.push(r.e2e);
       }
-      if (typeof r.tat === 'number' && r.tat > 0){
+      if (typeof r.tat === 'number' && r.tat >= 0){
         slaDelivCount++;
         if (r.tat <= 6) within6h++;
       }
@@ -4800,10 +4800,10 @@ function drillSubset(rows, view){
     case 'out_of_sla':    return rows.filter(r => isCompleted(r) && r.sla===0);
     case 'processing':    return rows.filter(r => (r.fs||'').trim()==='Processing');
     case 'tech_ai':       return rows.filter(r => r.fs==='Tech Failure'||r.fs==='AI Failed');
-    case 'e2e_tat':       return rows.filter(r => isDelivered(r) && r.e2e > 0);
-    case 'within_6h':     return rows.filter(r => isDelivered(r) && r.e2e <= 6);
+    case 'e2e_tat':       return rows.filter(r => isTatEligible(r) && r.e2e >= 0);
+    case 'within_6h':     return rows.filter(r => isTatEligible(r) && r.e2e <= 6);
     case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
-    case 'p99_tat':       return rows.filter(r => isDelivered(r) && typeof r.e2e==='number' && r.e2e>0).sort((a,b)=>(b.e2e||0)-(a.e2e||0));
+    case 'p99_tat':       return rows.filter(r => isTatEligible(r) && typeof r.e2e==='number' && r.e2e>=0).sort((a,b)=>(b.e2e||0)-(a.e2e||0));
     default:              return rows;
   }
 }
@@ -4864,22 +4864,22 @@ function computeMonthlyMetric(deduped, from, to, metricId){
   const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
   const pop = deduped.filter(r => r._created && r._created >= from && r._created < to && TAT_ELIGIBLE.has((r.fs||'').trim()));
   if (metricId === 'w6h'){
-    const vals = pop.map(r=>r.tat).filter(t=>typeof t==='number' && t>0);
+    const vals = pop.map(r=>r.tat).filter(t=>typeof t==='number' && t>=0);
     if (!vals.length) return null;
     return +(100*vals.filter(t=>t<=6).length/vals.length).toFixed(2);
   }
   if (metricId === 'tat'){
-    const vals = pop.filter(r=>r.qc).map(r=>r.tat).filter(t=>typeof t==='number' && t>0);
+    const vals = pop.filter(r=>r.qc).map(r=>r.tat).filter(t=>typeof t==='number' && t>=0);
     if (!vals.length) return null;
     return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
   }
   if (metricId === 'e2e-tat'){
-    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>0);
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>=0);
     if (!vals.length) return null;
     return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
   }
   if (metricId === 'p99'){
-    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>0).sort((a,b)=>a-b);
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>=0).sort((a,b)=>a-b);
     if (!vals.length) return null;
     const idx = Math.min(vals.length-1, Math.ceil(0.99*vals.length)-1);
     return +vals[idx].toFixed(2);
@@ -5063,7 +5063,7 @@ function rptMetric(rows, metricId){
     if (!withSla.length) return null;
     return +((withSla.filter(r=>r.sla===1).length/withSla.length)*100).toFixed(1);
   }
-  const e2eVals = rows.filter(r=>isDelivered(r) && typeof r.e2e==='number' && r.e2e>0).map(r=>r.e2e).sort((a,b)=>a-b);
+  const e2eVals = tatEligible.filter(r=>typeof r.e2e==='number' && r.e2e>=0).map(r=>r.e2e).sort((a,b)=>a-b);
   if (!e2eVals.length) return null;
   const pct = metricId==='p99_tat' ? 0.99 : 0.95;
   const idx = Math.min(e2eVals.length-1, Math.ceil(pct*e2eVals.length)-1);
