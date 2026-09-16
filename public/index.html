@@ -641,12 +641,97 @@
   .mtrend-cols{height:208px;gap:14px;}
   .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
   .trend-tabs-mini .trend-tab{padding:3px 9px;min-width:26px;font-size:11px;font-weight:600;}
+  #authGate{position:fixed;inset:0;z-index:5000;background:var(--bg);display:flex;align-items:center;justify-content:center;}
+  #authGate.hidden{display:none;}
+  .auth-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;box-shadow:0 20px 60px var(--shadow-lg);}
+  .auth-card h2{font-size:20px;font-weight:700;margin:0 0 6px;}
+  .auth-card p{font-size:13px;color:var(--muted);margin:0 0 22px;}
+  .auth-denied{color:var(--red);font-size:12px;margin-top:14px;display:none;}
+  .auth-user-badge{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);}
+  .auth-user-badge img{width:22px;height:22px;border-radius:50%;}
+  .auth-signout{cursor:pointer;color:var(--accent);text-decoration:underline;font-size:11px;background:none;border:none;padding:0;}
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
+<div id="authGate">
+  <div class="auth-card">
+    <h2>360 Dashboard</h2>
+    <p>Sign in with your Spyne Google account to continue.</p>
+    <div id="googleSignInBtn" style="display:flex;justify-content:center;"></div>
+    <p class="auth-denied" id="authDeniedMsg">This account isn't on the access list. Contact your admin if you think this is a mistake.</p>
+  </div>
+</div>
+
 <div id="segTooltip" class="seg-tooltip"></div>
 <div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span><div class="load-progress-wrap"><div class="load-progress-bar" id="loadBar"></div></div><span class="load-pct" id="loadPct"></span></div></div>
+
+<script>
+(function(){
+  const AUTH_KEY = 'dashAuthSession';
+  const gate = document.getElementById('authGate');
+
+  function getSession(){
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch(e){ return null; }
+  }
+  function setSession(email){
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ email, ts: Date.now() }));
+  }
+  function clearSession(){ localStorage.removeItem(AUTH_KEY); }
+
+  function showBadge(email){
+    document.getElementById('authUserEmail').textContent = email;
+    document.getElementById('authUserBadge').style.display = 'flex';
+  }
+  function hideGate(email){
+    gate.classList.add('hidden');
+    showBadge(email);
+  }
+
+  async function handleCredential(response){
+    const deniedMsg = document.getElementById('authDeniedMsg');
+    deniedMsg.style.display = 'none';
+    try{
+      const res = await fetch('/api/auth-check', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ credential: response.credential }),
+      });
+      const data = await res.json();
+      if (data.allowed && data.email){
+        setSession(data.email);
+        hideGate(data.email);
+      } else {
+        deniedMsg.style.display = 'block';
+      }
+    } catch(e){
+      deniedMsg.textContent = 'Could not verify sign-in — check your connection and try again.';
+      deniedMsg.style.display = 'block';
+    }
+  }
+
+  function initGoogleButton(){
+    if (!window.google || !google.accounts || !google.accounts.id) { setTimeout(initGoogleButton, 200); return; }
+    google.accounts.id.initialize({
+      client_id: '713197071795-fsr4u5j8d3o91olgcdb96kit4oaiqfu7.apps.googleusercontent.com',
+      callback: handleCredential,
+    });
+    google.accounts.id.renderButton(document.getElementById('googleSignInBtn'), { theme:'outline', size:'large', text:'signin_with' });
+  }
+
+  const existing = getSession();
+  if (existing && existing.email){
+    hideGate(existing.email);
+  } else {
+    initGoogleButton();
+  }
+
+  document.getElementById('authSignOutBtn').addEventListener('click', function(){
+    clearSession();
+    location.reload();
+  });
+})();
+</script>
 
 <button class="theme-toggle" id="themeBtn">
   <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -681,6 +766,10 @@
         </button>
       </div>
       <span class="sync-info" id="syncInfo">—</span>
+      <div class="auth-user-badge" id="authUserBadge" style="display:none;">
+        <span id="authUserEmail"></span>
+        <button class="auth-signout" id="authSignOutBtn">Sign out</button>
+      </div>
       <button class="btn-icon" id="editBtn" title="Customize layout">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11.5 1.5l3 3-9 9L2 14l.5-3.5 9-9z"/></svg>
         <span id="editLabel">Customize</span>
