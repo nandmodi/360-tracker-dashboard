@@ -641,7 +641,7 @@
   .mtrend-cols{height:208px;gap:14px;}
   .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
   .trend-tabs-mini .trend-tab{padding:3px 9px;min-width:26px;font-size:11px;font-weight:600;}
-  #authGate{position:fixed;inset:0;z-index:5000;background:var(--bg);display:flex;align-items:center;justify-content:center;}
+  #authGate{position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center;}
   #authGate.hidden{display:none;}
   .auth-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;box-shadow:0 20px 60px var(--shadow-lg);}
   .auth-card h2{font-size:20px;font-weight:700;margin:0 0 6px;}
@@ -668,7 +668,7 @@
 <div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span><div class="load-progress-wrap"><div class="load-progress-bar" id="loadBar"></div></div><span class="load-pct" id="loadPct"></span></div></div>
 
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
   const AUTH_KEY = 'dashAuthSession';
   const gate = document.getElementById('authGate');
 
@@ -730,7 +730,7 @@
     clearSession();
     location.reload();
   });
-})();
+});
 </script>
 
 <button class="theme-toggle" id="themeBtn">
