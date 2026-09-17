@@ -770,14 +770,6 @@ document.addEventListener('DOMContentLoaded', function(){
         <span id="authUserEmail"></span>
         <button class="auth-signout" id="authSignOutBtn">Sign out</button>
       </div>
-      <button class="btn-icon" id="editBtn" title="Customize layout">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11.5 1.5l3 3-9 9L2 14l.5-3.5 9-9z"/></svg>
-        <span id="editLabel">Customize</span>
-      </button>
-      <button class="btn-download" id="downloadBtn" title="Download dashboard report (PDF)">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v9M4 6.5L8 10.5l4-4M2 13h12"/></svg>
-        <span id="downloadLabel">Download report</span>
-      </button>
       <button class="btn-sync" id="syncBtn">Sync</button>
     </div>
   </header>
@@ -6647,13 +6639,7 @@ function renderEditControls(){
   });
 }
 
-$('editBtn').addEventListener('click', ()=>{
-  editMode = !editMode;
-  document.body.classList.toggle('edit-mode', editMode);
-  $('editBtn').classList.toggle('active', editMode);
-  $('editLabel').textContent = editMode ? 'Done' : 'Customize';
-  if (editMode) renderEditControls();
-});
+// Customize/edit-layout button removed — editBtn listener no longer attached.
 
 // ─────────────────────────────────────────────────────────────
 // SYNC — only on page load / refresh / manual Sync button click.
@@ -6811,7 +6797,7 @@ async function downloadReport(){
     setLoading(false);
   }
 }
-$('downloadBtn').addEventListener('click', downloadReport);
+// Download-report button removed — downloadBtn listener no longer attached.
 
 // ─────────────────────────────────────────────────────────────
 // PERFORMANCE VIEW — user-centric analytics
