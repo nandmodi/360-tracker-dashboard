@@ -671,14 +671,13 @@
 document.addEventListener('DOMContentLoaded', function(){
   const AUTH_KEY = 'dashAuthSession';
   const gate = document.getElementById('authGate');
+  const gateCard = gate.querySelector('.auth-card');
+  const signInBtn = document.getElementById('googleSignInBtn');
+  const deniedMsg = document.getElementById('authDeniedMsg');
 
-  function getSession(){
-    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch(e){ return null; }
-  }
-  function setSession(email){
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ email, ts: Date.now() }));
-  }
-  function clearSession(){ localStorage.removeItem(AUTH_KEY); }
+  function getToken(){ return localStorage.getItem(AUTH_KEY); }
+  function setToken(token){ localStorage.setItem(AUTH_KEY, token); }
+  function clearToken(){ localStorage.removeItem(AUTH_KEY); }
 
   function showBadge(email){
     document.getElementById('authUserEmail').textContent = email;
@@ -688,25 +687,42 @@ document.addEventListener('DOMContentLoaded', function(){
     gate.classList.add('hidden');
     showBadge(email);
   }
+  function showSignInUI(message){
+    signInBtn.style.display = '';
+    deniedMsg.style.display = message ? 'block' : 'none';
+    if (message) deniedMsg.textContent = message;
+    initGoogleButton();
+  }
 
-  async function handleCredential(response){
-    const deniedMsg = document.getElementById('authDeniedMsg');
-    deniedMsg.style.display = 'none';
+  async function verifySession(token){
     try{
       const res = await fetch('/api/auth-check', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ credential: response.credential }),
+        body: JSON.stringify({ token }),
       });
-      const data = await res.json();
-      if (data.allowed && data.email){
-        setSession(data.email);
-        hideGate(data.email);
-      } else {
-        deniedMsg.style.display = 'block';
-      }
-    } catch(e){
-      deniedMsg.textContent = 'Could not verify sign-in — check your connection and try again.';
-      deniedMsg.style.display = 'block';
+      return await res.json();
+    } catch(e){ return { allowed:false, error:'network' }; }
+  }
+  async function verifyCredential(credential){
+    try{
+      const res = await fetch('/api/auth-check', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ credential }),
+      });
+      return await res.json();
+    } catch(e){ return { allowed:false, error:'network' }; }
+  }
+
+  async function handleCredential(response){
+    deniedMsg.style.display = 'none';
+    const data = await verifyCredential(response.credential);
+    if (data.allowed && data.email && data.token){
+      setToken(data.token);
+      hideGate(data.email);
+    } else if (data.error === 'network'){
+      showSignInUI('Could not verify sign-in — check your connection and try again.');
+    } else {
+      showSignInUI("This account isn't on the access list. Contact your admin if you think this is a mistake.");
     }
   }
 
@@ -716,18 +732,28 @@ document.addEventListener('DOMContentLoaded', function(){
       client_id: '713197071795-fsr4u5j8d3o91olgcdb96kit4oaiqfu7.apps.googleusercontent.com',
       callback: handleCredential,
     });
-    google.accounts.id.renderButton(document.getElementById('googleSignInBtn'), { theme:'outline', size:'large', text:'signin_with' });
+    google.accounts.id.renderButton(signInBtn, { theme:'outline', size:'large', text:'signin_with' });
   }
 
-  const existing = getSession();
-  if (existing && existing.email){
-    hideGate(existing.email);
-  } else {
-    initGoogleButton();
-  }
+  (async function boot(){
+    const token = getToken();
+    if (!token){ showSignInUI(); return; }
+    // Existing session — re-verify its signature + expiry with the server on
+    // every load (a value typed straight into localStorage by hand won't
+    // carry a valid signature, so it's rejected here instead of trusted blindly).
+    signInBtn.style.display = 'none';
+    const data = await verifySession(token);
+    if (data.allowed && data.email){
+      if (data.token) setToken(data.token); // sliding renewal — extends the session
+      hideGate(data.email);
+    } else {
+      clearToken();
+      showSignInUI(data.error === 'network' ? 'Could not reach the server — check your connection and try again.' : 'Your session expired — please sign in again.');
+    }
+  })();
 
   document.getElementById('authSignOutBtn').addEventListener('click', function(){
-    clearSession();
+    clearToken();
     location.reload();
   });
 });
