@@ -1024,10 +1024,9 @@ document.addEventListener('DOMContentLoaded', function(){
           <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
-            <button class="trend-tab" data-hr="this_week">This week</button>
-            <button class="trend-tab" data-hr="this_month">This month</button>
-            <button class="trend-tab" data-hr="3weeks">Last 3 weeks</button>
-            <button class="trend-tab" data-hr="3months">Last 3 months</button>
+            <button class="trend-tab" data-hr="15days">Last 15 days</button>
+            <button class="trend-tab" data-hr="30days">Last 30 days</button>
+            <button class="trend-tab" data-hr="45days">Last 45 days</button>
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
             <button id="btnHlyHour" class="trend-tab sel" onclick="setHlyView('hour',this)" style="font-size:11px">Hour-wise</button>
@@ -2713,10 +2712,9 @@ function getHourlyDateBounds(range) {
   switch(range) {
     case 'today':      return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
     case 'yesterday':  return { fromStr: yesStr,    toStr: todStr,          label:'Yesterday' };
-    case 'this_week':  return { fromStr: monStr,    toStr: addDay(todStr),  label:'This week' };
-    case 'this_month': return { fromStr: monStart,  toStr: addDay(todStr),  label:'This month' };
-    case '3weeks':     return { fromStr: daysAgo(21), toStr: addDay(todStr), label:'Last 3 weeks' };
-    case '3months':    return { fromStr: daysAgo(91), toStr: addDay(todStr), label:'Last 3 months' };
+    case '15days':     return { fromStr: daysAgo(15), toStr: addDay(todStr), label:'Last 15 days' };
+    case '30days':     return { fromStr: daysAgo(30), toStr: addDay(todStr), label:'Last 30 days' };
+    case '45days':     return { fromStr: daysAgo(45), toStr: addDay(todStr), label:'Last 45 days' };
     default:           return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
   }
 }
@@ -3186,15 +3184,21 @@ async function renderDayWiseChart(canvas, loader) {
     const periods = parseRosterPeriods(rosterRaw);
     const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
 
+    // Normalize whatever date-string the CSV export gives us (e.g.
+    // "2026-06-12", "6/12/2026", or an ISO datetime) into a clean
+    // YYYY-MM-DD string, so the range comparison actually matches —
+    // comparing raw un-normalized strings was the bug here.
+    function dailyDateStr(r){
+      const raw = r.date_ist || r.date || r.Date || Object.values(r)[0] || '';
+      const d = new Date(raw);
+      return isNaN(d) ? String(raw).trim() : toISTDateStr(d);
+    }
+
     // Filter daily rows to date range
     const matched = dailyRows.filter(r => {
-      const ds = (r.date||r.Date||Object.values(r)[0]||'').trim();
+      const ds = dailyDateStr(r);
       return ds >= fromStr && ds < toStr;
-    }).sort((a,b) => {
-      const da = (a.date||a.Date||Object.values(a)[0]||'');
-      const db = (b.date||b.Date||Object.values(b)[0]||'');
-      return da.localeCompare(db);
-    });
+    }).sort((a,b) => dailyDateStr(a).localeCompare(dailyDateStr(b)));
 
     if (!matched.length) {
       if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No daily data for ${label}.</span>`;
@@ -3207,7 +3211,7 @@ async function renderDayWiseChart(canvas, loader) {
     const DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
     matched.forEach(r => {
-      const ds = (r.date||r.Date||Object.values(r)[0]||'').trim();
+      const ds = dailyDateStr(r);
       const d  = new Date(ds); d.setHours(12,0,0,0);
       labels.push(`${DAY[d.getDay()]} ${d.getDate()}/${d.getMonth()+1}`);
       recv.push(  parseFloat(r.total_in  || r['Total In']  || 0));
@@ -3336,10 +3340,21 @@ async function renderHourlyChart() {
       bCount[h]++;
     });
 
+    // Multi-day ranges (15/30/45 days) show the per-hour AVERAGE across the
+    // matched days, not the raw sum — today/yesterday are single-day, so
+    // averaging would just divide by 1 and change nothing, but skip it
+    // explicitly for clarity.
+    const isSingleDay = (_hourlyRange === 'today' || _hourlyRange === 'yesterday');
+    if (!isSingleDay) {
+      for (let h=0; h<24; h++){
+        if (bCount[h] > 1){ recv[h] = recv[h]/bCount[h]; qcDone[h] = qcDone[h]/bCount[h]; }
+      }
+    }
+
     const backlogAvg = backlog.map((s,i) => bCount[i] ? Math.round(s/bCount[i]) : 0);
     const labels     = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
-    const totalRecv   = recv.reduce((a,b)=>a+b,0);
-    const totalQc     = qcDone.reduce((a,b)=>a+b,0);
+    const totalRecv   = isSingleDay ? recv.reduce((a,b)=>a+b,0) : +recv.reduce((a,b)=>a+b,0).toFixed(1);
+    const totalQc     = isSingleDay ? qcDone.reduce((a,b)=>a+b,0) : +qcDone.reduce((a,b)=>a+b,0).toFixed(1);
     const peakBacklog = Math.max(...backlogAvg);
     const endBacklog  = backlogAvg[23];
 
@@ -3496,12 +3511,15 @@ async function renderHourlyChart() {
       },
     });
 
-    $('hourlySub').textContent = `${label.toUpperCase()} · SUMMED BY HOUR OF DAY · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDENCY = FRESH + PRIOR HOUR LEFTOVER`;
-    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pendency':PAL.red };
+    $('hourlySub').textContent = `${label.toUpperCase()} · ${isSingleDay?'BY HOUR OF DAY':'AVERAGED BY HOUR OF DAY ACROSS '+bCount.filter(c=>c>0).length+' DAY-GROUPS'} · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDENCY = FRESH + PRIOR HOUR LEFTOVER`;
+    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pendency':PAL.red, Capacity:PAL.orange||'#E8820A' };
+    const totalCap = capPerHour.reduce((a,b)=>a+b,0);
+    const peakCap  = Math.max(...capPerHour);
     $('hourlyLegend').innerHTML = [
       ['Received',  totalRecv.toLocaleString()],
       ['QC Done',   totalQc.toLocaleString()],
       ['Pendency',  `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
+      ['Capacity',  `peak ${peakCap.toLocaleString()} · total ${totalCap.toLocaleString()}`],
     ].map(([k,v])=>
       `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
     ).join('');
