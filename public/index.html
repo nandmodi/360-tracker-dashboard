@@ -3244,15 +3244,17 @@ async function renderDayWiseChart(canvas, loader) {
     if (loader) loader.style.display = 'none';
 
     _hourlyChart = new Chart(canvas, {
-      type:'bar', plugins:[ChartDataLabels],
+      type:'line', plugins:[ChartDataLabels],
       data:{ labels, datasets:[
         { label:'Received', data:recv, hidden:!_hlyVisible.recv,
-          backgroundColor:PAL.accent+'88', borderColor:PAL.accent, borderWidth:1.5, borderRadius:3,
+          borderColor:PAL.accent, backgroundColor:PAL.accent+'22', fill:true,
+          borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.accent,
           datalabels:{ anchor:'end', align:'end', color:PAL.accent,
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
             formatter:v=>v>0?v.toLocaleString():'' }},
         { label:'QC Done', data:qcDone, hidden:!_hlyVisible.qcdone,
-          backgroundColor:PAL.green+'88', borderColor:PAL.green, borderWidth:1.5, borderRadius:3,
+          borderColor:PAL.green, backgroundColor:PAL.green+'22', fill:true,
+          borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.green,
           datalabels:{ anchor:'end', align:'start', color:PAL.green,
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
             formatter:v=>v>0?v.toLocaleString():'' }},
@@ -3382,17 +3384,15 @@ async function renderHourlyChart() {
     // ── Compute capacity per hour from roster ─────────────────────────────────
     // Hour-wise: actual users on shift at that hour × target
     // Overnight shifts carry over: hours 0-N on date D use prev day (D-1) leaves
-    // Day-wise: each user = 8h × target (9h shift - 1h break)
+    // For multi-day ranges (15/30/45 days), this is computed per-day and then
+    // AVERAGED across the days — a single reference day isn't representative
+    // when there could be multiple roster periods (and different rosters)
+    // spanning the whole range.
     let capPerHour = new Array(24).fill(0);
     try {
       const rosterRaw  = await fetchGSRaw(GS_ROSTER);
       const periods    = parseRosterPeriods(rosterRaw);
-      const { fromStr } = getHourlyDateBounds(_hourlyRange);
-
-      const refDate  = new Date(fromStr); refDate.setHours(12,0,0,0);
-      const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
-      const refStr   = refDate.toISOString().slice(0,10);
-      const prevStr  = prevDate.toISOString().slice(0,10);
+      const { fromStr, toStr: capToStr } = getHourlyDateBounds(_hourlyRange);
 
       const findPer = d => periods.find(p => {
         if (!p.start||!p.end) return false;
@@ -3400,44 +3400,57 @@ async function renderHourlyChart() {
         return pd >= new Date(p.start) && pd <= new Date(p.end);
       });
 
-      const period     = findPer(refDate);
-      const prevPeriod = findPer(prevDate);
+      function capPerHourForDay(refDate){
+        const out = new Array(24).fill(0);
+        const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
+        const refStr   = refDate.toISOString().slice(0,10);
+        const prevStr  = prevDate.toISOString().slice(0,10);
+        const period     = findPer(refDate);
+        const prevPeriod = findPer(prevDate);
+        for (let h = 0; h < 24; h++) {
+          if (period) {
+            (period.shifts||[]).forEach(sh => {
+              if (!sh) return;
+              const { start, end } = parseShiftHours(sh.label);
+              const overnight = end < start;
+              const active = overnight ? (h >= start) : (h >= start && h < end);
+              if (active) {
+                const leave = period.leaves[refStr]||[];
+                out[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+              }
+            });
+          }
+          if (prevPeriod) {
+            (prevPeriod.shifts||[]).forEach(sh => {
+              if (!sh) return;
+              const { start, end } = parseShiftHours(sh.label);
+              const overnight = end < start;
+              if (overnight && h < end) {
+                const leave = prevPeriod.leaves[prevStr]||[];
+                out[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
+              }
+            });
+          }
+        }
+        return out;
+      }
 
-      for (let h = 0; h < 24; h++) {
-        // Check shifts from refDate period
-        if (period) {
-          (period.shifts||[]).forEach(sh => {
-            if (!sh) return;
-            const { start, end } = parseShiftHours(sh.label);
-            const overnight = end < start;
-            if (!overnight) {
-              // Normal shift: active if h in [start, end)
-              if (h >= start && h < end) {
-                const leave = period.leaves[refStr]||[];
-                capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
-              }
-            } else {
-              // Overnight: h >= start → shift started today (use refDate leaves)
-              if (h >= start) {
-                const leave = period.leaves[refStr]||[];
-                capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
-              }
-            }
-          });
+      const isSingleDayCap = (_hourlyRange === 'today' || _hourlyRange === 'yesterday');
+      if (isSingleDayCap) {
+        const refDate = new Date(fromStr); refDate.setHours(12,0,0,0);
+        capPerHour = capPerHourForDay(refDate);
+      } else {
+        // Loop every day in [fromStr, capToStr), sum per hour, then average.
+        let dayCount = 0;
+        const cursor = new Date(fromStr); cursor.setHours(12,0,0,0);
+        const end = new Date(capToStr); end.setHours(12,0,0,0);
+        while (cursor < end) {
+          const dayCap = capPerHourForDay(cursor);
+          for (let h=0; h<24; h++) capPerHour[h] += dayCap[h];
+          dayCount++;
+          cursor.setDate(cursor.getDate()+1);
         }
-        // Overnight carry-over from previous day: h < end means shift started YESTERDAY
-        if (prevPeriod) {
-          (prevPeriod.shifts||[]).forEach(sh => {
-            if (!sh) return;
-            const { start, end } = parseShiftHours(sh.label);
-            const overnight = end < start;
-            if (overnight && h < end) {
-              // This hour is carry-over from yesterday's overnight shift → use yesterday's leaves
-              const leave = prevPeriod.leaves[prevStr]||[];
-              capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
-            }
-          });
-        }
+        if (dayCount > 0) for (let h=0; h<24; h++) capPerHour[h] = Math.round(capPerHour[h]/dayCount);
       }
     } catch(e) { console.warn('[cap]', e.message); }
 
