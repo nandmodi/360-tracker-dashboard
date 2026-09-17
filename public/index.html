@@ -2640,6 +2640,17 @@ function getPal(){
 function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
 
 // ── Hourly Throughput (Google Sheets) ────────────────────────────────────────
+function fmtCompact(v){
+  if (v == null || isNaN(v)) return v;
+  const n = Number(v);
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs < 1000) return sign + Math.round(abs).toLocaleString();
+  const k = abs / 1000;
+  const rounded = Math.round(k * 10) / 10; // one decimal place
+  const str = (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(1);
+  return sign + str + 'k';
+}
 const GS_HOURLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=778431494&single=true&output=csv';
 const GS_DAILY   = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=328351304&single=true&output=csv';
 const GS_WEEKLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1345066434&single=true&output=csv';
@@ -2798,6 +2809,9 @@ function rosterDateToStr(s) {
 }
 
 // Parse the raw Roster CSV rows → array of periods
+function isRosterPeriodHeader(first){
+  return first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first) && !/AM|PM/i.test(first);
+}
 function parseRosterPeriods(rawRows) {
   const periods = [];
   let i = 0;
@@ -2805,7 +2819,7 @@ function parseRosterPeriods(rawRows) {
     const vals = rawRows[i];
     const first = (vals[0]||'').trim();
     // Period date-range header row
-    if (first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first) && !/AM|PM/i.test(first)) {
+    if (isRosterPeriodHeader(first)) {
       const period = { header:first, start:null, end:null, shifts:[], leaves:{}, target:30 };
       // Parse period start/end
       const dm = first.match(/(\d[\d\w\s]+?)\s+to\s+([\d\w\s]+?)(?:\s*$)/i);
@@ -2848,9 +2862,13 @@ function parseRosterPeriods(rawRows) {
         i++;
       }
 
-      // Skip to Leave section
-      while (i < rawRows.length && !/leave/i.test(rawRows[i][0]||'')) i++;
-      if (i < rawRows.length) i++; // skip "Leave(...)" row
+      // Skip to Leave section — but stop early if the NEXT period's header
+      // shows up first (some periods have no distinct leave section at all;
+      // scanning past them used to silently swallow every period in between).
+      while (i < rawRows.length && !/leave/i.test(rawRows[i][0]||'') && !isRosterPeriodHeader((rawRows[i][0]||'').trim())) i++;
+      const foundLeaveMarker = i < rawRows.length && /leave/i.test(rawRows[i][0]||'');
+      if (foundLeaveMarker) {
+      i++; // skip "Leave(...)" row
       while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
 
       // Leave header: Name, date1, date2...
@@ -2873,6 +2891,7 @@ function parseRosterPeriods(rawRows) {
           i++;
         }
       }
+      } // end foundLeaveMarker guard
       periods.push(period);
     } else { i++; }
   }
@@ -3042,7 +3061,7 @@ async function renderHourWiseForecast(canvas, loader) {
         interaction:{ mode:'index', intersect:false },
         plugins:{
           legend:{ display:true, position:'top', labels:{ color:PAL.bodyText||PAL.ink, font:{size:11}, padding:14, usePointStyle:true } },
-          tooltip:{ mode:'index', intersect:false, callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` } },
+          tooltip:{ mode:'index', intersect:false, callbacks:{ label:ctx=>`${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` } },
         },
         scales:{
           x:{ grid:{display:false}, ticks:{ color:PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:0, autoSkip:true, maxTicksLimit:12 } },
@@ -3120,14 +3139,14 @@ async function renderForecastChart() {
         backgroundColor:PAL.accent+'66', borderColor:PAL.accent, borderWidth:1.5, borderRadius:4,
         datalabels:{ anchor:'end', align:'end', color:PAL.accent,
           font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-          formatter:v=>v>0?v.toLocaleString():''},
+          formatter:v=>v>0?fmtCompact(v):''},
       },
       {
         label:'Projected QC Done', data:projOut, type:'bar',
         backgroundColor:PAL.green+'66', borderColor:PAL.green, borderWidth:1.5, borderRadius:4,
         datalabels:{ anchor:'end', align:'start', color:PAL.green,
           font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-          formatter:v=>v>0?v.toLocaleString():''},
+          formatter:v=>v>0?fmtCompact(v):''},
       },
     ];
     if (hasRoster) {
@@ -3138,7 +3157,7 @@ async function renderForecastChart() {
         pointRadius:4, pointBackgroundColor:PAL.red,
         datalabels:{ anchor:'end', align:'top', color:PAL.red,
           font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-          formatter:v=>v!=null&&v>0?v.toLocaleString():''},
+          formatter:v=>v!=null&&v>0?fmtCompact(v):''},
       });
     }
 
@@ -3251,32 +3270,32 @@ async function renderDayWiseChart(canvas, loader) {
           borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.accent,
           datalabels:{ anchor:'end', align:'end', color:PAL.accent,
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v>0?v.toLocaleString():'' }},
+            formatter:v=>v>0?fmtCompact(v):'' }},
         { label:'QC Done', data:qcDone, hidden:!_hlyVisible.qcdone,
           borderColor:PAL.green, backgroundColor:PAL.green+'22', fill:true,
           borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.green,
           datalabels:{ anchor:'end', align:'start', color:PAL.green,
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v>0?v.toLocaleString():'' }},
+            formatter:v=>v>0?fmtCompact(v):'' }},
         { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
           borderColor:'#E8820A', backgroundColor:'transparent',
           borderWidth:2.5, borderDash:[6,4], tension:0,
           pointRadius:4, pointBackgroundColor:'#E8820A',
           datalabels:{ anchor:'end', align:'top', color:'#E8820A',
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
-            formatter:v=>v!=null&&v>0?v.toLocaleString():'' }},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' }},
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{
           legend:{display:false},
           tooltip:{mode:'index', intersect:false,
-            callbacks:{ label:c=>`${c.dataset.label}: ${c.parsed.y?.toLocaleString()}` }},
+            callbacks:{ label:c=>`${c.dataset.label}: ${fmtCompact(c.parsed.y)}` }},
         },
         scales:{
           x:{ grid:{display:false}, ticks:{color:getPal().muted, font:{size:10}, maxRotation:45} },
           y:{ beginAtZero:true, grid:{color:getPal().line},
-              ticks:{color:getPal().muted, font:{size:10}, callback:v=>v.toLocaleString()} },
+              ticks:{color:getPal().muted, font:{size:10}, callback:v=>fmtCompact(v)} },
         },
       },
     });
@@ -3285,8 +3304,8 @@ async function renderDayWiseChart(canvas, loader) {
     const totalQc    = qcDone.reduce((a,b)=>a+b,0);
     const leg = $('hourlyLegend');
     if (leg) leg.innerHTML = [
-      {label:'Received', color:PAL.accent, val:totalRecv.toLocaleString()},
-      {label:'QC Done',  color:PAL.green,  val:totalQc.toLocaleString()},
+      {label:'Received', color:PAL.accent, val:fmtCompact(totalRecv)},
+      {label:'QC Done',  color:PAL.green,  val:fmtCompact(totalQc)},
       {label:'Capacity (8h/user)',color:'#E8820A', val:'from roster'},
     ].map(({label,color,val})=>
       `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
@@ -3468,7 +3487,7 @@ async function renderHourlyChart() {
           datalabels:{
             align:'top', anchor:'end', clamp:true, color:labelColor,
             font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
-            formatter:v=>v>0?v.toLocaleString():'', padding:{top:2,bottom:2},
+            formatter:v=>v>0?fmtCompact(v):'', padding:{top:2,bottom:2},
           },
         },
         { label:'QC Done', data:qcDone, type:_hlyType, order:2, borderRadius:4,
@@ -3480,7 +3499,7 @@ async function renderHourlyChart() {
           datalabels:{
             align:'bottom', anchor:'end', color:PAL.green,
             font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-            formatter:v=>v>0?v.toLocaleString():'', padding:{top:1,bottom:1},
+            formatter:v=>v>0?fmtCompact(v):'', padding:{top:1,bottom:1},
           },
         },
         { label:'Pendency', data:backlogAvg, type:'line', order:1,
@@ -3493,7 +3512,7 @@ async function renderHourlyChart() {
           datalabels:{
             align:'top', anchor:'end', color:PAL.red,
             font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-            formatter:v=>v>0?v.toLocaleString():'',
+            formatter:v=>v>0?fmtCompact(v):'',
             display: ctx => ctx.dataset.data[ctx.dataIndex]>0,
           },
         },
@@ -3517,13 +3536,13 @@ async function renderHourlyChart() {
             titleColor:isDarkMode?'#0b0b0c':'#fff',
             bodyColor:isDarkMode?'#0b0b0c':'#fff',
             padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
-            callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` },
+            callbacks:{ label:ctx=>`${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` },
           },
         },
         scales:{
           x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted,autoSkip:true,maxRotation:0} },
           y:{ grid:{color:PAL.line,drawBorder:false}, beginAtZero:true,
-              ticks:{font:{size:11},color:PAL.muted,precision:0,callback:v=>v.toLocaleString()} },
+              ticks:{font:{size:11},color:PAL.muted,precision:0,callback:v=>fmtCompact(v)} },
         },
       },
     });
@@ -3533,10 +3552,10 @@ async function renderHourlyChart() {
     const totalCap = capPerHour.reduce((a,b)=>a+b,0);
     const peakCap  = Math.max(...capPerHour);
     $('hourlyLegend').innerHTML = [
-      ['Received',  totalRecv.toLocaleString()],
-      ['QC Done',   totalQc.toLocaleString()],
-      ['Pendency',  `peak ${peakBacklog.toLocaleString()} · end ${endBacklog.toLocaleString()}`],
-      ['Capacity',  `peak ${peakCap.toLocaleString()} · total ${totalCap.toLocaleString()}`],
+      ['Received',  fmtCompact(totalRecv)],
+      ['QC Done',   fmtCompact(totalQc)],
+      ['Pendency',  `peak ${fmtCompact(peakBacklog)} · end ${fmtCompact(endBacklog)}`],
+      ['Capacity',  `peak ${fmtCompact(peakCap)} · total ${fmtCompact(totalCap)}`],
     ].map(([k,v])=>
       `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
     ).join('');
@@ -3593,7 +3612,7 @@ function mkTrend(canvas, buckets){
           align:'top', anchor:'end', clamp:true,
           color:labelColor,
           font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
-          formatter:v=> v>0 ? v.toLocaleString() : '',
+          formatter:v=> v>0 ? fmtCompact(v) : '',
           padding:{top:2, bottom:2},
         },
       },
@@ -3606,7 +3625,7 @@ function mkTrend(canvas, buckets){
           align:'bottom', anchor:'end',
           color:PAL.green,
           font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-          formatter:v=> v>0 ? v.toLocaleString() : '',
+          formatter:v=> v>0 ? fmtCompact(v) : '',
           padding:{top:1, bottom:1},
         },
       },
@@ -3619,7 +3638,7 @@ function mkTrend(canvas, buckets){
           align:'top', anchor:'end', clamp:true,
           color:PAL.red,
           font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
-          formatter:v=> v>0 ? v.toLocaleString() : '',
+          formatter:v=> v>0 ? fmtCompact(v) : '',
           padding:{top:2, bottom:2},
         },
       },
@@ -3634,13 +3653,13 @@ function mkTrend(canvas, buckets){
           backgroundColor:PAL.ink, titleColor:isDark?'#0b0b0c':'#fff',
           bodyColor:isDark?'#0b0b0c':'#fff',
           padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
-          callbacks:{ label:(ctx)=> `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` },
+          callbacks:{ label:(ctx)=> `${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` },
         },
       },
       scales:{
         x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted, autoSkip:true, maxRotation:0} },
         y:{ grid:{color:PAL.line, drawBorder:false}, beginAtZero:true,
-            ticks:{font:{size:11},color:PAL.muted, precision:0, callback:(v)=>v.toLocaleString()} },
+            ticks:{font:{size:11},color:PAL.muted, precision:0, callback:(v)=>fmtCompact(v)} },
       },
     },
   });
@@ -3652,7 +3671,7 @@ function mkTrend(canvas, buckets){
   };
   const cols = { Received:PAL.accent, Delivered:PAL.green, Rejected:PAL.red };
   $('trendLegend').innerHTML = Object.entries(totals).map(([k,v])=>
-    `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v.toLocaleString()}</span></div>`
+    `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${fmtCompact(v)}</span></div>`
   ).join('');
 }
 
