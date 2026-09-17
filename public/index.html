@@ -1020,7 +1020,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="trend-tabs" id="hlyTypeTabs" style="margin-right:4px"><button class="trend-tab sel" data-ht="line" onclick="setHlyType('line')">Curve</button><button class="trend-tab" data-ht="bar" onclick="setHlyType('bar')">Bar</button></div>
+          <div class="trend-tabs" id="hlyTypeTabs" style="margin-right:4px"><button class="trend-tab sel" data-ht="line" onclick="setHlyType('line')">Curve</button></div>
           <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
@@ -3183,6 +3183,8 @@ async function renderDayWiseChart(canvas, loader) {
     const [dailyRows, rosterRaw] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
     const periods = parseRosterPeriods(rosterRaw);
     const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    console.log(`[daywise] fetched ${dailyRows.length} rows. First:`, dailyRows[0]);
+    console.log(`[daywise] range=${_hourlyRange} fromStr=${fromStr} toStr=${toStr}`);
 
     // Normalize whatever date-string the CSV export gives us (e.g.
     // "2026-06-12", "6/12/2026", or an ISO datetime) into a clean
@@ -3193,12 +3195,14 @@ async function renderDayWiseChart(canvas, loader) {
       const d = new Date(raw);
       return isNaN(d) ? String(raw).trim() : toISTDateStr(d);
     }
+    if (dailyRows[0]) console.log(`[daywise] sample dailyDateStr →`, dailyDateStr(dailyRows[0]));
 
     // Filter daily rows to date range
     const matched = dailyRows.filter(r => {
       const ds = dailyDateStr(r);
       return ds >= fromStr && ds < toStr;
     }).sort((a,b) => dailyDateStr(a).localeCompare(dailyDateStr(b)));
+    console.log(`[daywise] matched=${matched.length}`);
 
     if (!matched.length) {
       if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No daily data for ${label}.</span>`;
