@@ -1020,7 +1020,6 @@ document.addEventListener('DOMContentLoaded', function(){
           <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="trend-tabs" id="hlyTypeTabs" style="margin-right:4px"><button class="trend-tab sel" data-ht="line" onclick="setHlyType('line')">Curve</button></div>
           <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
@@ -2975,8 +2974,10 @@ async function renderHourWiseForecast(canvas, loader) {
     const dow = today.getDay();
     const pad = n => String(n).padStart(2, '0');
     const todayStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const cutoffStr = (() => { const d=new Date(today.getTime()-30*86400000); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })();
 
-    // Same-weekday hourly averages (fallback: overall hourly avg), excluding today
+    // Same-weekday hourly averages (fallback: overall hourly avg), excluding
+    // today and limited to the last 30 days of history.
     const sameSum = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
     const allSum  = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
     const actIn = new Array(24).fill(0), actOut = new Array(24).fill(0);
@@ -2985,6 +2986,7 @@ async function renderHourWiseForecast(canvas, loader) {
       const h = r._p.hour, ds = r._p.dateStr;
       const inV = parseFloat(r.total_in) || 0, outV = parseFloat(r.total_out) || 0;
       if (ds === todayStr) { actIn[h] += inV; actOut[h] += outV; hasActual = true; return; }
+      if (ds < cutoffStr) return; // outside the 30-day window
       histDays.add(ds);
       allSum[h].in += inV; allSum[h].out += outV; allSum[h].n++;
       const wd = new Date(ds + 'T12:00:00').getDay();
@@ -3049,8 +3051,11 @@ async function renderHourWiseForecast(canvas, loader) {
     );
     if (hasCap) datasets.push(
       { label:'Capacity', data:capPerHour, type:'line', order:1,
-        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], tension:0, fill:false,
-        pointRadius:3, pointBackgroundColor:'#E8820A', datalabels:{ display:false } }
+        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], stepped:'before', fill:false,
+        pointRadius:3, pointBackgroundColor:'#E8820A',
+        datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v!=null&&v>0?fmtCompact(v):'' } }
     );
 
     _hourlyChart = new Chart(canvas, {
@@ -3095,19 +3100,20 @@ async function renderForecastChart() {
     const [daily, rosterRows] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
     const periods = parseRosterPeriods(rosterRows);
 
-    // Parse daily history
+    // Parse daily history, limited to the last 30 days
+    const cutoff = new Date(Date.now() - 30*86400000);
     const parsed = [];
     daily.forEach(r => {
-      const dateVal = r.date || r.Date || Object.values(r)[0];
+      const dateVal = r.date_ist || r.date || r.Date || Object.values(r)[0];
       const inVal   = parseFloat(r.total_in  || r['Total In']  || r.in  || 0);
       const outVal  = parseFloat(r.total_out || r['Total Out'] || r.out || 0);
       if (!dateVal) return;
       const d = new Date(String(dateVal).trim());
-      if (isNaN(d)) return;
+      if (isNaN(d) || d < cutoff) return;
       parsed.push({ d, dow: d.getDay(), inV: inVal, outV: outVal });
     });
 
-    // Same-weekday averages (last 8 weeks)
+    // Same-weekday averages (last 30 days)
     const dowSum = Array.from({length:7},()=>({in:0,out:0,n:0}));
     parsed.forEach(p => { dowSum[p.dow].in+=p.inV; dowSum[p.dow].out+=p.outV; dowSum[p.dow].n++; });
     const dowAvg = dowSum.map(s => ({ in: s.n?Math.round(s.in/s.n):0, out: s.n?Math.round(s.out/s.n):0 }));
@@ -3279,7 +3285,7 @@ async function renderDayWiseChart(canvas, loader) {
             formatter:v=>v>0?fmtCompact(v):'' }},
         { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
           borderColor:'#E8820A', backgroundColor:'transparent',
-          borderWidth:2.5, borderDash:[6,4], tension:0,
+          borderWidth:2.5, borderDash:[6,4], stepped:'before',
           pointRadius:4, pointBackgroundColor:'#E8820A',
           datalabels:{ anchor:'end', align:'top', color:'#E8820A',
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
@@ -3519,10 +3525,12 @@ async function renderHourlyChart() {
         // Capacity from roster (dashed orange line)
         { label:'Capacity', data:capPerHour, type:'line', order:1, hidden:!_hlyVisible.cap,
           borderColor:'#E8820A', backgroundColor:'transparent',
-          borderWidth:2.2, borderDash:[6,4], tension:0, fill:false,
+          borderWidth:2.2, borderDash:[6,4], stepped:'before', fill:false,
           pointRadius:3, pointHoverRadius:5,
           pointBackgroundColor:'#E8820A', pointBorderColor:'#E8820A',
-          datalabels:{ display:false },
+          datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' },
         },
       ]},
       options:{
