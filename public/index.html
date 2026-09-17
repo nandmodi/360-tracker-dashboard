@@ -5144,41 +5144,6 @@ function rptRaw(laneId){ return RPT.data[laneId] || []; }
 function rptRegSet(){ return RPT.regions; }
 
 // ── Data fetch (gviz — public read, no auth needed for a link-viewable sheet) ──
-function rptGvizBase(sheet){
-  return 'https://docs.google.com/spreadsheets/d/'+RPT_SHEET_ID+'/gviz/tq?headers=1&sheet='+encodeURIComponent(sheet)+'&_='+Date.now();
-}
-let _rptJsonpN = 0;
-function rptLoadViaJsonp(sheet){
-  return new Promise(function(resolve, reject){
-    const cb = '__rpt_gviz_cb_'+(++_rptJsonpN);
-    const s = document.createElement('script');
-    let settled = false;
-    function cleanup(){ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if (s.parentNode) s.parentNode.removeChild(s); }
-    window[cb] = function(resp){
-      settled = true; cleanup();
-      if (!resp || resp.status === 'error') reject(new Error((resp&&resp.errors&&resp.errors[0]&&resp.errors[0].detailed_message)||('Sheet "'+sheet+'" could not be read')));
-      else resolve(resp.table);
-    };
-    s.onerror = function(){ if(!settled){ cleanup(); reject(new Error("Couldn't reach Google Sheets — check the connection")); } };
-    s.src = rptGvizBase(sheet)+'&tqx=out:json;responseHandler:'+cb;
-    document.head.appendChild(s);
-    setTimeout(function(){ if(!settled){ cleanup(); reject(new Error('Sheet "'+sheet+'" timed out')); } }, 25000);
-  });
-}
-async function rptFetchTable(sheet){
-  try{
-    const res = await fetch(rptGvizBase(sheet)+'&tqx=out:json');
-    if (!res.ok) throw new Error('HTTP '+res.status);
-    return rptParseGviz(await res.text());
-  }catch(e){ return rptLoadViaJsonp(sheet); }
-}
-function rptParseGviz(text){
-  const s = text.indexOf('{'), e = text.lastIndexOf('}');
-  if (s<0) throw new Error('Unexpected response from Google Sheets');
-  const j = JSON.parse(text.slice(s, e+1));
-  if (j.status === 'error') throw new Error((j.errors&&j.errors[0]&&j.errors[0].detailed_message)||'Sheet query failed');
-  return j.table;
-}
 function rptNormGran(v){
   const g = String(v==null?'':v).trim().toLowerCase();
   if (g.indexOf('week')===0) return 'week';
@@ -5204,29 +5169,34 @@ function rptToDate(v){
   const m = /^Date\((\d+),(\d+),(\d+)/.exec(String(v));
   return m ? new Date(+m[1],+m[2],+m[3]) : new Date(v);
 }
-async function rptLoadSheet(sheet){
-  const table = await rptFetchTable(sheet);
-  const labels = table.cols.map((c,i)=>(c.label||c.id||('col'+i)).trim());
-  return table.rows.map(r=>{
-    const o = { v:{} };
-    labels.forEach((lab,i)=>{
-      const cell = r.c && r.c[i], val = cell ? cell.v : null;
-      if (lab === 'sort_date') o.date = rptToDate(val);
-      else if (lab === 'granularity') o.granularity = rptNormGran(val);
-      else if (lab === 'period') o.period = val==null ? '' : String(val);
-      else if (lab === 'region') o.region = val==null ? 'Unknown' : String(val);
-      else if (lab === 'sort_group') o.group = val;
-      else if (lab === 'last_updated') { /* not needed per-row */ }
-      else o.v[lab] = (val==='' || val==null) ? null : Number(val);
-    });
-    return o;
-  }).filter(r=>r.period);
+// Converts one row of raw string/number values (as returned by our backend,
+// which reads them straight from the Sheets API) into the internal shape
+// the rest of the Reports tab expects.
+function rptRowFromRaw(raw){
+  const o = { v:{} };
+  Object.keys(raw).forEach(lab=>{
+    const val = raw[lab];
+    if (lab === 'sort_date') o.date = rptToDate(val);
+    else if (lab === 'granularity') o.granularity = rptNormGran(val);
+    else if (lab === 'period') o.period = val==null ? '' : String(val);
+    else if (lab === 'region') o.region = val==null ? 'Unknown' : String(val);
+    else if (lab === 'sort_group') o.group = val;
+    else if (lab === 'last_updated') { /* not needed per-row */ }
+    else o.v[lab] = (val==='' || val==null) ? null : Number(val);
+  });
+  return o;
 }
+function rptSessionToken(){ return localStorage.getItem('dashAuthSession') || ''; }
 async function rptLoadAll(){
   RPT.loading = true; RPT.error = null; renderReports();
   try{
-    const results = await Promise.all(RPT_LANES.map(l=>rptLoadSheet(l.sheet)));
-    RPT_LANES.forEach((l,i)=>{ RPT.data[l.id] = results[i]; });
+    const res = await fetch('/api/reports-sheet?token='+encodeURIComponent(rptSessionToken()));
+    if (res.status === 401) throw new Error('Your session expired — please refresh and sign in again.');
+    if (!res.ok) throw new Error('Could not read the workbook (HTTP '+res.status+')');
+    const payload = await res.json();
+    RPT_LANES.forEach(l=>{
+      RPT.data[l.id] = (payload[l.sheet] || []).map(rptRowFromRaw).filter(r=>r.period);
+    });
     if (!RPT.regionsInit){ rptAllRegions().forEach(r=>rptRegSet().add(r)); RPT.regionsInit = true; }
     RPT.synced = new Date();
   }catch(err){ RPT.error = err.message || String(err); }
