@@ -2844,11 +2844,12 @@ function parseRosterPeriods(rawRows) {
       }
       i++;
 
-      // User rows (until blank or Leave row)
+      // User rows (until blank, Leave row, or stray leftover period-header text)
       while (i < rawRows.length) {
         const uvals = rawRows[i];
         if (!uvals.some(v=>v?.trim())) break;
         if (/leave/i.test(uvals[0]||'')) break;
+        if (isRosterPeriodHeader((uvals[0]||'').trim())) break; // stale leftover text in the sheet, not a real user row
         const tgt = parseFloat(uvals[targetIdx]);
         if (!isNaN(tgt) && tgt>0) period.target = tgt;
         for (let s=0; s<numShifts; s++) {
@@ -3425,14 +3426,22 @@ async function renderHourlyChart() {
         return pd >= new Date(p.start) && pd <= new Date(p.end);
       });
 
-      function capPerHourForDay(refDate){
+      function capPerHourForDay(refDate, debugLog){
         const out = new Array(24).fill(0);
         const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
         const refStr   = refDate.toISOString().slice(0,10);
         const prevStr  = prevDate.toISOString().slice(0,10);
         const period     = findPer(refDate);
         const prevPeriod = findPer(prevDate);
+        if (debugLog) {
+          console.log('[cap-debug] refDate=', refStr, 'period=', period&&period.header, 'target=', period&&period.target,
+            'prevDate=', prevStr, 'prevPeriod=', prevPeriod&&prevPeriod.header, 'prevTarget=', prevPeriod&&prevPeriod.target,
+            'samePeriodObject=', period===prevPeriod);
+          if (period) console.log('[cap-debug] period.shifts:', period.shifts.map(s=>s&&({label:s.label, users:s.users})));
+          if (prevPeriod && prevPeriod!==period) console.log('[cap-debug] prevPeriod.shifts:', prevPeriod.shifts.map(s=>s&&({label:s.label, users:s.users})));
+        }
         for (let h = 0; h < 24; h++) {
+          let hourDetail = [];
           if (period) {
             (period.shifts||[]).forEach(sh => {
               if (!sh) return;
@@ -3441,7 +3450,9 @@ async function renderHourlyChart() {
               const active = overnight ? (h >= start) : (h >= start && h < end);
               if (active) {
                 const leave = period.leaves[refStr]||[];
-                out[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+                const activeUsers = sh.users.filter(u=>!leave.includes(u));
+                out[h] += activeUsers.length * period.target;
+                if (debugLog) hourDetail.push(`TODAY:${sh.label}→${activeUsers.join(',')}`);
               }
             });
           }
@@ -3452,10 +3463,13 @@ async function renderHourlyChart() {
               const overnight = end < start;
               if (overnight && h < end) {
                 const leave = prevPeriod.leaves[prevStr]||[];
-                out[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
+                const activeUsers = sh.users.filter(u=>!leave.includes(u));
+                out[h] += activeUsers.length * prevPeriod.target;
+                if (debugLog) hourDetail.push(`CARRYOVER:${sh.label}→${activeUsers.join(',')}`);
               }
             });
           }
+          if (debugLog && hourDetail.length) console.log(`[cap-debug] hour=${h} total=${out[h]} from:`, hourDetail);
         }
         return out;
       }
@@ -3463,7 +3477,7 @@ async function renderHourlyChart() {
       const isSingleDayCap = (_hourlyRange === 'today' || _hourlyRange === 'yesterday');
       if (isSingleDayCap) {
         const refDate = new Date(fromStr); refDate.setHours(12,0,0,0);
-        capPerHour = capPerHourForDay(refDate);
+        capPerHour = capPerHourForDay(refDate, true);
       } else {
         // Loop every day in [fromStr, capToStr), sum per hour, then average.
         let dayCount = 0;
