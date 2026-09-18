@@ -141,7 +141,7 @@ function buildSpinOrRt(allRows, laneId) {
       const segRows = pop.filter(r => segKey(r.seg) === sk);
       const m = laneMetrics(segRows);
       const mTotals = computeMetrics(segRows);
-      row[sk + '_total_vin'] = mTotals.total_vin; row[sk + '_total_delivered'] = mTotals.total_delivered;
+      row['total_' + sk + '_vin'] = mTotals.total_vin; row['total_' + sk + '_delivered'] = mTotals.total_delivered;
       row[sk + '_sla_pct'] = m.sla_pct; row[sk + '_p99_tat_hrs'] = m.p99_tat_hrs;
       row[sk + '_p95_tat_hrs'] = m.p95_tat_hrs; row[sk + '_delivery_pct'] = m.delivery_pct;
     }
@@ -178,7 +178,7 @@ function buildRegion(allRows) {
       const segMetrics = {};
       for (const sk of SEGMENTS) {
         segMetrics[sk] = computeMetrics(regionPop.filter(r => segKey(r.seg) === sk));
-        row[sk + '_total_vin'] = segMetrics[sk].total_vin; row[sk + '_total_delivered'] = segMetrics[sk].total_delivered;
+        row['total_' + sk + '_vin'] = segMetrics[sk].total_vin; row['total_' + sk + '_delivered'] = segMetrics[sk].total_delivered;
         row[sk + '_sla_pct'] = segMetrics[sk].sla_pct; row[sk + '_p99_tat_hrs'] = segMetrics[sk].p99_tat_hrs; row[sk + '_p95_tat_hrs'] = segMetrics[sk].p95_tat_hrs;
       }
       row.delivery_pct = overall.delivery_pct;
