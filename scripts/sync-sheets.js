@@ -61,7 +61,7 @@ function isTatEligible(r) { return TAT_ELIGIBLE.has((r.fs || '').trim()); }
 
 // ── Metrics ───────────────────────────────────────────────────
 function computeMetrics(rows) {
-  if (!rows.length) return { sla_pct: null, p99_tat_hrs: null, p95_tat_hrs: null, delivery_pct: null };
+  if (!rows.length) return { total_vin: 0, total_delivered: 0, sla_pct: null, p99_tat_hrs: null, p95_tat_hrs: null, delivery_pct: null };
   const tatRows = rows.filter(isTatEligible).map(r => {
     if (!r._pa || !r._fq) return null;
     const ms = r._fq - r._pa;
@@ -79,7 +79,7 @@ function computeMetrics(rows) {
   const delivered = rows.filter(isDelivered).length;
   const delivery_pct = +((delivered / Math.max(received - pending, 1)) * 100).toFixed(2);
 
-  return { sla_pct, p99_tat_hrs, p95_tat_hrs, delivery_pct };
+  return { total_vin: received, total_delivered: delivered, sla_pct, p99_tat_hrs, p95_tat_hrs, delivery_pct };
 }
 
 // ── Periods (matches the xlsx template exactly) ───────────────
@@ -130,14 +130,18 @@ function buildSpinOrRt(allRows, laneId) {
   return periods.map(p => {
     const pop = allRows.filter(r => inPeriod(r, p));
     const overall = laneMetrics(pop);
+    const overallTotals = computeMetrics(pop); // true pooled totals, even for 'rt' (averaging a count doesn't make sense)
     const row = {
       sort_group: p.sort_group, sort_date: p.sort_date.toISOString().slice(0, 10),
       granularity: p.granularity, period: p.period,
+      total_vin: overallTotals.total_vin, total_delivered: overallTotals.total_delivered,
       sla_pct: overall.sla_pct, p99_tat_hrs: overall.p99_tat_hrs, p95_tat_hrs: overall.p95_tat_hrs, delivery_pct: overall.delivery_pct,
     };
     for (const sk of SEGMENTS) {
       const segRows = pop.filter(r => segKey(r.seg) === sk);
       const m = laneMetrics(segRows);
+      const mTotals = computeMetrics(segRows);
+      row[sk + '_total_vin'] = mTotals.total_vin; row[sk + '_total_delivered'] = mTotals.total_delivered;
       row[sk + '_sla_pct'] = m.sla_pct; row[sk + '_p99_tat_hrs'] = m.p99_tat_hrs;
       row[sk + '_p95_tat_hrs'] = m.p95_tat_hrs; row[sk + '_delivery_pct'] = m.delivery_pct;
     }
@@ -168,11 +172,13 @@ function buildRegion(allRows) {
       const row = {
         sort_group: p.sort_group, sort_date: p.sort_date.toISOString().slice(0, 10),
         granularity: p.granularity, period: p.period, region: region || '',
+        total_vin: overall.total_vin, total_delivered: overall.total_delivered,
         sla_pct: overall.sla_pct, p99_tat_hrs: overall.p99_tat_hrs, p95_tat_hrs: overall.p95_tat_hrs,
       };
       const segMetrics = {};
       for (const sk of SEGMENTS) {
         segMetrics[sk] = computeMetrics(regionPop.filter(r => segKey(r.seg) === sk));
+        row[sk + '_total_vin'] = segMetrics[sk].total_vin; row[sk + '_total_delivered'] = segMetrics[sk].total_delivered;
         row[sk + '_sla_pct'] = segMetrics[sk].sla_pct; row[sk + '_p99_tat_hrs'] = segMetrics[sk].p99_tat_hrs; row[sk + '_p95_tat_hrs'] = segMetrics[sk].p95_tat_hrs;
       }
       row.delivery_pct = overall.delivery_pct;
@@ -260,15 +266,23 @@ async function writeSheet(accessToken, sheetName, headerOrder, rows) {
   });
 }
 
-const SPIN_RT_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'sla_pct', 'p99_tat_hrs', 'p95_tat_hrs', 'delivery_pct',
-  'ent_sla_pct', 'ent_p99_tat_hrs', 'ent_p95_tat_hrs', 'ent_delivery_pct',
-  'mid_sla_pct', 'mid_p99_tat_hrs', 'mid_p95_tat_hrs', 'mid_delivery_pct',
-  'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs', 'resellers_delivery_pct',
-  'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs', 'smb_delivery_pct', 'last_updated'];
+const SPIN_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'total_vin', 'total_delivered', 'sla_pct', 'p99_tat_hrs', 'p95_tat_hrs', 'delivery_pct',
+  'total_ent_vin', 'total_ent_delivered', 'ent_sla_pct', 'ent_p99_tat_hrs', 'ent_p95_tat_hrs', 'ent_delivery_pct',
+  'total_mid_vin', 'total_mid_delivered', 'mid_sla_pct', 'mid_p99_tat_hrs', 'mid_p95_tat_hrs', 'mid_delivery_pct',
+  'total_resellers_vin', 'total_resellers_delivered', 'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs', 'resellers_delivery_pct',
+  'total_smb_vin', 'total_smb_delivered', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs', 'smb_delivery_pct', 'last_updated'];
 
-const REGION_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'region', 'sla_pct', 'p99_tat_hrs', 'p95_tat_hrs',
-  'ent_sla_pct', 'ent_p99_tat_hrs', 'ent_p95_tat_hrs', 'mid_sla_pct', 'mid_p99_tat_hrs', 'mid_p95_tat_hrs',
-  'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs',
+const RT_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'total_vin', 'total_delivered', 'sla_pct', 'p99_tat_hrs', 'p95_tat_hrs', 'delivery_pct',
+  'total_ent_vin', 'total_ent_delivered', 'ent_sla_pct', 'ent_p99_tat_hrs', 'ent_p95_tat_hrs', 'ent_delivery_pct',
+  'total_mid_vin', 'total_mid_delivered', 'mid_sla_pct', 'mid_p99_tat_hrs', 'mid_p95_tat_hrs', 'mid_delivery_pct',
+  'total_resellers_vin', 'total_resellers_delivered', 'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs', 'resellers_delivery_pct',
+  'total_smb_vin', 'total_smb_delivered', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs', 'smb_delivery_pct', 'last_updated'];
+
+const REGION_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'region', 'total_vin', 'total_delivered', 'sla_pct', 'p99_tat_hrs', 'p95_tat_hrs',
+  'total_ent_vin', 'total_ent_delivered', 'ent_sla_pct', 'ent_p99_tat_hrs', 'ent_p95_tat_hrs',
+  'total_mid_vin', 'total_mid_delivered', 'mid_sla_pct', 'mid_p99_tat_hrs', 'mid_p95_tat_hrs',
+  'total_resellers_vin', 'total_resellers_delivered', 'resellers_sla_pct', 'resellers_p99_tat_hrs', 'resellers_p95_tat_hrs',
+  'total_smb_vin', 'total_smb_delivered', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs',
   'delivery_pct', 'ent_delivery_pct', 'mid_delivery_pct', 'resellers_delivery_pct', 'smb_delivery_pct', 'last_updated'];
 
 function getSpreadsheetInfo(accessToken) {
@@ -332,11 +346,11 @@ async function main() {
   await ensureTabsExist(token, existingTitles, ['360_spin', '360_region', '360_rt']);
 
   console.log('Writing 360_spin…');
-  await writeSheet(token, '360_spin', SPIN_RT_HEADER, spinRows);
+  await writeSheet(token, '360_spin', SPIN_HEADER, spinRows);
   console.log('Writing 360_region…');
   await writeSheet(token, '360_region', REGION_HEADER, regionRows);
   console.log('Writing 360_rt…');
-  await writeSheet(token, '360_rt', SPIN_RT_HEADER, rtRows);
+  await writeSheet(token, '360_rt', RT_HEADER, rtRows);
 
   console.log('Done.');
 }
