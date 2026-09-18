@@ -2866,7 +2866,17 @@ function parseRosterPeriods(rawRows) {
       // shows up first (some periods have no distinct leave section at all;
       // scanning past them used to silently swallow every period in between).
       while (i < rawRows.length && !/leave/i.test(rawRows[i][0]||'') && !isRosterPeriodHeader((rawRows[i][0]||'').trim())) i++;
-      const foundLeaveMarker = i < rawRows.length && /leave/i.test(rawRows[i][0]||'');
+      let foundLeaveMarker = i < rawRows.length && /leave/i.test(rawRows[i][0]||'');
+      // Quirk in the sheet: some periods' leave-marker row has stale leftover
+      // text instead of "Leave(...)" (looks exactly like a period-header).
+      // Distinguish by lookahead: if the very next non-blank row says "Name"
+      // (the leave-grid header), this row IS the leave marker despite its
+      // wording — otherwise it's genuinely the next period.
+      if (!foundLeaveMarker && i < rawRows.length && isRosterPeriodHeader((rawRows[i][0]||'').trim())) {
+        let j = i + 1;
+        while (j < rawRows.length && !rawRows[j].some(v=>v?.trim())) j++;
+        if (j < rawRows.length && /^name$/i.test((rawRows[j][0]||'').trim())) foundLeaveMarker = true;
+      }
       if (foundLeaveMarker) {
       i++; // skip "Leave(...)" row
       while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
@@ -2882,7 +2892,7 @@ function parseRosterPeriods(rawRows) {
           const name = (lvals[0]||'').trim();
           if (!name) break;
           dateCols.forEach((dateStr, di) => {
-            if (!/leave/i.test(lvals[di+1]||'')) return;
+            if (!/leave|\bwo\b/i.test(lvals[di+1]||'')) return;
             const key = rosterDateToStr(dateStr);
             if (!key) return;
             if (!period.leaves[key]) period.leaves[key] = [];
@@ -3052,7 +3062,7 @@ async function renderHourWiseForecast(canvas, loader) {
     );
     if (hasCap) datasets.push(
       { label:'Capacity', data:capPerHour, type:'line', order:1,
-        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], stepped:'before', fill:false,
+        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], stepped:'after', fill:false,
         pointRadius:3, pointBackgroundColor:'#E8820A',
         datalabels:{ anchor:'end', align:'top', color:'#E8820A',
           font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
@@ -3286,7 +3296,7 @@ async function renderDayWiseChart(canvas, loader) {
             formatter:v=>v>0?fmtCompact(v):'' }},
         { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
           borderColor:'#E8820A', backgroundColor:'transparent',
-          borderWidth:2.5, borderDash:[6,4], stepped:'before',
+          borderWidth:2.5, borderDash:[6,4], stepped:'after',
           pointRadius:4, pointBackgroundColor:'#E8820A',
           datalabels:{ anchor:'end', align:'top', color:'#E8820A',
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
@@ -3539,7 +3549,7 @@ async function renderHourlyChart() {
         // Capacity from roster (dashed orange line)
         { label:'Capacity', data:capPerHour, type:'line', order:1, hidden:!_hlyVisible.cap,
           borderColor:'#E8820A', backgroundColor:'transparent',
-          borderWidth:2.2, borderDash:[6,4], stepped:'before', fill:false,
+          borderWidth:2.2, borderDash:[6,4], stepped:'after', fill:false,
           pointRadius:3, pointHoverRadius:5,
           pointBackgroundColor:'#E8820A', pointBorderColor:'#E8820A',
           datalabels:{ anchor:'end', align:'top', color:'#E8820A',
