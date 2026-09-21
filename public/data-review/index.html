@@ -1,1 +1,337 @@
-<!doctype html><meta charset="utf-8"><title>Data Review</title><h1>data-review is liv test new ✅</h1> 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>360 Delivery Report — Last 3 Months</title>
+<style>
+  :root{
+    --pri:#7c3aed; --pri-d:#5b21b6; --pri-l:#a78bfa;
+    --bg:#f4f3ff; --card:#ffffff; --ink:#1e1b2e; --muted:#6b6785;
+    --line:#e7e3fb; --green:#16a34a; --red:#dc2626; --amber:#d97706;
+    --img:#2563eb; --vid:#db2777;
+    --shadow:0 1px 2px rgba(60,40,120,.06), 0 8px 24px rgba(90,50,180,.08);
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  :root:not([data-theme="light"]) @media (prefers-color-scheme: dark){}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17151f; --card:#211d2e; --ink:#f2efff; --muted:#a49dc0;
+      --line:#332c47; --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17151f; --card:#211d2e; --ink:#f2efff; --muted:#a49dc0;
+    --line:#332c47; --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{scroll-padding-top:env(safe-area-inset-top,0px)}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--pri); text-decoration:none}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 16px 48px}
+
+  /* Hero */
+  .hero{
+    background:linear-gradient(135deg,var(--pri) 0%,var(--pri-d) 100%);
+    color:#fff; border-radius:0 0 22px 22px;
+    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 26px;
+    box-shadow:var(--shadow); margin-bottom:20px;
+  }
+  .hero .in{max-width:1180px;margin:0 auto}
+  .hero h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
+  .hero p{margin:4px 0 0;opacity:.85;font-size:12.5px}
+  .hero .strip{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
+  .hero .strip div{font-size:12px;opacity:.9}
+  .hero .strip b{display:block;font-size:18px;font-weight:700;opacity:1}
+  .mock-tag{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);
+    font-size:10.5px;padding:2px 8px;border-radius:999px;display:inline-block;margin-top:10px;letter-spacing:.4px}
+
+  /* Breadcrumb */
+  .crumb{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+  .crumb button{background:none;border:none;color:var(--pri);font:inherit;cursor:pointer;padding:0}
+  .crumb .sep{opacity:.5}
+
+  /* Grid */
+  .grid{display:grid;gap:14px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  @media(min-width:760px){.kpis{grid-template-columns:repeat(4,1fr)}}
+  .split{grid-template-columns:1fr}
+  @media(min-width:620px){.split{grid-template-columns:1fr 1fr}}
+
+  .card{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    padding:16px;border-top:3px solid var(--pri);position:relative;overflow:hidden}
+  .card.b-green{border-top-color:var(--green)} .card.b-amber{border-top-color:var(--amber)}
+  .card.b-img{border-top-color:var(--img)} .card.b-vid{border-top-color:var(--vid)}
+  .card h3{margin:0;font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
+  .card .big{font-size:26px;font-weight:800;margin:6px 0 2px}
+  .emoji{font-size:15px}
+
+  /* mini month table */
+  .months{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
+  .months .m{background:var(--bg);border-radius:9px;padding:7px 4px;text-align:center}
+  .months .m .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .months .m .val{font-size:14px;font-weight:700;margin-top:2px}
+  .months .m.cur{outline:2px solid var(--pri-l);outline-offset:-2px}
+  .delta{font-size:11px;font-weight:700}
+  .up{color:var(--green)} .down{color:var(--red)}
+
+  /* clickable input cards */
+  .clk{cursor:pointer;transition:transform .12s ease, box-shadow .12s ease}
+  .clk:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(90,50,180,.16)}
+  .clk .hint{position:absolute;right:14px;bottom:12px;font-size:11px;color:var(--pri);font-weight:600}
+  .bar{height:8px;border-radius:999px;background:var(--line);margin-top:12px;overflow:hidden}
+  .bar span{display:block;height:100%}
+
+  /* Table */
+  .tblcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;border-top:3px solid var(--pri)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:var(--bg);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .ent-row td{font-weight:700;background:color-mix(in srgb,var(--pri) 6%,var(--card))}
+  .tid{font-size:11px;color:var(--muted)}
+  .cnt-btn{background:var(--pri);color:#fff;border:none;border-radius:8px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
+  .cnt-btn:hover{background:var(--pri-d)}
+  .tblscroll{overflow-x:auto}
+
+  /* Cards grid (page 3 — image 3 style) */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .vcard{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line)}
+  .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .vin{font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px}
+  .p-del{background:#dcfce7;color:#166534} .p-rej{background:#fee2e2;color:#991b1b}
+  .p-pen{background:#fef3c7;color:#92400e} .p-nospin{background:#e5e7eb;color:#374151}
+  .spin{position:relative;aspect-ratio:16/10;background:
+      radial-gradient(120% 90% at 50% 30%, #4b4660 0%, #232030 70%);
+      display:flex;align-items:center;justify-content:center;color:#cfc9e6}
+  .spin .badge{position:absolute;top:8px;right:8px;background:var(--pri);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:7px}
+  .spin .floor{position:absolute;bottom:12%;left:12%;right:12%;height:16%;border-radius:50%;
+      background:radial-gradient(ellipse at center, rgba(255,255,255,.14), transparent 70%)}
+  .spin .carrow{font-size:34px;filter:grayscale(.2)}
+  .spin .cap{position:absolute;bottom:8px;left:10px;font-size:10.5px;opacity:.8}
+  .thumbs{display:flex;gap:5px;padding:8px 12px;overflow-x:auto}
+  .thumbs i{flex:0 0 auto;width:40px;height:30px;border-radius:6px;background:linear-gradient(135deg,#d7d2ec,#b9b2dd);display:block}
+  .thumbs i:first-child{outline:2px solid var(--pri)}
+  .vfoot{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 11px}
+  .tag{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+
+  .note{background:color-mix(in srgb,var(--pri) 7%,var(--card));border:1px dashed var(--pri-l);
+    border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);margin-bottom:16px}
+  .note b{color:var(--ink)}
+  .sec-title{font-size:13px;font-weight:700;margin:22px 4px 12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .toggle{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px;margin-left:auto}
+  .toggle button{border:none;background:none;font:inherit;font-size:11px;font-weight:600;color:var(--muted);padding:4px 11px;border-radius:999px;cursor:pointer}
+  .toggle button.on{background:var(--pri);color:#fff}
+</style>
+</head>
+<body>
+  <div class="hero"><div class="in">
+    <h1>📊 360 Delivery Report</h1>
+    <p>Last 3 months · Jun–Sep 2026 · source: 360 tracker data.json (Metabase-fed)</p>
+    <div class="strip">
+      <div><b>128,540</b>Total SKUs (3 mo)</div>
+      <div><b>94.1%</b>Fulfilment (3 mo)</div>
+      <div><b>4.8 h</b>Avg TAT (3 mo)</div>
+    </div>
+    <span class="mock-tag">STATIC MOCKUP · DUMMY DATA · NOT LIVE</span>
+  </div></div>
+
+  <div class="wrap">
+    <div class="crumb" id="crumb"></div>
+    <div id="view"></div>
+  </div>
+
+<script>
+/* ============================================================
+   360 Delivery Report — UI MOCKUP (dummy data)
+   Data source & logic mirror the 360 tracker chat:
+     Fulfilment% = delivered / max(received - pending, 1) * 100
+     TAT = sku_created_on -> first_qc_done  (avg here)
+     Image/Video split = input_type
+   Page-3 spin viewer logic (ready for real wiring), per your SQL:
+   ============================================================ */
+function buildSpinUrl(sku){
+  // sku = { sku_id (=spin_sku_id), mediaId }
+  if (sku.mediaId && sku.mediaId !== '')
+    return 'https://assets.spyne.ai/360?version=v3&mediaId=' + sku.mediaId + '&spin=1';
+  return 'https://assets.spyne.ai/360?sku_id=' + sku.sku_id + '&input=true';
+}
+// In production, the .spin placeholder below is replaced by:
+//   <iframe src="${buildSpinUrl(sku)}" ...></iframe>
+
+/* ---- dummy data ---- */
+const MONTHS = ['Jun','Jul','Aug','Sep']; // current + last 3 (Sep = current)
+const KPI = {
+  tat:      [5.8, 5.2, 4.9, 4.6],   // hrs, lower better
+  fulfil:   [91.2, 93.4, 94.1, 95.0], // %, higher better
+  entCount: 42,
+  teamCount:128,
+  imgPct:   63,  // input_type = image-upload
+  vidPct:   37,  // input_type = video/walkaround
+};
+// enterprise -> teams (3-month totals)
+const BREAK = {
+  image: [
+    {ent:'AutoNation', teams:[
+      {tm:'AN Rooftop 01', tid:4471, cnt:8420, del:8110},
+      {tm:'AN Rooftop 07', tid:4519, cnt:6110, del:5760}]},
+    {ent:'Carvana', teams:[
+      {tm:'CV Central', tid:3308, cnt:12040, del:11620},
+      {tm:'CV West', tid:3355, cnt:5230, del:4980}]},
+    {ent:'Group 1 Auto', teams:[
+      {tm:'G1 Texas', tid:2890, cnt:4310, del:4020}]},
+  ],
+  video: [
+    {ent:'AutoNation', teams:[
+      {tm:'AN Rooftop 01', tid:4471, cnt:3120, del:2960}]},
+    {ent:'Lithia Motors', teams:[
+      {tm:'LM North', tid:5102, cnt:5440, del:5180},
+      {tm:'LM South', tid:5177, cnt:2980, del:2740}]},
+  ],
+};
+const STATUSES = [
+  ['Delivered','p-del'],['Rejected','p-rej'],['Pending','p-pen'],['No spin','p-nospin']
+];
+function dummyCards(team){
+  const vins=['1C4RJKBG8M8114314','1FTBR1X87LKA41797','WDDZF6EB1JA435386','3MW5U9J02M8B57504',
+    '4T1DAACK1SU595904','W1KAF4GB8PR084551','55SWF8EB5KU304347','5FNYF6H21NB028196','WBAAE2C07LBP62065'];
+  return vins.map((v,i)=>({
+    vin:v, sku_id:'SPN'+(100000+i), mediaId: i%3===0?'':'med_'+(900+i),
+    status:STATUSES[i%4], is360: i%4!==3
+  }));
+}
+
+/* ---- routing ---- */
+const state={screen:'overview', input:null, ent:null, team:null};
+const $view=document.getElementById('view');
+const $crumb=document.getElementById('crumb');
+
+function go(s,patch={}){Object.assign(state,{screen:s},patch);render();window.scrollTo(0,0);}
+
+function crumb(){
+  const p=[`<button onclick="go('overview')">Overview</button>`];
+  if(state.screen!=='overview'){
+    p.push(`<span class="sep">›</span><button onclick="go('breakdown',{input:'${state.input}'})">${state.input==='image'?'Image input':'Video input'}</button>`);
+  }
+  if(state.screen==='cards'){
+    p.push(`<span class="sep">›</span><span>${state.ent} · ${state.team}</span>`);
+  }
+  $crumb.innerHTML=p.join('');
+}
+
+/* ---- screen 1 ---- */
+function overview(){
+  const tDelta=(KPI.tat[3]-KPI.tat[2]).toFixed(1);
+  const fDelta=(KPI.fulfil[3]-KPI.fulfil[2]).toFixed(1);
+  const monthCells=(arr,unit,curBest)=>MONTHS.map((m,i)=>
+    `<div class="m ${i===3?'cur':''}"><div class="lbl">${m}</div><div class="val">${arr[i]}${unit}</div></div>`).join('');
+
+  return `
+  <div class="grid kpis">
+    <div class="card">
+      <h3><span class="emoji">⏱️</span> Avg TAT</h3>
+      <div class="big">${KPI.tat[3]} h <span class="delta ${tDelta<=0?'up':'down'}">${tDelta<=0?'▼':'▲'} ${Math.abs(tDelta)}h</span></div>
+      <div class="months">${monthCells(KPI.tat,' h')}</div>
+    </div>
+    <div class="card b-green">
+      <h3><span class="emoji">✅</span> Fulfilment %</h3>
+      <div class="big">${KPI.fulfil[3]}% <span class="delta ${fDelta>=0?'up':'down'}">${fDelta>=0?'▲':'▼'} ${Math.abs(fDelta)}%</span></div>
+      <div class="months">${monthCells(KPI.fulfil,'%')}</div>
+    </div>
+    <div class="card b-amber">
+      <h3><span class="emoji">🏢</span> Enterprise Count</h3>
+      <div class="big">${KPI.entCount}</div>
+      <div style="font-size:12px;color:var(--muted)">Active enterprises · last 3 months</div>
+    </div>
+    <div class="card b-amber">
+      <h3><span class="emoji">👥</span> Team Count</h3>
+      <div class="big">${KPI.teamCount}</div>
+      <div style="font-size:12px;color:var(--muted)">Unique team IDs · last 3 months</div>
+    </div>
+  </div>
+
+  <div class="sec-title">Input type split — click to drill down</div>
+  <div class="grid split">
+    <div class="card b-img clk" onclick="go('breakdown',{input:'image'})">
+      <h3><span class="emoji">🖼️</span> Image %</h3>
+      <div class="big">${KPI.imgPct}%</div>
+      <div style="font-size:12px;color:var(--muted)">SKUs from image-upload input</div>
+      <div class="bar"><span style="width:${KPI.imgPct}%;background:var(--img)"></span></div>
+      <div class="hint">View enterprises →</div>
+    </div>
+    <div class="card b-vid clk" onclick="go('breakdown',{input:'video'})">
+      <h3><span class="emoji">🎬</span> Video %</h3>
+      <div class="big">${KPI.vidPct}%</div>
+      <div style="font-size:12px;color:var(--muted)">SKUs from video / walkaround input</div>
+      <div class="bar"><span style="width:${KPI.vidPct}%;background:var(--vid)"></span></div>
+      <div class="hint">View enterprises →</div>
+    </div>
+  </div>`;
+}
+
+/* ---- screen 2 ---- */
+function breakdown(){
+  const rows=BREAK[state.input]||[];
+  let body='';
+  rows.forEach(e=>{
+    const entTot=e.teams.reduce((a,t)=>a+t.cnt,0);
+    const entDel=e.teams.reduce((a,t)=>a+t.del,0);
+    body+=`<tr class="ent-row"><td>${e.ent}</td><td></td><td class="num">${entTot.toLocaleString()}</td><td class="num">${entDel.toLocaleString()}</td></tr>`;
+    e.teams.forEach(t=>{
+      body+=`<tr>
+        <td style="padding-left:26px">↳</td>
+        <td>${t.tm} <span class="tid">tid ${t.tid}</span></td>
+        <td class="num"><button class="cnt-btn" onclick="go('cards',{ent:'${e.ent}',team:'${t.tm}'})">${t.cnt.toLocaleString()}</button></td>
+        <td class="num">${t.del.toLocaleString()}</td>
+      </tr>`;
+    });
+  });
+  return `
+  <div class="note">Showing enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · <b>Count is clickable →</b> opens SKU cards.</div>
+  <div class="tblcard"><div class="tblscroll"><table>
+    <thead><tr><th>Enterprise</th><th>Team (unique tid)</th><th class="num">Total Count</th><th class="num">Total Delivered</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table></div></div>`;
+}
+
+/* ---- screen 3 ---- */
+function cards(){
+  const list=dummyCards(state.team);
+  const cardHtml=list.map(c=>{
+    const url=buildSpinUrl(c);
+    const noSpin=!c.is360;
+    return `<div class="vcard">
+      <div class="top"><span class="vin">${c.vin}</span><span class="pill ${c.status[1]}">${c.status[0]}</span></div>
+      <div class="spin">
+        ${noSpin?'<div class="cap">No spin</div>':
+          `<span class="badge">360°</span><div class="floor"></div><span class="carrow">🚗</span>
+           <div class="cap">spin preview · ${url.length>42?url.slice(0,42)+'…':url}</div>`}
+      </div>
+      ${noSpin?'':`<div class="thumbs">${'<i></i>'.repeat(6)}</div>`}
+      <div class="tags"><span class="tag">Approved</span><span class="tag">Spin broken</span><span class="tag">Wrong vehicle</span><span class="tag">Quality issue</span><span class="tag">Missing angles</span></div>
+      <div class="vfoot"><span>sku ${c.sku_id}</span><a href="#" onclick="return false">Open VDP ↗</a></div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="note"><b>${state.ent} · ${state.team}</b> — 60 SKUs (mockup shows 9). Each card's spin uses your <b>buildSpinUrl()</b> logic (mediaId → v3 spin, else sku_id fallback). Live build swaps the placeholder for an <b>&lt;iframe src="…assets.spyne.ai/360…"&gt;</b>.</div>
+  <div class="cards">${cardHtml}</div>`;
+}
+
+function render(){
+  crumb();
+  $view.innerHTML = state.screen==='overview'?overview()
+                  : state.screen==='breakdown'?breakdown()
+                  : cards();
+}
+render();
+</script>
+</body>
+</html>
