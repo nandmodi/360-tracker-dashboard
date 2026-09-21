@@ -26,10 +26,10 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
     font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
   a{color:var(--pri);text-decoration:none}
-  .wrap{max-width:1180px;margin:0 auto;padding:0 16px 48px}
+  .wrap{max-width:none;margin:0;padding:0 24px 48px}
   .hero{background:linear-gradient(135deg,var(--pri) 0%,var(--pri-d) 100%);color:#fff;border-radius:0 0 22px 22px;
-    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 26px;box-shadow:var(--shadow);margin-bottom:20px;}
-  .hero .in{max-width:1180px;margin:0 auto}
+    padding:calc(env(safe-area-inset-top,0px) + 22px) 24px 26px;box-shadow:var(--shadow);margin-bottom:20px;}
+  .hero .in{max-width:none;margin:0}
   .hero h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
   .hero p{margin:4px 0 0;opacity:.85;font-size:12.5px}
   .hero .strip{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
@@ -67,10 +67,14 @@
   th{background:var(--bg);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .ent-row td{font-weight:700;background:color-mix(in srgb,var(--pri) 6%,var(--card))}
+  .ent-row{cursor:pointer} .ent-row:hover td{background:color-mix(in srgb,var(--pri) 12%,var(--card))}
+  .cx{display:inline-block;width:1.1em;color:var(--pri);font-size:11px}
   .tid{font-size:11px;color:var(--muted)}
   .cnt-btn{background:var(--pri);color:#fff;border:none;border-radius:8px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
   .cnt-btn:hover{background:var(--pri-d)}
   .tblscroll{overflow-x:auto}
+  .bkctl{display:flex;gap:10px;align-items:center;margin:0 4px 12px}
+  .bkctl button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:5px 12px;cursor:pointer}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
   .vcard{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line)}
   .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);gap:8px}
@@ -115,10 +119,11 @@
    Same logic as the 360 tracker:
      isDelivered   : fs === 'Delivered'
      isPending     : cs in (qc_unassigned, qc_inprogress)
-     Avg TAT       : mean of r.e2e (createdAt -> first_qc_done) over TAT-eligible rows
+     Avg TAT       : mean of r.tat (sku_created_on -> first_qc_done) over TAT-eligible rows
      Fulfilment %  : delivered / max(received - pending, 1) * 100
-     Image/Video % : split by input_type (tt)
+     Image/Video % : split by input_type (tt): Images -> image, Video -> video
    Page-3 spin per your SQL: mediaId(vid) -> v3 spin, else sku_id fallback
+   Window: current + previous 3 months (4 total), everywhere.
    ============================================================ */
 const DATA_BASE = '/data';                 // absolute — works from /data-review/
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -133,11 +138,10 @@ const ttClass  = r => { const t=(r.tt||'').trim().toLowerCase();   // "Images"/"
   if(t.indexOf('image')===0) return 'image'; if(t.indexOf('video')===0) return 'video'; return null; };
 
 function avgTat(rows){
-  // TAT measured from createdAt -> first_qc_done  (r.e2e), per request.
-  // (r.tat is sku_created_on -> first_qc_done.)  Same eligibility as the tracker's E2E avg.
+  // TAT measured from sku_created_on -> first_qc_done  (r.tat), per request.
   let s=0,n=0;
   for(const r of rows){ if(!isTatEligible(r)) continue;
-    if(typeof r.e2e==='number' && isFinite(r.e2e) && r.e2e>=0){ s+=r.e2e; n++; } }
+    if(typeof r.tat==='number' && isFinite(r.tat) && r.tat>=0){ s+=r.tat; n++; } }
   return n ? s/n : null;
 }
 function fulfil(rows){
@@ -161,7 +165,7 @@ const mlabel = mk => { const [y,m]=mk.split('-'); return MONTH_NAMES[(+m)-1]+' '
 const nfmt = n => (n==null?'—':n.toLocaleString());
 
 /* ---- state ---- */
-let MONTHS=[];        // last 4, oldest -> newest
+let MONTHS=[];        // current + prev 3 (4 total), oldest -> newest
 let byMonth={};       // mk -> rows[]
 let ALL=[];           // all 4 months merged
 const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0};
@@ -171,13 +175,13 @@ async function boot(){
   try{
     const idx = await fetch(DATA_BASE+'/index.json?t='+Date.now()).then(r=>{ if(!r.ok) throw new Error('index.json '+r.status); return r.json(); });
     const desc = [...(idx.months||[])].sort().reverse();
-    MONTHS = desc.slice(0,4).reverse();               // 4 columns, oldest->newest
+    MONTHS = desc.slice(0,4).reverse();               // current + previous 3, oldest->newest
     const cb = Date.now();
     const res = await Promise.all(MONTHS.map(mk =>
       fetch(`${DATA_BASE}/${mk}.json?t=${cb}`).then(r=>{ if(!r.ok) throw new Error(mk+'.json '+r.status); return r.json(); })));
     MONTHS.forEach((mk,i)=>{ byMonth[mk] = (res[i]&&res[i].rows)||[]; });
     ALL = []; MONTHS.forEach(mk=> ALL.push(...byMonth[mk]));
-    $('sub').textContent = `${mlabel(MONTHS[0])} – ${mlabel(MONTHS[3])} · ${nfmt(ALL.length)} SKUs · synced ${idx.lastSynced?new Date(idx.lastSynced).toLocaleString():'—'}`;
+    $('sub').textContent = `${mlabel(MONTHS[0])} – ${mlabel(MONTHS[MONTHS.length-1])} · ${nfmt(ALL.length)} SKUs · synced ${idx.lastSynced?new Date(idx.lastSynced).toLocaleString():'—'}`;
     const del = ALL.filter(isDelivered).length;
     $('strip').innerHTML =
       `<div><b>${nfmt(ALL.length)}</b>Total SKUs</div>`+
@@ -212,23 +216,24 @@ function overview(){
   let img=0,vid=0; for(const r of ALL){ const c=ttClass(r); if(c==='image')img++; else if(c==='video')vid++; }
   const iv = img+vid || 1;
   const imgPct = img/iv*100, vidPct = vid/iv*100;
+  const last = MONTHS.length-1;
 
-  const dtat = (tat[3]!=null&&tat[2]!=null)?(tat[3]-tat[2]):null;   // lower better
-  const dful = (ful[3]!=null&&ful[2]!=null)?(ful[3]-ful[2]):null;   // higher better
+  const dtat = (tat[last]!=null&&tat[last-1]!=null)?(tat[last]-tat[last-1]):null;   // lower better
+  const dful = (ful[last]!=null&&ful[last-1]!=null)?(ful[last]-ful[last-1]):null;   // higher better
   const arrow=(d,lowerBetter)=>{ if(d==null||Math.abs(d)<0.05) return `<span class="delta flat">–</span>`;
     const good = lowerBetter? d<0 : d>0; return `<span class="delta ${good?'up':'down'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)}${lowerBetter?'h':'%'}</span>`; };
-  const cells=(arr,unit)=>MONTHS.map((mk,i)=>`<div class="m ${i===3?'cur':''}"><div class="lbl">${mlabel(mk)}</div><div class="val">${arr[i]==null?'—':arr[i].toFixed(1)+unit}</div></div>`).join('');
+  const cells=(arr,unit)=>MONTHS.map((mk,i)=>`<div class="m ${i===last?'cur':''}"><div class="lbl">${mlabel(mk)}</div><div class="val">${arr[i]==null?'—':arr[i].toFixed(1)+unit}</div></div>`).join('');
 
   return `
   <div class="grid kpis">
     <div class="card">
       <h3><span class="emoji">⏱️</span> Avg TAT</h3>
-      <div class="big">${tat[3]==null?'—':tat[3].toFixed(1)+' h'} ${arrow(dtat,true)}</div>
+      <div class="big">${tat[last]==null?'—':tat[last].toFixed(1)+' h'} ${arrow(dtat,true)}</div>
       <div class="months">${cells(tat,' h')}</div>
     </div>
     <div class="card b-green">
       <h3><span class="emoji">✅</span> Fulfilment %</h3>
-      <div class="big">${ful[3]==null?'—':ful[3].toFixed(1)+'%'} ${arrow(dful,false)}</div>
+      <div class="big">${ful[last]==null?'—':ful[last].toFixed(1)+'%'} ${arrow(dful,false)}</div>
       <div class="months">${cells(ful,'%')}</div>
     </div>
     <div class="card b-amber">
@@ -262,11 +267,21 @@ function overview(){
   </div>`;
 }
 
-/* ---- screen 2: breakdown ---- */
+/* ---- screen 2: breakdown (collapsible) ---- */
 function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input); }
+function toggleEnt(ei){
+  const rows=document.querySelectorAll('.e'+ei);
+  if(!rows.length) return;
+  const show = rows[0].style.display==='none';
+  rows.forEach(tr=> tr.style.display = show?'':'none');
+  const cx=document.getElementById('cx'+ei); if(cx) cx.textContent = show?'▾':'▸';
+}
+function setAllEnt(open){
+  document.querySelectorAll('#bktbody tr.team').forEach(tr=> tr.style.display = open?'':'none');
+  document.querySelectorAll('#bktbody .cx').forEach(cx=> cx.textContent = open?'▾':'▸');
+}
 function breakdown(){
   const rows = rowsForInput();
-  // group ent -> tid -> {tm,cnt,del}
   const ents={};
   for(const r of rows){
     const e=r.ent||'—'; const tid=teamId(r);
@@ -278,25 +293,30 @@ function breakdown(){
     return sb-sa;
   });
   let body='';
-  for(const e of entNames){
+  entNames.forEach((e,ei)=>{
     const teams=Object.entries(ents[e]).sort((a,b)=>b[1].cnt-a[1].cnt);
     const et=teams.reduce((x,[,t])=>x+t.cnt,0), ed=teams.reduce((x,[,t])=>x+t.del,0);
-    body+=`<tr class="ent-row"><td>${esc(e)}</td><td></td><td class="num">${nfmt(et)}</td><td class="num">${nfmt(ed)}</td></tr>`;
+    body+=`<tr class="ent-row" onclick="toggleEnt(${ei})">
+      <td><span class="cx" id="cx${ei}">▸</span>${esc(e)} <span class="tid">(${teams.length} team${teams.length>1?'s':''})</span></td>
+      <td></td><td class="num">${nfmt(et)}</td><td class="num">${nfmt(ed)}</td></tr>`;
     for(const [tid,t] of teams){
-      body+=`<tr>
+      body+=`<tr class="team e${ei}" style="display:none">
         <td style="padding-left:26px">↳</td>
         <td>${esc(t.tm)} <span class="tid">tid ${esc(tid)}</span></td>
-        <td class="num"><button class="cnt-btn" onclick="go('cards',{ent:${JSON.stringify(esc(e))},tid:${JSON.stringify(esc(tid))},tm:${JSON.stringify(esc(t.tm))}})">${nfmt(t.cnt)}</button></td>
+        <td class="num"><button class="cnt-btn" onclick="event.stopPropagation();go('cards',{ent:${JSON.stringify(esc(e))},tid:${JSON.stringify(esc(tid))},tm:${JSON.stringify(esc(t.tm))}})">${nfmt(t.cnt)}</button></td>
         <td class="num">${nfmt(t.del)}</td>
       </tr>`;
     }
-  }
+  });
   if(!entNames.length) body=`<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:30px">No ${state.input} SKUs in this window.</td></tr>`;
   return `
-  <div class="note">Enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · <b>click a Count →</b> to see the SKUs.</div>
+  <div class="note">Enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · click an <b>enterprise row</b> to expand its teams, then a <b>Count</b> to see the SKUs.</div>
+  <div class="bkctl"><span style="color:var(--muted)">${entNames.length} enterprises</span>
+    <button onclick="setAllEnt(true)">Expand all</button>
+    <button onclick="setAllEnt(false)">Collapse all</button></div>
   <div class="tblcard"><div class="tblscroll"><table>
     <thead><tr><th>Enterprise</th><th>Team (unique tid)</th><th class="num">Total Count</th><th class="num">Total Delivered</th></tr></thead>
-    <tbody>${body}</tbody>
+    <tbody id="bktbody">${body}</tbody>
   </table></div></div>`;
 }
 
