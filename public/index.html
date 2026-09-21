@@ -744,7 +744,7 @@ document.addEventListener('DOMContentLoaded', function(){
     signInBtn.style.display = 'none';
     const data = await verifySession(token);
     if (data.allowed && data.email){
-      if (data.token) setToken(data.token); // sliding renewal — extends the session
+      if (data.token) setToken(data.token); // sliding renewal — extend the session
       hideGate(data.email);
     } else {
       clearToken();
