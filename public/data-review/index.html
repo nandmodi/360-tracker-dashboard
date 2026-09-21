@@ -216,6 +216,9 @@ function overview(){
   let img=0,vid=0; for(const r of ALL){ const c=ttClass(r); if(c==='image')img++; else if(c==='video')vid++; }
   const iv = img+vid || 1;
   const imgPct = img/iv*100, vidPct = vid/iv*100;
+  const ivM = MONTHS.map(mk=>{ let a=0,b=0; for(const r of byMonth[mk]){ const c=ttClass(r); if(c==='image')a++; else if(c==='video')b++; } return {img:a,vid:b}; });
+  const imgArr = ivM.map(m=> (m.img+m.vid)? m.img/(m.img+m.vid)*100 : null);
+  const vidArr = ivM.map(m=> (m.img+m.vid)? m.vid/(m.img+m.vid)*100 : null);
   const last = MONTHS.length-1;
 
   const dtat = (tat[last]!=null&&tat[last-1]!=null)?(tat[last]-tat[last-1]):null;   // lower better
@@ -252,17 +255,15 @@ function overview(){
   <div class="grid split">
     <div class="card b-img clk" onclick="go('breakdown',{input:'image'})">
       <h3><span class="emoji">🖼️</span> Image %</h3>
-      <div class="big">${imgPct.toFixed(1)}%</div>
-      <div style="font-size:12px;color:var(--muted)">${nfmt(img)} image-input SKUs</div>
-      <div class="bar"><span style="width:${imgPct}%;background:var(--img)"></span></div>
-      <div class="hint">View enterprises →</div>
+      <div class="big">${imgArr[last]==null?'—':imgArr[last].toFixed(1)+'%'}</div>
+      <div style="font-size:12px;color:var(--muted)">${nfmt(img)} image-input SKUs · 4-mo total → drill down</div>
+      <div class="months">${cells(imgArr,'%')}</div>
     </div>
     <div class="card b-vid clk" onclick="go('breakdown',{input:'video'})">
       <h3><span class="emoji">🎬</span> Video %</h3>
-      <div class="big">${vidPct.toFixed(1)}%</div>
-      <div style="font-size:12px;color:var(--muted)">${nfmt(vid)} video / walkaround SKUs</div>
-      <div class="bar"><span style="width:${vidPct}%;background:var(--vid)"></span></div>
-      <div class="hint">View enterprises →</div>
+      <div class="big">${vidArr[last]==null?'—':vidArr[last].toFixed(1)+'%'}</div>
+      <div style="font-size:12px;color:var(--muted)">${nfmt(vid)} video / walkaround SKUs · 4-mo total → drill down</div>
+      <div class="months">${cells(vidArr,'%')}</div>
     </div>
   </div>`;
 }
