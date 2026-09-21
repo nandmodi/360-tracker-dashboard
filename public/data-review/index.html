@@ -129,6 +129,8 @@ const TAT_ELIG = new Set(['Delivered','QC Failed','Validation Failed','Tech Fail
 const isTatEligible = r => TAT_ELIG.has((r.fs||'').trim());
 const teamId   = r => r.tid || r.tm || '—';
 const inputType= r => (r.tt||'').trim();
+const ttClass  = r => { const t=(r.tt||'').trim().toLowerCase();   // "Images"/"Image" -> image, "Video" -> video
+  if(t.indexOf('image')===0) return 'image'; if(t.indexOf('video')===0) return 'video'; return null; };
 
 function avgTat(rows){
   // TAT measured from createdAt -> first_qc_done  (r.e2e), per request.
@@ -207,7 +209,7 @@ function overview(){
   const ful = MONTHS.map(mk=>fulfil(byMonth[mk]));
   const entCount = new Set(ALL.filter(r=>r.ent).map(r=>r.ent)).size;
   const teamCount= new Set(ALL.map(teamId)).size;
-  let img=0,vid=0; for(const r of ALL){ const t=inputType(r).toLowerCase(); if(t==='image')img++; else if(t==='video')vid++; }
+  let img=0,vid=0; for(const r of ALL){ const c=ttClass(r); if(c==='image')img++; else if(c==='video')vid++; }
   const iv = img+vid || 1;
   const imgPct = img/iv*100, vidPct = vid/iv*100;
 
@@ -261,7 +263,7 @@ function overview(){
 }
 
 /* ---- screen 2: breakdown ---- */
-function rowsForInput(){ const t=state.input; return ALL.filter(r=>inputType(r).toLowerCase()===t); }
+function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input); }
 function breakdown(){
   const rows = rowsForInput();
   // group ent -> tid -> {tm,cnt,del}
