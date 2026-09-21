@@ -11,250 +11,233 @@
     --line:#e7e3fb; --green:#16a34a; --red:#dc2626; --amber:#d97706;
     --img:#2563eb; --vid:#db2777;
     --shadow:0 1px 2px rgba(60,40,120,.06), 0 8px 24px rgba(90,50,180,.08);
-    box-sizing:border-box;
-    padding-top:env(safe-area-inset-top,0px);
-    padding-bottom:env(safe-area-inset-bottom,0px);
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
   }
-  :root:not([data-theme="light"]) @media (prefers-color-scheme: dark){}
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#17151f; --card:#211d2e; --ink:#f2efff; --muted:#a49dc0;
       --line:#332c47; --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
     }
   }
-  :root[data-theme="dark"]{
-    --bg:#17151f; --card:#211d2e; --ink:#f2efff; --muted:#a49dc0;
-    --line:#332c47; --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
-  }
+  :root[data-theme="dark"]{ --bg:#17151f; --card:#211d2e; --ink:#f2efff; --muted:#a49dc0; --line:#332c47; }
   *{box-sizing:border-box}
   html{scroll-padding-top:env(safe-area-inset-top,0px)}
-  body{
-    margin:0; background:var(--bg); color:var(--ink);
+  body{margin:0;background:var(--bg);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
-    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
-  }
-  a{color:var(--pri); text-decoration:none}
-  .wrap{max-width:1180px; margin:0 auto; padding:0 16px 48px}
-
-  /* Hero */
-  .hero{
-    background:linear-gradient(135deg,var(--pri) 0%,var(--pri-d) 100%);
-    color:#fff; border-radius:0 0 22px 22px;
-    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 26px;
-    box-shadow:var(--shadow); margin-bottom:20px;
-  }
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  a{color:var(--pri);text-decoration:none}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 16px 48px}
+  .hero{background:linear-gradient(135deg,var(--pri) 0%,var(--pri-d) 100%);color:#fff;border-radius:0 0 22px 22px;
+    padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 26px;box-shadow:var(--shadow);margin-bottom:20px;}
   .hero .in{max-width:1180px;margin:0 auto}
   .hero h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
   .hero p{margin:4px 0 0;opacity:.85;font-size:12.5px}
   .hero .strip{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
   .hero .strip div{font-size:12px;opacity:.9}
   .hero .strip b{display:block;font-size:18px;font-weight:700;opacity:1}
-  .mock-tag{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);
-    font-size:10.5px;padding:2px 8px;border-radius:999px;display:inline-block;margin-top:10px;letter-spacing:.4px}
-
-  /* Breadcrumb */
   .crumb{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
   .crumb button{background:none;border:none;color:var(--pri);font:inherit;cursor:pointer;padding:0}
   .crumb .sep{opacity:.5}
-
-  /* Grid */
   .grid{display:grid;gap:14px}
   .kpis{grid-template-columns:repeat(2,1fr)}
   @media(min-width:760px){.kpis{grid-template-columns:repeat(4,1fr)}}
   .split{grid-template-columns:1fr}
   @media(min-width:620px){.split{grid-template-columns:1fr 1fr}}
-
-  .card{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
-    padding:16px;border-top:3px solid var(--pri);position:relative;overflow:hidden}
+  .card{background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:16px;border-top:3px solid var(--pri);position:relative;overflow:hidden}
   .card.b-green{border-top-color:var(--green)} .card.b-amber{border-top-color:var(--amber)}
   .card.b-img{border-top-color:var(--img)} .card.b-vid{border-top-color:var(--vid)}
   .card h3{margin:0;font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
   .card .big{font-size:26px;font-weight:800;margin:6px 0 2px}
   .emoji{font-size:15px}
-
-  /* mini month table */
   .months{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
   .months .m{background:var(--bg);border-radius:9px;padding:7px 4px;text-align:center}
   .months .m .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
   .months .m .val{font-size:14px;font-weight:700;margin-top:2px}
   .months .m.cur{outline:2px solid var(--pri-l);outline-offset:-2px}
   .delta{font-size:11px;font-weight:700}
-  .up{color:var(--green)} .down{color:var(--red)}
-
-  /* clickable input cards */
+  .up{color:var(--green)} .down{color:var(--red)} .flat{color:var(--muted)}
   .clk{cursor:pointer;transition:transform .12s ease, box-shadow .12s ease}
   .clk:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(90,50,180,.16)}
   .clk .hint{position:absolute;right:14px;bottom:12px;font-size:11px;color:var(--pri);font-weight:600}
   .bar{height:8px;border-radius:999px;background:var(--line);margin-top:12px;overflow:hidden}
   .bar span{display:block;height:100%}
-
-  /* Table */
   .tblcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;border-top:3px solid var(--pri)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
-  th{background:var(--bg);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0}
+  th{background:var(--bg);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .ent-row td{font-weight:700;background:color-mix(in srgb,var(--pri) 6%,var(--card))}
   .tid{font-size:11px;color:var(--muted)}
   .cnt-btn{background:var(--pri);color:#fff;border:none;border-radius:8px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
   .cnt-btn:hover{background:var(--pri-d)}
   .tblscroll{overflow-x:auto}
-
-  /* Cards grid (page 3 — image 3 style) */
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
   .vcard{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line)}
-  .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line)}
-  .vin{font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums}
-  .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px}
+  .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);gap:8px}
+  .vin{font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums;word-break:break-all}
+  .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px;white-space:nowrap;flex:0 0 auto}
   .p-del{background:#dcfce7;color:#166534} .p-rej{background:#fee2e2;color:#991b1b}
-  .p-pen{background:#fef3c7;color:#92400e} .p-nospin{background:#e5e7eb;color:#374151}
-  .spin{position:relative;aspect-ratio:16/10;background:
-      radial-gradient(120% 90% at 50% 30%, #4b4660 0%, #232030 70%);
-      display:flex;align-items:center;justify-content:center;color:#cfc9e6}
-  .spin .badge{position:absolute;top:8px;right:8px;background:var(--pri);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:7px}
+  .p-pen{background:#fef3c7;color:#92400e} .p-oth{background:#e5e7eb;color:#374151}
+  .spin{position:relative;aspect-ratio:16/10;background:radial-gradient(120% 90% at 50% 30%,#4b4660 0%,#232030 70%);
+    display:flex;align-items:center;justify-content:center;color:#cfc9e6;overflow:hidden}
+  .spin iframe{width:100%;height:100%;border:0;display:block}
   .spin .floor{position:absolute;bottom:12%;left:12%;right:12%;height:16%;border-radius:50%;
-      background:radial-gradient(ellipse at center, rgba(255,255,255,.14), transparent 70%)}
-  .spin .carrow{font-size:34px;filter:grayscale(.2)}
-  .spin .cap{position:absolute;bottom:8px;left:10px;font-size:10.5px;opacity:.8}
-  .thumbs{display:flex;gap:5px;padding:8px 12px;overflow-x:auto}
-  .thumbs i{flex:0 0 auto;width:40px;height:30px;border-radius:6px;background:linear-gradient(135deg,#d7d2ec,#b9b2dd);display:block}
-  .thumbs i:first-child{outline:2px solid var(--pri)}
-  .vfoot{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted)}
-  .tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 11px}
-  .tag{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
-
-  .note{background:color-mix(in srgb,var(--pri) 7%,var(--card));border:1px dashed var(--pri-l);
-    border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);margin-bottom:16px}
+    background:radial-gradient(ellipse at center,rgba(255,255,255,.14),transparent 70%)}
+  .spin .load{position:relative;z-index:2;background:var(--pri);color:#fff;border:none;border-radius:8px;padding:7px 14px;font:inherit;font-weight:700;cursor:pointer}
+  .spin .badge{position:absolute;top:8px;right:8px;background:var(--pri);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:7px;z-index:2}
+  .vfoot{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);gap:8px}
+  .vfoot .sk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .note{background:color-mix(in srgb,var(--pri) 7%,var(--card));border:1px dashed var(--pri-l);border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);margin-bottom:16px}
   .note b{color:var(--ink)}
   .sec-title{font-size:13px;font-weight:700;margin:22px 4px 12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
-  .toggle{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px;margin-left:auto}
-  .toggle button{border:none;background:none;font:inherit;font-size:11px;font-weight:600;color:var(--muted);padding:4px 11px;border-radius:999px;cursor:pointer}
-  .toggle button.on{background:var(--pri);color:#fff}
+  .center{text-align:center;padding:60px 20px;color:var(--muted)}
+  .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--pri);border-radius:50%;animation:sp 0.8s linear infinite;margin:0 auto 14px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .err{background:#fee2e2;color:#991b1b;border-radius:12px;padding:16px;font-size:13px}
+  .more{display:block;margin:18px auto 0;background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-weight:700;border-radius:10px;padding:10px 18px;cursor:pointer}
 </style>
 </head>
 <body>
   <div class="hero"><div class="in">
     <h1>📊 360 Delivery Report</h1>
-    <p>Last 3 months · Jun–Sep 2026 · source: 360 tracker data.json (Metabase-fed)</p>
-    <div class="strip">
-      <div><b>128,540</b>Total SKUs (3 mo)</div>
-      <div><b>94.1%</b>Fulfilment (3 mo)</div>
-      <div><b>4.8 h</b>Avg TAT (3 mo)</div>
-    </div>
-    <span class="mock-tag">STATIC MOCKUP · DUMMY DATA · NOT LIVE</span>
+    <p id="sub">Last 3 months · loading…</p>
+    <div class="strip" id="strip"></div>
   </div></div>
-
   <div class="wrap">
     <div class="crumb" id="crumb"></div>
-    <div id="view"></div>
+    <div id="view"><div class="center"><div class="spinner"></div>Loading live data…</div></div>
   </div>
 
 <script>
 /* ============================================================
-   360 Delivery Report — UI MOCKUP (dummy data)
-   Data source & logic mirror the 360 tracker chat:
-     Fulfilment% = delivered / max(received - pending, 1) * 100
-     TAT = sku_created_on -> first_qc_done  (avg here)
-     Image/Video split = input_type
-   Page-3 spin viewer logic (ready for real wiring), per your SQL:
+   360 Delivery Report — LIVE data
+   Source: /data/index.json  ->  /data/<YYYY-MM>.json  { rows:[...] }
+   Same logic as the 360 tracker:
+     isDelivered   : fs === 'Delivered'
+     isPending     : cs in (qc_unassigned, qc_inprogress)
+     Avg TAT       : mean of r.e2e (createdAt -> first_qc_done) over TAT-eligible rows
+     Fulfilment %  : delivered / max(received - pending, 1) * 100
+     Image/Video % : split by input_type (tt)
+   Page-3 spin per your SQL: mediaId(vid) -> v3 spin, else sku_id fallback
    ============================================================ */
-function buildSpinUrl(sku){
-  // sku = { sku_id (=spin_sku_id), mediaId }
-  if (sku.mediaId && sku.mediaId !== '')
-    return 'https://assets.spyne.ai/360?version=v3&mediaId=' + sku.mediaId + '&spin=1';
-  return 'https://assets.spyne.ai/360?sku_id=' + sku.sku_id + '&input=true';
-}
-// In production, the .spin placeholder below is replaced by:
-//   <iframe src="${buildSpinUrl(sku)}" ...></iframe>
+const DATA_BASE = '/data';                 // absolute — works from /data-review/
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-/* ---- dummy data ---- */
-const MONTHS = ['Jun','Jul','Aug','Sep']; // current + last 3 (Sep = current)
-const KPI = {
-  tat:      [5.8, 5.2, 4.9, 4.6],   // hrs, lower better
-  fulfil:   [91.2, 93.4, 94.1, 95.0], // %, higher better
-  entCount: 42,
-  teamCount:128,
-  imgPct:   63,  // input_type = image-upload
-  vidPct:   37,  // input_type = video/walkaround
-};
-// enterprise -> teams (3-month totals)
-const BREAK = {
-  image: [
-    {ent:'AutoNation', teams:[
-      {tm:'AN Rooftop 01', tid:4471, cnt:8420, del:8110},
-      {tm:'AN Rooftop 07', tid:4519, cnt:6110, del:5760}]},
-    {ent:'Carvana', teams:[
-      {tm:'CV Central', tid:3308, cnt:12040, del:11620},
-      {tm:'CV West', tid:3355, cnt:5230, del:4980}]},
-    {ent:'Group 1 Auto', teams:[
-      {tm:'G1 Texas', tid:2890, cnt:4310, del:4020}]},
-  ],
-  video: [
-    {ent:'AutoNation', teams:[
-      {tm:'AN Rooftop 01', tid:4471, cnt:3120, del:2960}]},
-    {ent:'Lithia Motors', teams:[
-      {tm:'LM North', tid:5102, cnt:5440, del:5180},
-      {tm:'LM South', tid:5177, cnt:2980, del:2740}]},
-  ],
-};
-const STATUSES = [
-  ['Delivered','p-del'],['Rejected','p-rej'],['Pending','p-pen'],['No spin','p-nospin']
-];
-function dummyCards(team){
-  const vins=['1C4RJKBG8M8114314','1FTBR1X87LKA41797','WDDZF6EB1JA435386','3MW5U9J02M8B57504',
-    '4T1DAACK1SU595904','W1KAF4GB8PR084551','55SWF8EB5KU304347','5FNYF6H21NB028196','WBAAE2C07LBP62065'];
-  return vins.map((v,i)=>({
-    vin:v, sku_id:'SPN'+(100000+i), mediaId: i%3===0?'':'med_'+(900+i),
-    status:STATUSES[i%4], is360: i%4!==3
-  }));
+const isDelivered = r => (r.fs||'').trim() === 'Delivered';
+const isPending   = r => { const c=(r.cs||'').trim(); return c==='qc_unassigned'||c==='qc_inprogress'; };
+const TAT_ELIG = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+const isTatEligible = r => TAT_ELIG.has((r.fs||'').trim());
+const teamId   = r => r.tid || r.tm || '—';
+const inputType= r => (r.tt||'').trim();
+
+function avgTat(rows){
+  // TAT measured from createdAt -> first_qc_done  (r.e2e), per request.
+  // (r.tat is sku_created_on -> first_qc_done.)  Same eligibility as the tracker's E2E avg.
+  let s=0,n=0;
+  for(const r of rows){ if(!isTatEligible(r)) continue;
+    if(typeof r.e2e==='number' && isFinite(r.e2e) && r.e2e>=0){ s+=r.e2e; n++; } }
+  return n ? s/n : null;
+}
+function fulfil(rows){
+  let rec=rows.length, pend=0, del=0;
+  for(const r of rows){ if(isPending(r)) pend++; if(isDelivered(r)) del++; }
+  return rec ? (del/Math.max(rec-pend,1))*100 : null;
+}
+function buildSpinUrl(r){
+  if(r.vid && r.vid!=='') return 'https://assets.spyne.ai/360?version=v3&mediaId='+encodeURIComponent(r.vid)+'&spin=1';
+  return 'https://assets.spyne.ai/360?sku_id='+encodeURIComponent(r.sku||'')+'&input=true';
+}
+function statusPill(r){
+  const s=(r.fs||'').trim();
+  if(s==='Delivered') return ['Delivered','p-del'];
+  if(s==='QC Failed'||s==='Validation Failed') return [s,'p-rej'];
+  if(isPending(r)) return ['Pending','p-pen'];
+  return [s||'—','p-oth'];
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mlabel = mk => { const [y,m]=mk.split('-'); return MONTH_NAMES[(+m)-1]+' '+y.slice(2); };
+const nfmt = n => (n==null?'—':n.toLocaleString());
+
+/* ---- state ---- */
+let MONTHS=[];        // last 4, oldest -> newest
+let byMonth={};       // mk -> rows[]
+let ALL=[];           // all 4 months merged
+const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0};
+const $=id=>document.getElementById(id);
+
+async function boot(){
+  try{
+    const idx = await fetch(DATA_BASE+'/index.json?t='+Date.now()).then(r=>{ if(!r.ok) throw new Error('index.json '+r.status); return r.json(); });
+    const desc = [...(idx.months||[])].sort().reverse();
+    MONTHS = desc.slice(0,4).reverse();               // 4 columns, oldest->newest
+    const cb = Date.now();
+    const res = await Promise.all(MONTHS.map(mk =>
+      fetch(`${DATA_BASE}/${mk}.json?t=${cb}`).then(r=>{ if(!r.ok) throw new Error(mk+'.json '+r.status); return r.json(); })));
+    MONTHS.forEach((mk,i)=>{ byMonth[mk] = (res[i]&&res[i].rows)||[]; });
+    ALL = []; MONTHS.forEach(mk=> ALL.push(...byMonth[mk]));
+    $('sub').textContent = `${mlabel(MONTHS[0])} – ${mlabel(MONTHS[3])} · ${nfmt(ALL.length)} SKUs · synced ${idx.lastSynced?new Date(idx.lastSynced).toLocaleString():'—'}`;
+    const del = ALL.filter(isDelivered).length;
+    $('strip').innerHTML =
+      `<div><b>${nfmt(ALL.length)}</b>Total SKUs</div>`+
+      `<div><b>${(fulfil(ALL)||0).toFixed(1)}%</b>Fulfilment</div>`+
+      `<div><b>${(avgTat(ALL)||0).toFixed(1)} h</b>Avg TAT</div>`+
+      `<div><b>${nfmt(del)}</b>Delivered</div>`;
+    render();
+  }catch(e){
+    $('view').innerHTML = '<div class="err"><b>Failed to load data.</b><br>'+esc(e.message)+
+      '<br><br>Check that <code>/data/index.json</code> and the monthly files are reachable from this page.</div>';
+    $('sub').textContent = 'Last 3 months';
+  }
 }
 
 /* ---- routing ---- */
-const state={screen:'overview', input:null, ent:null, team:null};
-const $view=document.getElementById('view');
-const $crumb=document.getElementById('crumb');
-
-function go(s,patch={}){Object.assign(state,{screen:s},patch);render();window.scrollTo(0,0);}
-
+function go(s,patch={}){ Object.assign(state,{screen:s},patch); if(s!=='cards') state.shown=0; render(); window.scrollTo(0,0); }
 function crumb(){
   const p=[`<button onclick="go('overview')">Overview</button>`];
-  if(state.screen!=='overview'){
+  if(state.screen!=='overview')
     p.push(`<span class="sep">›</span><button onclick="go('breakdown',{input:'${state.input}'})">${state.input==='image'?'Image input':'Video input'}</button>`);
-  }
-  if(state.screen==='cards'){
-    p.push(`<span class="sep">›</span><span>${state.ent} · ${state.team}</span>`);
-  }
-  $crumb.innerHTML=p.join('');
+  if(state.screen==='cards')
+    p.push(`<span class="sep">›</span><span>${esc(state.ent)} · ${esc(state.tm)}</span>`);
+  $('crumb').innerHTML = p.join('');
 }
 
-/* ---- screen 1 ---- */
+/* ---- screen 1: overview ---- */
 function overview(){
-  const tDelta=(KPI.tat[3]-KPI.tat[2]).toFixed(1);
-  const fDelta=(KPI.fulfil[3]-KPI.fulfil[2]).toFixed(1);
-  const monthCells=(arr,unit,curBest)=>MONTHS.map((m,i)=>
-    `<div class="m ${i===3?'cur':''}"><div class="lbl">${m}</div><div class="val">${arr[i]}${unit}</div></div>`).join('');
+  const tat = MONTHS.map(mk=>avgTat(byMonth[mk]));
+  const ful = MONTHS.map(mk=>fulfil(byMonth[mk]));
+  const entCount = new Set(ALL.filter(r=>r.ent).map(r=>r.ent)).size;
+  const teamCount= new Set(ALL.map(teamId)).size;
+  let img=0,vid=0; for(const r of ALL){ const t=inputType(r).toLowerCase(); if(t==='image')img++; else if(t==='video')vid++; }
+  const iv = img+vid || 1;
+  const imgPct = img/iv*100, vidPct = vid/iv*100;
+
+  const dtat = (tat[3]!=null&&tat[2]!=null)?(tat[3]-tat[2]):null;   // lower better
+  const dful = (ful[3]!=null&&ful[2]!=null)?(ful[3]-ful[2]):null;   // higher better
+  const arrow=(d,lowerBetter)=>{ if(d==null||Math.abs(d)<0.05) return `<span class="delta flat">–</span>`;
+    const good = lowerBetter? d<0 : d>0; return `<span class="delta ${good?'up':'down'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)}${lowerBetter?'h':'%'}</span>`; };
+  const cells=(arr,unit)=>MONTHS.map((mk,i)=>`<div class="m ${i===3?'cur':''}"><div class="lbl">${mlabel(mk)}</div><div class="val">${arr[i]==null?'—':arr[i].toFixed(1)+unit}</div></div>`).join('');
 
   return `
   <div class="grid kpis">
     <div class="card">
       <h3><span class="emoji">⏱️</span> Avg TAT</h3>
-      <div class="big">${KPI.tat[3]} h <span class="delta ${tDelta<=0?'up':'down'}">${tDelta<=0?'▼':'▲'} ${Math.abs(tDelta)}h</span></div>
-      <div class="months">${monthCells(KPI.tat,' h')}</div>
+      <div class="big">${tat[3]==null?'—':tat[3].toFixed(1)+' h'} ${arrow(dtat,true)}</div>
+      <div class="months">${cells(tat,' h')}</div>
     </div>
     <div class="card b-green">
       <h3><span class="emoji">✅</span> Fulfilment %</h3>
-      <div class="big">${KPI.fulfil[3]}% <span class="delta ${fDelta>=0?'up':'down'}">${fDelta>=0?'▲':'▼'} ${Math.abs(fDelta)}%</span></div>
-      <div class="months">${monthCells(KPI.fulfil,'%')}</div>
+      <div class="big">${ful[3]==null?'—':ful[3].toFixed(1)+'%'} ${arrow(dful,false)}</div>
+      <div class="months">${cells(ful,'%')}</div>
     </div>
     <div class="card b-amber">
       <h3><span class="emoji">🏢</span> Enterprise Count</h3>
-      <div class="big">${KPI.entCount}</div>
-      <div style="font-size:12px;color:var(--muted)">Active enterprises · last 3 months</div>
+      <div class="big">${nfmt(entCount)}</div>
+      <div style="font-size:12px;color:var(--muted)">Distinct enterprises · last 3 months</div>
     </div>
     <div class="card b-amber">
       <h3><span class="emoji">👥</span> Team Count</h3>
-      <div class="big">${KPI.teamCount}</div>
-      <div style="font-size:12px;color:var(--muted)">Unique team IDs · last 3 months</div>
+      <div class="big">${nfmt(teamCount)}</div>
+      <div style="font-size:12px;color:var(--muted)">Distinct team IDs · last 3 months</div>
     </div>
   </div>
 
@@ -262,76 +245,95 @@ function overview(){
   <div class="grid split">
     <div class="card b-img clk" onclick="go('breakdown',{input:'image'})">
       <h3><span class="emoji">🖼️</span> Image %</h3>
-      <div class="big">${KPI.imgPct}%</div>
-      <div style="font-size:12px;color:var(--muted)">SKUs from image-upload input</div>
-      <div class="bar"><span style="width:${KPI.imgPct}%;background:var(--img)"></span></div>
+      <div class="big">${imgPct.toFixed(1)}%</div>
+      <div style="font-size:12px;color:var(--muted)">${nfmt(img)} image-input SKUs</div>
+      <div class="bar"><span style="width:${imgPct}%;background:var(--img)"></span></div>
       <div class="hint">View enterprises →</div>
     </div>
     <div class="card b-vid clk" onclick="go('breakdown',{input:'video'})">
       <h3><span class="emoji">🎬</span> Video %</h3>
-      <div class="big">${KPI.vidPct}%</div>
-      <div style="font-size:12px;color:var(--muted)">SKUs from video / walkaround input</div>
-      <div class="bar"><span style="width:${KPI.vidPct}%;background:var(--vid)"></span></div>
+      <div class="big">${vidPct.toFixed(1)}%</div>
+      <div style="font-size:12px;color:var(--muted)">${nfmt(vid)} video / walkaround SKUs</div>
+      <div class="bar"><span style="width:${vidPct}%;background:var(--vid)"></span></div>
       <div class="hint">View enterprises →</div>
     </div>
   </div>`;
 }
 
-/* ---- screen 2 ---- */
+/* ---- screen 2: breakdown ---- */
+function rowsForInput(){ const t=state.input; return ALL.filter(r=>inputType(r).toLowerCase()===t); }
 function breakdown(){
-  const rows=BREAK[state.input]||[];
+  const rows = rowsForInput();
+  // group ent -> tid -> {tm,cnt,del}
+  const ents={};
+  for(const r of rows){
+    const e=r.ent||'—'; const tid=teamId(r);
+    (ents[e]=ents[e]||{})[tid] = ents[e][tid] || {tm:r.tm||tid, cnt:0, del:0};
+    ents[e][tid].cnt++; if(isDelivered(r)) ents[e][tid].del++;
+  }
+  const entNames = Object.keys(ents).sort((a,b)=>{
+    const sa=Object.values(ents[a]).reduce((x,t)=>x+t.cnt,0), sb=Object.values(ents[b]).reduce((x,t)=>x+t.cnt,0);
+    return sb-sa;
+  });
   let body='';
-  rows.forEach(e=>{
-    const entTot=e.teams.reduce((a,t)=>a+t.cnt,0);
-    const entDel=e.teams.reduce((a,t)=>a+t.del,0);
-    body+=`<tr class="ent-row"><td>${e.ent}</td><td></td><td class="num">${entTot.toLocaleString()}</td><td class="num">${entDel.toLocaleString()}</td></tr>`;
-    e.teams.forEach(t=>{
+  for(const e of entNames){
+    const teams=Object.entries(ents[e]).sort((a,b)=>b[1].cnt-a[1].cnt);
+    const et=teams.reduce((x,[,t])=>x+t.cnt,0), ed=teams.reduce((x,[,t])=>x+t.del,0);
+    body+=`<tr class="ent-row"><td>${esc(e)}</td><td></td><td class="num">${nfmt(et)}</td><td class="num">${nfmt(ed)}</td></tr>`;
+    for(const [tid,t] of teams){
       body+=`<tr>
         <td style="padding-left:26px">↳</td>
-        <td>${t.tm} <span class="tid">tid ${t.tid}</span></td>
-        <td class="num"><button class="cnt-btn" onclick="go('cards',{ent:'${e.ent}',team:'${t.tm}'})">${t.cnt.toLocaleString()}</button></td>
-        <td class="num">${t.del.toLocaleString()}</td>
+        <td>${esc(t.tm)} <span class="tid">tid ${esc(tid)}</span></td>
+        <td class="num"><button class="cnt-btn" onclick="go('cards',{ent:${JSON.stringify(esc(e))},tid:${JSON.stringify(esc(tid))},tm:${JSON.stringify(esc(t.tm))}})">${nfmt(t.cnt)}</button></td>
+        <td class="num">${nfmt(t.del)}</td>
       </tr>`;
-    });
-  });
+    }
+  }
+  if(!entNames.length) body=`<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:30px">No ${state.input} SKUs in this window.</td></tr>`;
   return `
-  <div class="note">Showing enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · <b>Count is clickable →</b> opens SKU cards.</div>
+  <div class="note">Enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · <b>click a Count →</b> to see the SKUs.</div>
   <div class="tblcard"><div class="tblscroll"><table>
     <thead><tr><th>Enterprise</th><th>Team (unique tid)</th><th class="num">Total Count</th><th class="num">Total Delivered</th></tr></thead>
     <tbody>${body}</tbody>
   </table></div></div>`;
 }
 
-/* ---- screen 3 ---- */
+/* ---- screen 3: cards ---- */
+const PAGE=48;
+function cardRows(){ return rowsForInput().filter(r=> teamId(r)===state.tid && (r.ent||'—')===state.ent); }
+function loadSpin(btn, url){
+  const box=btn.closest('.spin');
+  box.innerHTML='<span class="badge">360°</span><iframe loading="lazy" src="'+url+'" allowfullscreen referrerpolicy="no-referrer"></iframe>';
+}
 function cards(){
-  const list=dummyCards(state.team);
-  const cardHtml=list.map(c=>{
-    const url=buildSpinUrl(c);
-    const noSpin=!c.is360;
+  const rows=cardRows();
+  const total=rows.length;
+  if(!state.shown) state.shown=Math.min(PAGE,total);
+  const slice=rows.slice(0,state.shown);
+  const html=slice.map(r=>{
+    const [lbl,cls]=statusPill(r); const url=buildSpinUrl(r);
     return `<div class="vcard">
-      <div class="top"><span class="vin">${c.vin}</span><span class="pill ${c.status[1]}">${c.status[0]}</span></div>
-      <div class="spin">
-        ${noSpin?'<div class="cap">No spin</div>':
-          `<span class="badge">360°</span><div class="floor"></div><span class="carrow">🚗</span>
-           <div class="cap">spin preview · ${url.length>42?url.slice(0,42)+'…':url}</div>`}
+      <div class="top"><span class="vin">${esc(r.vin||r.sku||'—')}</span><span class="pill ${cls}">${esc(lbl)}</span></div>
+      <div class="spin"><div class="floor"></div>
+        <button class="load" onclick="loadSpin(this,'${url.replace(/'/g,"%27")}')">▶ Load 360 spin</button>
       </div>
-      ${noSpin?'':`<div class="thumbs">${'<i></i>'.repeat(6)}</div>`}
-      <div class="tags"><span class="tag">Approved</span><span class="tag">Spin broken</span><span class="tag">Wrong vehicle</span><span class="tag">Quality issue</span><span class="tag">Missing angles</span></div>
-      <div class="vfoot"><span>sku ${c.sku_id}</span><a href="#" onclick="return false">Open VDP ↗</a></div>
+      <div class="vfoot"><span class="sk">sku ${esc(r.sku||'—')}</span><a href="${url}" target="_blank" rel="noopener">Open 360 ↗</a></div>
     </div>`;
   }).join('');
+  const more = state.shown<total
+    ? `<button class="more" onclick="state.shown=Math.min(state.shown+${PAGE},${total});render();">Show ${Math.min(PAGE,total-state.shown)} more (${nfmt(state.shown)} of ${nfmt(total)})</button>` : '';
   return `
-  <div class="note"><b>${state.ent} · ${state.team}</b> — 60 SKUs (mockup shows 9). Each card's spin uses your <b>buildSpinUrl()</b> logic (mediaId → v3 spin, else sku_id fallback). Live build swaps the placeholder for an <b>&lt;iframe src="…assets.spyne.ai/360…"&gt;</b>.</div>
-  <div class="cards">${cardHtml}</div>`;
+  <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} ${state.input} SKUs (last 3 months). Spin loads on demand (mediaId → v3 spin, else sku_id fallback). If a spin doesn't embed, use <b>Open 360 ↗</b>.</div>
+  <div class="cards">${html||'<div class="center">No SKUs.</div>'}</div>${more}`;
 }
 
 function render(){
   crumb();
-  $view.innerHTML = state.screen==='overview'?overview()
-                  : state.screen==='breakdown'?breakdown()
-                  : cards();
+  $('view').innerHTML = state.screen==='overview'?overview()
+                      : state.screen==='breakdown'?breakdown()
+                      : cards();
 }
-render();
+boot();
 </script>
 </body>
 </html>
