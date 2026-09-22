@@ -38,6 +38,10 @@
   body.slim .hero{padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:12px;border-radius:0 0 14px 14px;margin-bottom:14px}
   body.slim .hero h1{font-size:16px}
   body.slim .hero p,body.slim .hero .strip{display:none}
+  .platbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 24px;margin:0 0 16px}
+  .caplbl{font-size:12px;color:var(--muted);font-weight:700;margin-right:6px}
+  .cap{background:var(--card);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;border-radius:999px;padding:7px 16px;cursor:pointer;white-space:nowrap;box-shadow:var(--shadow)}
+  .cap.on{background:var(--pri);color:#fff;border-color:var(--pri)}
   .crumb{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
   .crumb button{background:none;border:none;color:var(--pri);font:inherit;cursor:pointer;padding:0}
   .crumb .sep{opacity:.5}
@@ -57,6 +61,15 @@
   .months .m .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
   .months .m .val{font-size:14px;font-weight:700;margin-top:2px}
   .months .m.cur{outline:2px solid var(--pri-l);outline-offset:-2px}
+  .spark{position:relative;width:100%;margin-top:12px;padding-bottom:34.7%}
+  .spark svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .spark .col{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .spark .v{font-size:11px;font-weight:700}
+  .spark .track{width:100%;height:46px;display:flex;align-items:flex-end;background:var(--bg);border-radius:6px;overflow:hidden}
+  .spark .bar{width:100%;border-radius:6px 6px 0 0;min-height:3px;transition:height .2s}
+  .spark .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .spark .col.cur .v{color:var(--pri)}
+  .spark .col.cur .track{outline:1.5px solid var(--pri-l);outline-offset:-1.5px}
   .delta{font-size:11px;font-weight:700}
   .up{color:var(--green)} .down{color:var(--red)} .flat{color:var(--muted)}
   .clk{cursor:pointer;transition:transform .12s ease, box-shadow .12s ease}
@@ -78,6 +91,25 @@
   .tblscroll{overflow-x:auto}
   .bkctl{display:flex;gap:10px;align-items:center;margin:0 4px 12px}
   .bkctl button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:5px 12px;cursor:pointer}
+  .bksrch{display:flex;gap:10px;align-items:center;margin:0 0 10px}
+  .bksrch input{flex:1;max-width:440px;font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+  .bksrch button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-weight:600;border-radius:8px;padding:6px 12px;cursor:pointer}
+  .chartcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);border-top:3px solid var(--pri);padding:14px 16px;margin:14px 0}
+  .chart-hd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px}
+  .chart-hd b{font-size:13px}
+  .chart-tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .chart-tabs button{background:var(--bg);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:11px;font-weight:600;border-radius:999px;padding:4px 11px;cursor:pointer}
+  .chart-tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+  .bk2{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin:0 0 12px}
+  .bkbox{position:relative}
+  .bkbox label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;font-weight:600}
+  .bkbox input{font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);width:300px;max-width:78vw}
+  .dd{position:absolute;z-index:30;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);margin-top:4px;max-height:260px;overflow:auto}
+  .dd-item{padding:8px 12px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line)}
+  .dd-item:last-child{border-bottom:none}
+  .dd-item:hover{background:color-mix(in srgb,var(--pri) 12%,var(--card))}
+  .dd-item small{color:var(--muted)}
+  .bkclr button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-weight:600;border-radius:10px;padding:8px 14px;cursor:pointer}
   .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   @media(min-width:820px){.cards{grid-template-columns:repeat(3,1fr)}}
   @media(min-width:1200px){.cards{grid-template-columns:repeat(4,1fr)}}
@@ -119,6 +151,7 @@
     <p id="sub">Last 3 months · loading…</p>
     <div class="strip" id="strip"></div>
   </div></div>
+  <div id="platbar" class="platbar"></div>
   <div class="wrap">
     <div class="crumb" id="crumb"></div>
     <div id="view"><div class="center"><div class="spinner"></div>Loading live data…</div></div>
@@ -180,7 +213,7 @@ const nfmt = n => (n==null?'—':n.toLocaleString());
 let MONTHS=[];        // current + prev 3 (4 total), oldest -> newest
 let byMonth={};       // mk -> rows[]
 let ALL=[];           // all 4 months merged
-const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0, from:'', to:''};
+const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0, from:'', to:'', q:'', metric:'delivered', entQ:'', roofQ:'', entSel:'', roofSel:'', focus:'', platform:''};
 const $=id=>document.getElementById(id);
 
 async function boot(){
@@ -221,16 +254,37 @@ function crumb(){
   $('crumb').innerHTML = p.join('');
 }
 
+/* ---- chart + search helpers ---- */
+let ENTSUG=[], ROOFSUG=[];
+function pickEnt(i){ const e=ENTSUG[i]; if(e==null) return; state.entSel=e; state.entQ=e; state.roofSel=''; state.roofQ=''; state.focus=''; render(); }
+function pickRoof(i){ const r=ROOFSUG[i]; if(!r) return; state.roofSel=r.tid; state.roofQ=r.tm; state.entSel=r.ent; state.entQ=r.ent; state.focus=''; render(); }
+function clearBk(){ state.entSel=''; state.entQ=''; state.roofSel=''; state.roofQ=''; state.focus=''; render(); }
+function chartSVG(vals, labels, unit, color){
+  const W=820,H=210,padL=52,padR=14,padT=22,padB=30,n=vals.length;
+  const max=Math.max(1,...vals.filter(v=>v!=null)); const iw=W-padL-padR, ih=H-padT-padB, step=iw/n, bw=step*0.5;
+  const fmt=v=> unit==='%'? v.toFixed(1)+'%' : unit==='h'? v.toFixed(1)+'h' : nfmt(Math.round(v));
+  let g='';
+  for(let k=0;k<=4;k++){ const y=padT+ih*(k/4), val=max*(1-k/4);
+    g+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    g+=`<text x="${padL-8}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${unit==='%'?val.toFixed(0)+'%':unit==='h'?val.toFixed(1):nfmt(Math.round(val))}</text>`; }
+  vals.forEach((v,i)=>{ const x=padL+step*i+step/2, h=v==null?0:ih*(v/max), y=padT+ih-h;
+    g+=`<rect x="${(x-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(h,0).toFixed(1)}" rx="4" fill="${color}"/>`;
+    g+=`<text x="${x.toFixed(1)}" y="${(y-6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink)">${v==null?'—':fmt(v)}</text>`;
+    g+=`<text x="${x.toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="11" fill="var(--muted)">${labels[i]}</text>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">${g}</svg>`;
+}
+
 /* ---- screen 1: overview ---- */
 function overview(){
-  const tat = MONTHS.map(mk=>avgTat(byMonth[mk]));
-  const ful = MONTHS.map(mk=>fulfil(byMonth[mk]));
-  const entCount = new Set(ALL.filter(r=>r.ent).map(r=>r.ent)).size;
-  const teamCount= new Set(ALL.map(teamId)).size;
-  let img=0,vid=0; for(const r of ALL){ const c=ttClass(r); if(c==='image')img++; else if(c==='video')vid++; }
+  const A=ALL.filter(plat), BM=mk=>byMonth[mk].filter(plat);
+  const tat = MONTHS.map(mk=>avgTat(BM(mk)));
+  const ful = MONTHS.map(mk=>fulfil(BM(mk)));
+  const entCount = new Set(A.filter(r=>r.ent).map(r=>r.ent)).size;
+  const teamCount= new Set(A.map(teamId)).size;
+  let img=0,vid=0; for(const r of A){ const c=ttClass(r); if(c==='image')img++; else if(c==='video')vid++; }
   const iv = img+vid || 1;
   const imgPct = img/iv*100, vidPct = vid/iv*100;
-  const ivM = MONTHS.map(mk=>{ let a=0,b=0; for(const r of byMonth[mk]){ const c=ttClass(r); if(c==='image')a++; else if(c==='video')b++; } return {img:a,vid:b}; });
+  const ivM = MONTHS.map(mk=>{ let a=0,b=0; for(const r of BM(mk)){ const c=ttClass(r); if(c==='image')a++; else if(c==='video')b++; } return {img:a,vid:b}; });
   const imgArr = ivM.map(m=> (m.img+m.vid)? m.img/(m.img+m.vid)*100 : null);
   const vidArr = ivM.map(m=> (m.img+m.vid)? m.vid/(m.img+m.vid)*100 : null);
   const last = MONTHS.length-1;
@@ -239,19 +293,37 @@ function overview(){
   const dful = (ful[last]!=null&&ful[last-1]!=null)?(ful[last]-ful[last-1]):null;   // higher better
   const arrow=(d,lowerBetter)=>{ if(d==null||Math.abs(d)<0.05) return `<span class="delta flat">–</span>`;
     const good = lowerBetter? d<0 : d>0; return `<span class="delta ${good?'up':'down'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(1)}${lowerBetter?'h':'%'}</span>`; };
-  const cells=(arr,unit)=>MONTHS.map((mk,i)=>`<div class="m ${i===last?'cur':''}"><div class="lbl">${mlabel(mk)}</div><div class="val">${arr[i]==null?'—':arr[i].toFixed(1)+unit}</div></div>`).join('');
+  const cells=(arr,unit,color)=>{ const nn=arr.filter(v=>v!=null); if(!nn.length) return '<div class="spark"></div>';
+    const mx=Math.max(...nn), mn=Math.min(...nn), rng=(mx-mn)||1;
+    const W=300,H=104,padX=30,pT=28,pB=20,n=arr.length,step=(W-padX*2)/Math.max(n-1,1);
+    const baseY=H-pB, xOf=i=>padX+step*i, yOf=v=>pT+(baseY-pT)*(1-(v-mn)/rng);
+    const anc=i=> i===0?'start':(i===n-1?'end':'middle');
+    const pts=arr.map((v,i)=> v==null?null:[xOf(i),yOf(v)]).filter(Boolean);
+    let area='',line='',dots='',vl='',ml='';
+    if(pts.length>1){
+      const d=pts.map((p,idx)=>(idx?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+      line=`<path d="${d}" fill="none" stroke="${color||'var(--pri)'}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+      area=`<path d="M${pts[0][0].toFixed(1)} ${baseY} ${pts.map(p=>'L'+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ')} L${pts[pts.length-1][0].toFixed(1)} ${baseY} Z" fill="${color||'var(--pri)'}" fill-opacity="0.12"/>`;
+    }
+    arr.forEach((v,i)=>{ const x=xOf(i);
+      ml+=`<text x="${x.toFixed(1)}" y="${H-5}" text-anchor="${anc(i)}" font-size="8.5" fill="var(--muted)">${mlabel(MONTHS[i])}</text>`;
+      if(v==null) return; const yy=yOf(v), cur=i===last;
+      dots+=`<circle cx="${x.toFixed(1)}" cy="${yy.toFixed(1)}" r="${cur?4.5:3}" fill="${cur?(color||'var(--pri)'):'var(--card)'}" stroke="${color||'var(--pri)'}" stroke-width="2"/>`;
+      vl+=`<text x="${x.toFixed(1)}" y="${(yy-8).toFixed(1)}" text-anchor="${anc(i)}" font-size="10" font-weight="700" fill="${cur?(color||'var(--pri)'):'var(--ink)'}">${v.toFixed(1)+unit}</text>`; });
+    const axis=`<line x1="${padX-2}" y1="${baseY}" x2="${W-padX+2}" y2="${baseY}" stroke="var(--line)"/>`;
+    return `<div class="spark"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${area}${axis}${line}${dots}${vl}${ml}</svg></div>`; };
 
   return `
   <div class="grid kpis">
     <div class="card">
       <h3><span class="emoji">⏱️</span> Avg TAT</h3>
       <div class="big">${tat[last]==null?'—':tat[last].toFixed(1)+' h'} ${arrow(dtat,true)}</div>
-      <div class="months">${cells(tat,' h')}</div>
+      ${cells(tat,' h','var(--pri)')}
     </div>
     <div class="card b-green">
       <h3><span class="emoji">✅</span> Fulfilment %</h3>
       <div class="big">${ful[last]==null?'—':ful[last].toFixed(1)+'%'} ${arrow(dful,false)}</div>
-      <div class="months">${cells(ful,'%')}</div>
+      ${cells(ful,'%','var(--green)')}
     </div>
     <div class="card b-amber">
       <h3><span class="emoji">🏢</span> Enterprise Count</h3>
@@ -267,23 +339,23 @@ function overview(){
 
   <div class="sec-title">Input type split — click to drill down</div>
   <div class="grid split">
-    <div class="card b-img clk" onclick="go('breakdown',{input:'image'})">
+    <div class="card b-img clk" onclick="go('breakdown',{input:'image',q:''})">
       <h3><span class="emoji">🖼️</span> Image %</h3>
       <div class="big">${imgArr[last]==null?'—':imgArr[last].toFixed(1)+'%'}</div>
       <div style="font-size:12px;color:var(--muted)">${nfmt(img)} image-input SKUs · 4-mo total → drill down</div>
-      <div class="months">${cells(imgArr,'%')}</div>
+      ${cells(imgArr,'%','var(--img)')}
     </div>
-    <div class="card b-vid clk" onclick="go('breakdown',{input:'video'})">
+    <div class="card b-vid clk" onclick="go('breakdown',{input:'video',q:''})">
       <h3><span class="emoji">🎬</span> Video %</h3>
       <div class="big">${vidArr[last]==null?'—':vidArr[last].toFixed(1)+'%'}</div>
       <div style="font-size:12px;color:var(--muted)">${nfmt(vid)} video / walkaround SKUs · 4-mo total → drill down</div>
-      <div class="months">${cells(vidArr,'%')}</div>
+      ${cells(vidArr,'%','var(--vid)')}
     </div>
   </div>`;
 }
 
 /* ---- screen 2: breakdown (collapsible) ---- */
-function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input); }
+function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input && plat(r)); }
 function toggleEnt(ei){
   const rows=document.querySelectorAll('.e'+ei);
   if(!rows.length) return;
@@ -297,42 +369,82 @@ function setAllEnt(open){
 }
 function breakdown(){
   const rows = rowsForInput();
+  const dpct=(del,cnt,pend)=> cnt? (del/Math.max(cnt-pend,1)*100) : 0;
   const ents={};
   for(const r of rows){
     const e=r.ent||'—'; const tid=teamId(r);
-    (ents[e]=ents[e]||{})[tid] = ents[e][tid] || {tm:r.tm||tid, cnt:0, del:0};
-    ents[e][tid].cnt++; if(isDelivered(r)) ents[e][tid].del++;
+    const g=(ents[e]=ents[e]||{})[tid] = ents[e][tid] || {tm:r.tm||tid, cnt:0, del:0, pend:0};
+    g.cnt++; if(isDelivered(r)) g.del++; if(isPending(r)) g.pend++;
   }
-  const entNames = Object.keys(ents).sort((a,b)=>{
-    const sa=Object.values(ents[a]).reduce((x,t)=>x+t.cnt,0), sb=Object.values(ents[b]).reduce((x,t)=>x+t.cnt,0);
-    return sb-sa;
-  });
-  BK=[];
-  let body='';
-  entNames.forEach((e,ei)=>{
-    const teams=Object.entries(ents[e]).sort((a,b)=>b[1].cnt-a[1].cnt);
-    const et=teams.reduce((x,[,t])=>x+t.cnt,0), ed=teams.reduce((x,[,t])=>x+t.del,0);
+  const entNames = Object.keys(ents).sort((a,b)=> Object.values(ents[b]).reduce((x,t)=>x+t.cnt,0) - Object.values(ents[a]).reduce((x,t)=>x+t.cnt,0));
+
+  const eq=(state.entQ||'').trim().toLowerCase(), rq=(state.roofQ||'').trim().toLowerCase();
+  ENTSUG = (state.focus==='ent' && eq && !state.entSel) ? entNames.filter(e=> e.toLowerCase().includes(eq)).slice(0,12) : [];
+  ROOFSUG=[];
+  if(state.focus==='roof' && rq){
+    const scope = state.entSel ? [state.entSel] : entNames;
+    outer: for(const e of scope){ for(const [tid,t] of Object.entries(ents[e]||{})){
+      if(String(t.tm||'').toLowerCase().includes(rq) || String(tid).toLowerCase().includes(rq)) ROOFSUG.push({ent:e,tid,tm:t.tm});
+      if(ROOFSUG.length>=15) break outer;
+    } }
+  }
+
+  let display;
+  if(state.roofSel && state.entSel){
+    const t=ents[state.entSel] && ents[state.entSel][state.roofSel];
+    display = t ? [[state.entSel, [[state.roofSel,t]]]] : [];
+  } else if(state.entSel){
+    display = ents[state.entSel] ? [[state.entSel, Object.entries(ents[state.entSel]).sort((a,b)=>b[1].cnt-a[1].cnt)]] : [];
+  } else {
+    display = entNames.map(e=> [e, Object.entries(ents[e]).sort((a,b)=>b[1].cnt-a[1].cnt)]);
+  }
+  const anySel = !!(state.entSel||state.roofSel);
+
+  BK=[]; let body='';
+  display.forEach(([e,teams],ei)=>{
+    const et=teams.reduce((x,[,t])=>x+t.cnt,0), ed=teams.reduce((x,[,t])=>x+t.del,0), ep=teams.reduce((x,[,t])=>x+t.pend,0);
+    const open = anySel;
     body+=`<tr class="ent-row" onclick="toggleEnt(${ei})">
-      <td><span class="cx" id="cx${ei}">▸</span>${esc(e)} <span class="tid">(${teams.length} team${teams.length>1?'s':''})</span></td>
-      <td></td><td class="num">${nfmt(et)}</td><td class="num">${nfmt(ed)}</td></tr>`;
+      <td><span class="cx" id="cx${ei}">${open?'▾':'▸'}</span>${esc(e)} <span class="tid">(${teams.length} team${teams.length>1?'s':''})</span></td>
+      <td></td><td class="num">${nfmt(et)}</td><td class="num">${nfmt(ed)}</td><td class="num">${dpct(ed,et,ep).toFixed(1)}%</td></tr>`;
     for(const [tid,t] of teams){
       const bi=BK.push({ent:e,tid,tm:t.tm})-1;
-      body+=`<tr class="team e${ei}" style="display:none">
+      body+=`<tr class="team e${ei}" style="display:${open?'':'none'}">
         <td style="padding-left:26px">↳</td>
         <td>${esc(t.tm)} <span class="tid">tid ${esc(tid)}</span></td>
         <td class="num"><button class="cnt-btn" onclick="event.stopPropagation();openCards(${bi})">${nfmt(t.cnt)}</button></td>
         <td class="num">${nfmt(t.del)}</td>
+        <td class="num">${dpct(t.del,t.cnt,t.pend).toFixed(1)}%</td>
       </tr>`;
     }
   });
-  if(!entNames.length) body=`<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:30px">No ${state.input} SKUs in this window.</td></tr>`;
+  if(!body) body=`<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">No matches.</td></tr>`;
+
+  const entDD = ENTSUG.length ? `<div class="dd">${ENTSUG.map((e,i)=>`<div class="dd-item" onmousedown="event.preventDefault()" onclick="pickEnt(${i})">${esc(e)}</div>`).join('')}</div>` : '';
+  const roofDD = ROOFSUG.length ? `<div class="dd">${ROOFSUG.map((r,i)=>`<div class="dd-item" onmousedown="event.preventDefault()" onclick="pickRoof(${i})">${esc(r.tm)} <small>· ${esc(r.ent)} · tid ${esc(r.tid)}</small></div>`).join('')}</div>` : '';
+
   return `
-  <div class="note">Enterprises &amp; teams for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals are last 3 months · click an <b>enterprise row</b> to expand its teams, then a <b>Count</b> to see the SKUs.</div>
-  <div class="bkctl"><span style="color:var(--muted)">${entNames.length} enterprises</span>
+  <div class="note">Enterprises &amp; rooftops for <b>${state.input==='image'?'Image input':'Video input'}</b> · totals last 3 months · pick an <b>enterprise</b> and/or <b>rooftop</b>, or expand a row and click a <b>Count</b>.</div>
+  <div class="bk2">
+    <div class="bkbox"><label>Enterprise</label>
+      <input id="bkent" type="text" autocomplete="off" placeholder="Search enterprise…" value="${esc(state.entQ||'')}"
+        oninput="state.entQ=this.value;state.entSel='';state.roofSel='';state.roofQ='';state.focus='ent';render();const el=document.getElementById('bkent');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}"
+        onfocus="state.focus='ent'">
+      ${entDD}
+    </div>
+    <div class="bkbox"><label>Rooftop${state.entSel?` (in ${esc(state.entSel)})`:''}</label>
+      <input id="bkroof" type="text" autocomplete="off" placeholder="Search rooftop…" value="${esc(state.roofQ||'')}"
+        oninput="state.roofQ=this.value;state.roofSel='';state.focus='roof';render();const el=document.getElementById('bkroof');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}"
+        onfocus="state.focus='roof'">
+      ${roofDD}
+    </div>
+    ${(state.entSel||state.roofSel||state.entQ||state.roofQ)?`<div class="bkclr"><button onclick="clearBk()">Clear</button></div>`:''}
+  </div>
+  <div class="bkctl"><span style="color:var(--muted)">${display.length} enterpr${display.length===1?'ise':'ises'} shown</span>
     <button onclick="setAllEnt(true)">Expand all</button>
     <button onclick="setAllEnt(false)">Collapse all</button></div>
   <div class="tblcard"><div class="tblscroll"><table>
-    <thead><tr><th>Enterprise</th><th>Team (unique tid)</th><th class="num">Total Count</th><th class="num">Total Delivered</th></tr></thead>
+    <thead><tr><th>Enterprise</th><th>Team (unique tid)</th><th class="num">Count</th><th class="num">Delivered</th><th class="num">Delivery %</th></tr></thead>
     <tbody id="bktbody">${body}</tbody>
   </table></div></div>`;
 }
@@ -385,7 +497,23 @@ function cards(){
   ${total?nav:''}`;
 }
 
+function normVm(r){ return String(r.vm||'').trim().toUpperCase(); }
+function plat(r){ return !state.platform || normVm(r)===state.platform; }
+const PLABEL={FTP:'FTP',APP_IOS:'iOS App',APP_ANDROID:'Android App',CONSOLE:'Console',API:'API'};
+function renderChrome(){
+  const pb=document.getElementById('platbar');
+  if(pb){ const set=new Set(); for(const r of ALL){ const v=normVm(r); if(v) set.add(v); }
+    const order=['FTP','APP_IOS','APP_ANDROID','CONSOLE','API'];
+    const vals=[...set].sort((a,b)=>((order.indexOf(a)+1||99)-(order.indexOf(b)+1||99)));
+    const chip=(val,label)=>`<button class="cap ${state.platform===val?'on':''}" onclick="state.platform='${val}';render();window.scrollTo(0,0);">${label}</button>`;
+    pb.innerHTML='<span class="caplbl">Platform</span>'+chip('','All')+vals.map(v=>chip(v,PLABEL[v]||v)).join('');
+  }
+  const st=document.getElementById('strip');
+  if(st){ const A=ALL.filter(plat);
+    st.innerHTML=`<div><b>${nfmt(A.length)}</b>Total SKUs</div><div><b>${(fulfil(A)||0).toFixed(1)}%</b>Fulfilment</div><div><b>${(avgTat(A)||0).toFixed(1)} h</b>Avg TAT</div><div><b>${nfmt(A.filter(isDelivered).length)}</b>Delivered</div>`; }
+}
 function render(){
+  renderChrome();
   document.body.classList.toggle('slim', state.screen!=='overview');
   crumb();
   $('view').innerHTML = state.screen==='overview'?overview()
