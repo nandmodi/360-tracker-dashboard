@@ -6905,7 +6905,7 @@ function switchView(view){
     populatePerfUserList();
     renderPerformance();
   } else if (view === 'reports'){
-    if (!rptRaw('spin').length && !RPT.loading) rptLoadAll(); else renderReports();
+    if (!RPT.loading) rptLoadAll(); else renderReports();
   } else {
     refresh();
   }
