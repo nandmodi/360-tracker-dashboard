@@ -55,6 +55,22 @@
   .card.b-img{border-top-color:var(--img)} .card.b-vid{border-top-color:var(--vid)}
   .card h3{margin:0;font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
   .card .big{font-size:22px;font-weight:800;margin:3px 0 1px}
+  .r3{grid-template-columns:1fr}
+  @media(min-width:760px){.r3{grid-template-columns:repeat(3,1fr)}}
+  .rr-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+  .rr-head h3{margin:0}
+  .rr-sub{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+  .rr-pct{text-align:right;flex-shrink:0}
+  .rr-pct>div:first-child{font-size:16px;font-weight:800;line-height:1}
+  .rr-of{font-size:10px;color:var(--muted);margin-top:2px}
+  .rr-list{max-height:200px;overflow-y:auto;padding-right:4px;margin-top:2px}
+  .rrow{margin-bottom:10px}
+  .rr-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}
+  .rr-name{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:74%}
+  .rr-num{font-size:11.5px;font-weight:700;color:var(--ink);flex-shrink:0}
+  .rr-bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+  .rr-fill{height:100%;border-radius:3px;transition:width .3s}
+  .rr-empty{color:var(--muted);font-size:12px;padding:8px 0}
   .emoji{font-size:15px}
   .months{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
   .months .m{background:var(--bg);border-radius:9px;padding:7px 4px;text-align:center}
@@ -276,6 +292,33 @@ function chartSVG(vals, labels, unit, color){
 }
 
 /* ---- screen 1: overview ---- */
+function reasonAgg(rows){
+  const qc={}, val={}, tech={}; let tr=0;
+  for(const r of rows){
+    const fs=(r.fs||'').trim();
+    if((r.cs||'').trim()==='qc_done') tr++;
+    if(fs==='QC Failed' && r.isv){
+      let found=false;
+      for(const part of String(r.isv).split('||')){ const t=part.trim();
+        if(/^blocker/i.test(t)){ found=true;
+          for(const item of t.replace(/^blocker\s*-\s*/i,'').split(',')){ const k=item.trim(); if(k) qc[k]=(qc[k]||0)+1; } } }
+      if(!found){ const k=r.rej?(r.rej||'').trim().slice(0,60):'(no reason recorded)'; qc[k]=(qc[k]||0)+1; }
+    }
+    if(fs==='Validation Failed'){ const k=r.rej?(r.rej||'').trim().slice(0,80):'(no reason recorded)'; val[k]=(val[k]||0)+1; }
+    if(fs==='Tech Failure'||fs==='AI Failed'){ const k=r.rej?(r.rej||'').trim().slice(0,80):'(no reason recorded)'; tech[k]=(tech[k]||0)+1; }
+  }
+  return {qc,val,tech,tr};
+}
+function reasonCard(title,sub,map,color,tr){
+  const entries=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  const cardTotal=entries.reduce((s,[,c])=>s+c,0);
+  const hp=tr?(cardTotal/tr*100):0, max=entries.length?entries[0][1]:1;
+  const list=entries.length? entries.map(([label,count])=>{
+    const w=(count/max)*100, ofr=tr?(count/tr*100):0;
+    return `<div class="rrow"><div class="rr-top"><span class="rr-name" title="${esc(label)}">${esc(label)}</span><span class="rr-num">${nfmt(count)} · <span style="color:${color}">${ofr.toFixed(2)}%</span></span></div><div class="rr-bar"><div class="rr-fill" style="width:${w}%;background:${color}"></div></div></div>`;
+  }).join('') : '<p class="rr-empty">No data</p>';
+  return `<div class="card"><div class="rr-head"><div><h3>${title}</h3><div class="rr-sub">${sub}</div></div><div class="rr-pct"><div style="color:${color}">${hp.toFixed(1)}%</div><div class="rr-of">of reviewed · ${nfmt(cardTotal)}</div></div></div><div class="rr-list">${list}</div></div>`;
+}
 function overview(){
   const A=ALL.filter(plat), BM=mk=>byMonth[mk].filter(plat);
   const tat = MONTHS.map(mk=>avgTat(BM(mk)));
@@ -319,6 +362,7 @@ function overview(){
     const axis=`<line x1="${padX-2}" y1="${baseY}" x2="${W-padX+2}" y2="${baseY}" stroke="var(--line)"/>`;
     return `<div class="spark${wide?' w':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${area}${axis}${line}${dots}${vl}${ml}</svg></div>`; };
 
+  const ra = reasonAgg(BM(MONTHS[MONTHS.length-1]));
   return `
   <div class="grid kpis">
     <div class="card">
@@ -359,6 +403,13 @@ function overview(){
       <div style="font-size:12px;color:var(--muted)">${nfmt(vid)} video / walkaround SKUs · 4-mo total → drill down</div>
       ${cells(vidArr,'%','var(--vid)',1,true)}
     </div>
+  </div>
+
+  <div class="sec-title">Failure reasons · ${mlabel(MONTHS[MONTHS.length-1])}</div>
+  <div class="grid r3">
+    ${reasonCard('QC Failed reasons','Blocker severity · scroll for more', ra.qc, 'var(--red)', ra.tr)}
+    ${reasonCard('Validation Failed reasons','Failure reasons · scroll for more', ra.val, '#dd6b20', ra.tr)}
+    ${reasonCard('Tech &amp; AI Failure reasons','Failure reasons · scroll for more', ra.tech, 'var(--amber)', ra.tr)}
   </div>`;
 }
 
