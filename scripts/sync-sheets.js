@@ -42,8 +42,12 @@ function loadAllRows() {
   for (const f of files) {
     const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
     for (const r of d.rows) {
-      r._pa = parseDate(r.pa) || parseDate(r.c); // processedAt fallback createdAt
-      r._fq = parseDate(r.fq) || parseDate(r.u); // first_qc_done fallback final_time
+      // Period-bucketing uses sku_created_on, matching Operations — with the
+      // same epoch-placeholder (~1970-01-01, meaning "no real value") handling
+      // sync-data.js already applies, falling back to createdAt in that case.
+      let sc = parseDate(r.sc);
+      if (sc && sc.getTime() < 86400000) sc = null;
+      r._period = sc || parseDate(r.c);
       rows.push(r);
     }
   }
@@ -60,13 +64,13 @@ const TAT_ELIGIBLE = new Set(['Delivered', 'QC Failed', 'Validation Failed', 'Te
 function isTatEligible(r) { return TAT_ELIGIBLE.has((r.fs || '').trim()); }
 
 // ── Metrics ───────────────────────────────────────────────────
+// Reuses r.e2e (already computed by sync-data.js from sku_created_on ->
+// first_qc_done, with the same fallbacks Operations uses) instead of
+// re-deriving TAT here — keeps Reports/Sheet-export numbers identical to
+// Operations for the same underlying rows.
 function computeMetrics(rows) {
   if (!rows.length) return { total_vin: 0, total_delivered: 0, sla_pct: null, p99_tat_hrs: null, p95_tat_hrs: null, delivery_pct: null };
-  const tatRows = rows.filter(isTatEligible).map(r => {
-    if (!r._pa || !r._fq) return null;
-    const ms = r._fq - r._pa;
-    return ms >= 0 ? +(ms / 3600000).toFixed(2) : null;
-  }).filter(v => v != null);
+  const tatRows = rows.filter(isTatEligible).map(r => (typeof r.e2e === 'number' && r.e2e >= 0) ? r.e2e : null).filter(v => v != null);
 
   const sla_pct = tatRows.length ? +((tatRows.filter(v => v <= SLA_H).length / tatRows.length) * 100).toFixed(2) : null;
   const sorted = [...tatRows].sort((a, b) => a - b);
@@ -85,7 +89,7 @@ function computeMetrics(rows) {
 // ── Periods (matches the xlsx template exactly) ───────────────
 function getPeriods(allRows) {
   let maxDate = new Date(2026, 3, 1);
-  for (const r of allRows) { if (r._pa && r._pa > maxDate) maxDate = r._pa; }
+  for (const r of allRows) { if (r._period && r._period > maxDate) maxDate = r._period; }
 
   const periods = [];
   // Weekly: W-1 (previous complete Mon-Sun week) through W-4 — the current,
@@ -105,7 +109,7 @@ function getPeriods(allRows) {
   }
   return periods;
 }
-function inPeriod(r, p) { return r._pa && r._pa >= p.from && r._pa < p.to; }
+function inPeriod(r, p) { return r._period && r._period >= p.from && r._period < p.to; }
 
 // ── Build the 3 sheets ─────────────────────────────────────────
 function buildSpinOrRt(allRows, laneId) {
