@@ -78,14 +78,16 @@
   .tblscroll{overflow-x:auto}
   .bkctl{display:flex;gap:10px;align-items:center;margin:0 4px 12px}
   .bkctl button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:5px 12px;cursor:pointer}
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  @media(min-width:820px){.cards{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:1200px){.cards{grid-template-columns:repeat(4,1fr)}}
   .vcard{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line)}
   .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:6px 11px;border-bottom:1px solid var(--line);gap:8px}
   .vin{font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums;word-break:break-all}
   .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px;white-space:nowrap;flex:0 0 auto}
   .p-del{background:#dcfce7;color:#166534} .p-rej{background:#fee2e2;color:#991b1b}
   .p-pen{background:#fef3c7;color:#92400e} .p-oth{background:#e5e7eb;color:#374151}
-  .spin{position:relative;height:118px;background:radial-gradient(120% 90% at 50% 30%,#4b4660 0%,#232030 70%);
+  .spin{position:relative;aspect-ratio:16/9;background:radial-gradient(120% 90% at 50% 30%,#4b4660 0%,#232030 70%);
     display:flex;align-items:center;justify-content:center;color:#cfc9e6;overflow:hidden}
   .spin iframe{width:100%;height:100%;border:0;display:block}
   .spin .floor{position:absolute;bottom:12%;left:12%;right:12%;height:16%;border-radius:50%;
