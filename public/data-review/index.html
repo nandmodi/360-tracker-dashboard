@@ -27,6 +27,7 @@
     font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
   a{color:var(--pri);text-decoration:none}
   .wrap{max-width:none;margin:0;padding:0 24px 22px}
+  .topfreeze{position:sticky;top:0;z-index:50;background:var(--bg);padding-bottom:8px}
   .hero{background:linear-gradient(135deg,var(--pri) 0%,var(--pri-d) 100%);color:#fff;border-radius:0 0 22px 22px;
     padding:calc(env(safe-area-inset-top,0px) + 14px) 24px 18px;box-shadow:var(--shadow);margin-bottom:12px;}
   .hero .in{max-width:none;margin:0}
@@ -163,12 +164,14 @@
 </style>
 </head>
 <body>
+  <div class="topfreeze">
   <div class="hero"><div class="in">
     <h1>📊 360 Delivery Report</h1>
     <p id="sub">Last 3 months · loading…</p>
     <div class="strip" id="strip"></div>
   </div></div>
   <div id="platbar" class="platbar"></div>
+  </div>
   <div class="wrap">
     <div class="crumb" id="crumb"></div>
     <div id="view"><div class="center"><div class="spinner"></div>Loading live data…</div></div>
