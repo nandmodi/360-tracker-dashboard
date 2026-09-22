@@ -35,6 +35,9 @@
   .hero .strip{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
   .hero .strip div{font-size:12px;opacity:.9}
   .hero .strip b{display:block;font-size:18px;font-weight:700;opacity:1}
+  body.slim .hero{padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:12px;border-radius:0 0 14px 14px;margin-bottom:14px}
+  body.slim .hero h1{font-size:16px}
+  body.slim .hero p,body.slim .hero .strip{display:none}
   .crumb{display:flex;align-items:center;gap:8px;margin:0 0 16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
   .crumb button{background:none;border:none;color:var(--pri);font:inherit;cursor:pointer;padding:0}
   .crumb .sep{opacity:.5}
@@ -75,21 +78,21 @@
   .tblscroll{overflow-x:auto}
   .bkctl{display:flex;gap:10px;align-items:center;margin:0 4px 12px}
   .bkctl button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-size:12px;font-weight:600;border-radius:8px;padding:5px 12px;cursor:pointer}
-  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
   .vcard{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line)}
-  .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);gap:8px}
+  .vcard .top{display:flex;justify-content:space-between;align-items:center;padding:6px 11px;border-bottom:1px solid var(--line);gap:8px}
   .vin{font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums;word-break:break-all}
   .pill{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px;white-space:nowrap;flex:0 0 auto}
   .p-del{background:#dcfce7;color:#166534} .p-rej{background:#fee2e2;color:#991b1b}
   .p-pen{background:#fef3c7;color:#92400e} .p-oth{background:#e5e7eb;color:#374151}
-  .spin{position:relative;aspect-ratio:16/10;background:radial-gradient(120% 90% at 50% 30%,#4b4660 0%,#232030 70%);
+  .spin{position:relative;height:118px;background:radial-gradient(120% 90% at 50% 30%,#4b4660 0%,#232030 70%);
     display:flex;align-items:center;justify-content:center;color:#cfc9e6;overflow:hidden}
   .spin iframe{width:100%;height:100%;border:0;display:block}
   .spin .floor{position:absolute;bottom:12%;left:12%;right:12%;height:16%;border-radius:50%;
     background:radial-gradient(ellipse at center,rgba(255,255,255,.14),transparent 70%)}
   .spin .load{position:relative;z-index:2;background:var(--pri);color:#fff;border:none;border-radius:8px;padding:7px 14px;font:inherit;font-weight:700;cursor:pointer}
   .spin .badge{position:absolute;top:8px;right:8px;background:var(--pri);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:7px;z-index:2}
-  .vfoot{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);gap:8px}
+  .vfoot{display:flex;justify-content:space-between;align-items:center;padding:6px 11px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);gap:8px}
   .vfoot .sk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .note{background:color-mix(in srgb,var(--pri) 7%,var(--card));border:1px dashed var(--pri-l);border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);margin-bottom:16px}
   .note b{color:var(--ink)}
@@ -376,12 +379,12 @@ function cards(){
   return `
   <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} ${state.input} SKUs${(state.from||state.to)?' (filtered)':''}, newest first. 360 spin auto-loads for <b>Delivered</b> only.</div>
   ${flt}
-  ${total?nav:''}
   <div class="cards">${html||'<div class="center">No SKUs in this range.</div>'}</div>
   ${total?nav:''}`;
 }
 
 function render(){
+  document.body.classList.toggle('slim', state.screen!=='overview');
   crumb();
   $('view').innerHTML = state.screen==='overview'?overview()
                       : state.screen==='breakdown'?breakdown()
