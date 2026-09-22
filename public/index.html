@@ -1692,7 +1692,7 @@ document.addEventListener('DOMContentLoaded', function(){
         <label class="f-label">&nbsp;</label>
         <div style="display:flex;align-items:center;gap:10px;height:34px;">
           <span id="rptSyncTxt" style="font-size:11px;color:var(--muted);"></span>
-          <button class="btn-reset" id="rptRefreshBtn" onclick="rptLoadAll()">Refresh data</button>
+          <button class="btn-reset" id="rptRefreshBtn" onclick="rptComputeAll()">Refresh data</button>
         </div>
       </div>
     </div>
@@ -5194,14 +5194,15 @@ let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sli
 
 // ============================================================
 // REPORTS TAB — live from Google Sheets (360_spin/360_rt/360_region),
-// matching the Delivery Metrics "360 Live" tab exactly (UI + logic).
-// No sign-in gate — this dashboard already has its own access model.
+// computed directly from the dashboard's own already-loaded data (RAW) —
+// no Google Sheet involved. sync-sheets.js still runs separately to feed
+// a different, shared cross-product reporting tool; this tab no longer
+// depends on it.
 // ============================================================
-const RPT_SHEET_ID = '1f_Ds-wXmAPFvyFez2QkiC9mtGiTEXphPrkvjEl1tCj0';
 const RPT_LANES = [
-  { id:'spin',   label:'Spin',    sheet:'360_spin',   color:'#2a78d6', blurb:'Every spin delivered' },
-  { id:'rt',     label:'Rooftop', sheet:'360_rt',     color:'#eb6834', blurb:'Rolled up per dealership' },
-  { id:'region', label:'Region',  sheet:'360_region', color:'#1baf7a', blurb:'Split by delivery region', dim:'region' },
+  { id:'spin',   label:'Spin',    color:'#2a78d6', blurb:'Every spin delivered' },
+  { id:'rt',     label:'Rooftop', color:'#eb6834', blurb:'Rolled up per dealership' },
+  { id:'region', label:'Region',  color:'#1baf7a', blurb:'Split by delivery region', dim:'region' },
 ];
 const RPT_METRICS = [
   { id:'sla_pct',         label:'SLA met',    kind:'pct', better:'high' },
@@ -5217,6 +5218,7 @@ const RPT_SEGMENTS = [
   { id:'smb', label:'SMB', prefix:'smb_' },
 ];
 const RPT_SERIES_COLORS = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'];
+const RPT_SLA_H = 6;
 
 const RPT = {
   granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
@@ -5229,13 +5231,6 @@ const RPT = {
 function rptRaw(laneId){ return RPT.data[laneId] || []; }
 function rptRegSet(){ return RPT.regions; }
 
-// ── Data fetch (gviz — public read, no auth needed for a link-viewable sheet) ──
-function rptNormGran(v){
-  const g = String(v==null?'':v).trim().toLowerCase();
-  if (g.indexOf('week')===0) return 'week';
-  if (g.indexOf('month')===0) return 'month';
-  return g;
-}
 function rptPeriodRank(p){
   const t = String(p==null?'':p).trim();
   const m = /^([MW])-(\d+)$/i.exec(t);
@@ -5249,40 +5244,125 @@ function rptComparePeriods(a,b){
   if (a.date && b.date) return a.date-b.date;
   return 0;
 }
-function rptToDate(v){
-  if (v==null) return null;
-  if (v instanceof Date) return v;
-  const m = /^Date\((\d+),(\d+),(\d+)/.exec(String(v));
-  return m ? new Date(+m[1],+m[2],+m[3]) : new Date(v);
+
+// ── Direct computation from RAW (same logic sync-sheets.js used to run
+// server-side — ported here so the Reports tab needs no external source) ──
+function rptSegKey(seg){
+  const n = normSeg(seg);
+  if (n === 'Ent') return 'ent';
+  if (n === 'Mid') return 'mid';
+  if (n === 'SMB') return 'smb';
+  if (n === 'Resellers') return 'resellers';
+  return null;
 }
-// Converts one row of raw string/number values (as returned by our backend,
-// which reads them straight from the Sheets API) into the internal shape
-// the rest of the Reports tab expects.
-function rptRowFromRaw(raw){
-  const o = { v:{} };
-  Object.keys(raw).forEach(lab=>{
-    const val = raw[lab];
-    if (lab === 'sort_date') o.date = rptToDate(val);
-    else if (lab === 'granularity') o.granularity = rptNormGran(val);
-    else if (lab === 'period') o.period = val==null ? '' : String(val);
-    else if (lab === 'region') o.region = val==null ? 'Unknown' : String(val);
-    else if (lab === 'sort_group') o.group = val;
-    else if (lab === 'last_updated') { /* not needed per-row */ }
-    else o.v[lab] = (val==='' || val==null) ? null : Number(val);
+function rptRowPeriodDate(r){
+  if (r._rptPeriod !== undefined) return r._rptPeriod;
+  let sc = r.sc ? new Date(r.sc) : null;
+  if (sc && !isNaN(sc) && sc.getTime() < 86400000) sc = null; // epoch-placeholder = no real value
+  const d = (sc && !isNaN(sc)) ? sc : (r.c ? new Date(r.c) : null);
+  r._rptPeriod = (d && !isNaN(d)) ? d : null;
+  return r._rptPeriod;
+}
+function rptComputeMetrics(rows){
+  if (!rows.length) return { total_vin:0, total_delivered:0, sla_pct:null, p99_tat_hrs:null, p95_tat_hrs:null, delivery_pct:null };
+  const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+  const tatRows = rows.filter(r => TAT_ELIGIBLE.has((r.fs||'').trim()))
+    .map(r => (typeof r.e2e==='number' && r.e2e>=0) ? r.e2e : null).filter(v=>v!=null);
+  const sla_pct = tatRows.length ? +((tatRows.filter(v=>v<=RPT_SLA_H).length/tatRows.length)*100).toFixed(2) : null;
+  const sorted = [...tatRows].sort((a,b)=>a-b);
+  const pct = p => sorted.length ? +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2) : null;
+  const received = rows.length;
+  const pending = rows.filter(isPending).length;
+  const delivered = rows.filter(isDelivered).length;
+  const delivery_pct = +((delivered/Math.max(received-pending,1))*100).toFixed(2);
+  return { total_vin:received, total_delivered:delivered, sla_pct, p99_tat_hrs:pct(0.99), p95_tat_hrs:pct(0.95), delivery_pct };
+}
+function rptAverageMetrics(list){
+  const avg = key => { const vals=list.map(m=>m[key]).filter(v=>v!=null); return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null; };
+  return { sla_pct:avg('sla_pct'), p99_tat_hrs:avg('p99_tat_hrs'), p95_tat_hrs:avg('p95_tat_hrs'), delivery_pct:avg('delivery_pct') };
+}
+function rptGetPeriods(allRows){
+  let maxDate = new Date(2026,3,1);
+  for (const r of allRows){ const d=rptRowPeriodDate(r); if (d && d>maxDate) maxDate=d; }
+  const periods = [];
+  const dow = maxDate.getDay()||7;
+  const thisMon = new Date(maxDate.getFullYear(),maxDate.getMonth(),maxDate.getDate()-dow+1);
+  for (let i=1;i<=4;i++){
+    const s=new Date(thisMon); s.setDate(thisMon.getDate()-i*7);
+    const e=new Date(s); e.setDate(s.getDate()+7);
+    periods.push({group:0,date:s,granularity:'week',period:'W-'+i,from:s,to:e});
+  }
+  for (let i=0;i<=4;i++){
+    const s=new Date(maxDate.getFullYear(),maxDate.getMonth()-i,1);
+    const e=new Date(maxDate.getFullYear(),maxDate.getMonth()-i+1,1);
+    periods.push({group:1,date:s,granularity:'month',period:i===0?'MTD':'M-'+i,from:s,to:e});
+  }
+  return periods;
+}
+function rptInPeriod(r,p){ const d=rptRowPeriodDate(r); return d && d>=p.from && d<p.to; }
+function rptLaneMetrics(laneId, rows){
+  if (laneId!=='rt') return rptComputeMetrics(rows);
+  const byTeam = new Map();
+  for (const r of rows){ if(!r.tm) continue; if(!byTeam.has(r.tm)) byTeam.set(r.tm,[]); byTeam.get(r.tm).push(r); }
+  return rptAverageMetrics([...byTeam.values()].map(rptComputeMetrics));
+}
+function rptBuildSpinOrRt(allRows, laneId){
+  const periods = rptGetPeriods(allRows);
+  const now = new Date().toISOString().slice(0,19).replace('T',' ');
+  return periods.map(p=>{
+    const pop = allRows.filter(r=>rptInPeriod(r,p));
+    const overall = rptLaneMetrics(laneId, pop);
+    const overallTotals = rptComputeMetrics(pop);
+    const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, v:{
+      total_vin:overallTotals.total_vin, total_delivered:overallTotals.total_delivered,
+      sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs, delivery_pct:overall.delivery_pct,
+    }};
+    for (const seg of RPT_SEGMENTS){
+      if (!seg.prefix) continue;
+      const segRows = pop.filter(r=>rptSegKey(r.seg)===seg.id);
+      const m = rptLaneMetrics(laneId, segRows), mTotals = rptComputeMetrics(segRows);
+      row.v[seg.prefix+'total_vin']=mTotals.total_vin; row.v[seg.prefix+'total_delivered']=mTotals.total_delivered;
+      row.v[seg.prefix+'sla_pct']=m.sla_pct; row.v[seg.prefix+'p99_tat_hrs']=m.p99_tat_hrs;
+      row.v[seg.prefix+'p95_tat_hrs']=m.p95_tat_hrs; row.v[seg.prefix+'delivery_pct']=m.delivery_pct;
+    }
+    return row;
   });
-  return o;
 }
-function rptSessionToken(){ return localStorage.getItem('dashAuthSession') || ''; }
-async function rptLoadAll(){
+function rptBuildRegion(allRows){
+  const periods = rptGetPeriods(allRows);
+  const regions = [...new Set(allRows.map(r=>r.region).filter(Boolean))].sort();
+  const rows = [];
+  for (const p of periods){
+    const pop = allRows.filter(r=>rptInPeriod(r,p));
+    for (const region of [...regions, null]){
+      const regionPop = pop.filter(r=>(r.region||null)===region);
+      if (!regionPop.length) continue;
+      const overall = rptComputeMetrics(regionPop);
+      const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, region:region||'Unknown', v:{
+        total_vin:overall.total_vin, total_delivered:overall.total_delivered,
+        sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs,
+      }};
+      const segMetrics = {};
+      for (const seg of RPT_SEGMENTS){
+        if (!seg.prefix) continue;
+        segMetrics[seg.id] = rptComputeMetrics(regionPop.filter(r=>rptSegKey(r.seg)===seg.id));
+        row.v[seg.prefix+'total_vin']=segMetrics[seg.id].total_vin; row.v[seg.prefix+'total_delivered']=segMetrics[seg.id].total_delivered;
+        row.v[seg.prefix+'sla_pct']=segMetrics[seg.id].sla_pct; row.v[seg.prefix+'p99_tat_hrs']=segMetrics[seg.id].p99_tat_hrs; row.v[seg.prefix+'p95_tat_hrs']=segMetrics[seg.id].p95_tat_hrs;
+      }
+      row.v.delivery_pct = overall.delivery_pct;
+      for (const seg of RPT_SEGMENTS){ if (seg.prefix) row.v[seg.prefix+'delivery_pct'] = segMetrics[seg.id].delivery_pct; }
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+function rptComputeAll(){
   RPT.loading = true; RPT.error = null; renderReports();
   try{
-    const res = await fetch('/api/reports-sheet?token='+encodeURIComponent(rptSessionToken())+'&t='+Date.now(), { cache: 'no-store' });
-    if (res.status === 401) throw new Error('Your session expired — please refresh and sign in again.');
-    if (!res.ok) throw new Error('Could not read the workbook (HTTP '+res.status+')');
-    const payload = await res.json();
-    RPT_LANES.forEach(l=>{
-      RPT.data[l.id] = (payload[l.sheet] || []).map(rptRowFromRaw).filter(r=>r.period);
-    });
+    const allRows = RAW; // the dashboard's own already-loaded data — no fetch needed
+    RPT.data.spin = rptBuildSpinOrRt(allRows, 'spin');
+    RPT.data.rt = rptBuildSpinOrRt(allRows, 'rt');
+    RPT.data.region = rptBuildRegion(allRows);
     if (!RPT.regionsInit){ rptAllRegions().forEach(r=>rptRegSet().add(r)); RPT.regionsInit = true; }
     RPT.synced = new Date();
   }catch(err){ RPT.error = err.message || String(err); }
@@ -5641,7 +5721,7 @@ function renderReports(){
   if (refreshBtn) refreshBtn.textContent = RPT.loading ? 'Refreshing…' : 'Refresh data';
   if (syncTxt){
     if (RPT.error) syncTxt.textContent = 'Sheet unreachable';
-    else if (RPT.loading) syncTxt.textContent = 'Reading the workbook…';
+    else if (RPT.loading) syncTxt.textContent = 'Computing…';
     else if (RPT.synced) syncTxt.textContent = 'Synced ' + RPT.synced.toLocaleTimeString();
     else syncTxt.textContent = '';
   }
@@ -5651,12 +5731,12 @@ function renderReports(){
 
   if (RPT.loading && !haveData){
     panels.forEach(id => $(id).style.display = 'none');
-    status.innerHTML = '<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Pulling the workbook</h3><p style="margin:0;">Reading 360_spin, 360_rt and 360_region.</p></div>';
+    status.innerHTML = '<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Computing the report</h3><p style="margin:0;">Crunching the numbers for Spin, Rooftop and Region.</p></div>';
     return;
   }
   if (RPT.error){
     panels.forEach(id => $(id).style.display = 'none');
-    status.innerHTML = `<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Couldn't read the sheet</h3><p style="margin:0 0 12px;">${esc(RPT.error)}</p><p style="margin:0 0 14px;">The workbook has to be shared as "Anyone with the link — Viewer" for this page to read it.</p><button class="btn-reset" onclick="rptLoadAll()">Try again</button></div>`;
+    status.innerHTML = `<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Couldn't compute the report</h3><p style="margin:0 0 12px;">${esc(RPT.error)}</p><button class="btn-reset" onclick="rptComputeAll()">Try again</button></div>`;
     return;
   }
   status.innerHTML = '';
@@ -6905,7 +6985,7 @@ function switchView(view){
     populatePerfUserList();
     renderPerformance();
   } else if (view === 'reports'){
-    if (!RPT.loading) rptLoadAll(); else renderReports();
+    if (!RPT.loading) rptComputeAll(); else renderReports();
   } else {
     refresh();
   }
