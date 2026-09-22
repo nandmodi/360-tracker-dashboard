@@ -5276,7 +5276,7 @@ function rptSessionToken(){ return localStorage.getItem('dashAuthSession') || ''
 async function rptLoadAll(){
   RPT.loading = true; RPT.error = null; renderReports();
   try{
-    const res = await fetch('/api/reports-sheet?token='+encodeURIComponent(rptSessionToken()));
+    const res = await fetch('/api/reports-sheet?token='+encodeURIComponent(rptSessionToken())+'&t='+Date.now(), { cache: 'no-store' });
     if (res.status === 401) throw new Error('Your session expired — please refresh and sign in again.');
     if (!res.ok) throw new Error('Could not read the workbook (HTTP '+res.status+')');
     const payload = await res.json();
