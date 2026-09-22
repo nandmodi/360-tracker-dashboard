@@ -102,7 +102,10 @@
   .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:16px 0;font-size:12.5px;color:var(--muted)}
   .pager button{background:var(--pri);color:#fff;border:none;border-radius:8px;padding:7px 16px;font:inherit;font-weight:700;cursor:pointer}
   .pager button:disabled{background:var(--line);color:var(--muted);cursor:default}
-  .spin.nos .cap{position:relative;z-index:2;font-size:12px;opacity:.85}
+  .spin .cap{position:relative;z-index:2;font-size:12px;opacity:.85;text-align:center;padding:0 10px}
+  .dfilter{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+  .dfilter input[type=date]{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+  .dfilter button{background:var(--card);border:1px solid var(--line);color:var(--pri);font:inherit;font-weight:600;border-radius:8px;padding:5px 12px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -172,7 +175,7 @@ const nfmt = n => (n==null?'—':n.toLocaleString());
 let MONTHS=[];        // current + prev 3 (4 total), oldest -> newest
 let byMonth={};       // mk -> rows[]
 let ALL=[];           // all 4 months merged
-const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0};
+const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0, from:'', to:''};
 const $=id=>document.getElementById(id);
 
 async function boot(){
@@ -332,13 +335,16 @@ function breakdown(){
 /* ---- screen 3: cards ---- */
 const PER_PAGE=8;
 function cardRows(){
-  return rowsForInput()
-    .filter(r=> teamId(r)===state.tid && (r.ent||'—')===state.ent)
-    .sort((a,b)=> String(b.c||b.sc||'').localeCompare(String(a.c||a.sc||'')));   // newest first
+  let rows = rowsForInput().filter(r=> teamId(r)===state.tid && (r.ent||'—')===state.ent);
+  if(state.from) rows = rows.filter(r=> (r.c||'').slice(0,10) >= state.from);
+  if(state.to)   rows = rows.filter(r=> (r.c||'').slice(0,10) <= state.to);
+  return rows.sort((a,b)=> String(b.c||b.sc||'').localeCompare(String(a.c||a.sc||'')));   // newest first
 }
-function loadSpin(btn, url){
-  const box=btn.closest('.spin');
-  box.innerHTML='<span class="badge">360°</span><iframe loading="lazy" src="'+url+'" allowfullscreen referrerpolicy="no-referrer"></iframe>';
+function spinHTML(r){
+  const url=buildSpinUrl(r);
+  if(isDelivered(r))
+    return `<div class="spin"><span class="badge">360°</span><iframe loading="lazy" src="${url}" allowfullscreen referrerpolicy="no-referrer"></iframe></div>`;
+  return `<div class="spin nos"><div class="floor"></div><span class="cap">No 360 · ${esc(statusPill(r)[0])}</span></div>`;
 }
 function cards(){
   const rows=cardRows();
@@ -348,26 +354,30 @@ function cards(){
   const slice=rows.slice(pg*PER_PAGE, pg*PER_PAGE+PER_PAGE);
   const html=slice.map(r=>{
     const [lbl,cls]=statusPill(r); const delivered=isDelivered(r); const url=buildSpinUrl(r);
-    const spin = delivered
-      ? `<div class="spin"><div class="floor"></div><button class="load" onclick="loadSpin(this,'${url.replace(/'/g,"%27")}')">▶ Load 360 spin</button></div>`
-      : `<div class="spin nos"><div class="floor"></div><span class="cap">No 360 · ${esc(lbl)}</span></div>`;
     const foot = delivered
       ? `<div class="vfoot"><span class="sk">sku ${esc(r.sku||'—')}</span><a href="${url}" target="_blank" rel="noopener">Open 360 ↗</a></div>`
       : `<div class="vfoot"><span class="sk">sku ${esc(r.sku||'—')}</span><span style="opacity:.55">no 360</span></div>`;
     return `<div class="vcard">
       <div class="top"><span class="vin">${esc(r.vin||r.sku||'—')}</span><span class="pill ${cls}">${esc(lbl)}</span></div>
-      ${spin}${foot}
+      ${spinHTML(r)}${foot}
     </div>`;
   }).join('');
+  const flt=`<div class="dfilter">
+    <span>📅 Date range (optional)</span>
+    <label>From <input type="date" value="${state.from||''}" onchange="state.from=this.value;state.page=0;render();"></label>
+    <label>To <input type="date" value="${state.to||''}" onchange="state.to=this.value;state.page=0;render();"></label>
+    ${(state.from||state.to)?`<button onclick="state.from='';state.to='';state.page=0;render();">Clear</button>`:''}
+  </div>`;
   const nav=`<div class="pager">
     <button ${pg<=0?'disabled':''} onclick="state.page=${pg-1};render();window.scrollTo(0,0);">← Prev</button>
     <span>Page ${pg+1} of ${pages} · ${nfmt(total)} SKUs</span>
     <button ${pg>=pages-1?'disabled':''} onclick="state.page=${pg+1};render();window.scrollTo(0,0);">Next →</button>
   </div>`;
   return `
-  <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} ${state.input} SKUs (last 3 months), newest first. 360 spin shows for <b>Delivered</b> only.</div>
+  <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} ${state.input} SKUs${(state.from||state.to)?' (filtered)':''}, newest first. 360 spin auto-loads for <b>Delivered</b> only.</div>
+  ${flt}
   ${total?nav:''}
-  <div class="cards">${html||'<div class="center">No SKUs.</div>'}</div>
+  <div class="cards">${html||'<div class="center">No SKUs in this range.</div>'}</div>
   ${total?nav:''}`;
 }
 
