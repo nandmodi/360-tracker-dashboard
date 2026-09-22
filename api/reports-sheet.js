@@ -79,6 +79,7 @@ function rowsToObjects(values) {
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
   const token = (req.query && req.query.token) || (req.headers['x-session-token']);
   const email = verifyToken(token);
