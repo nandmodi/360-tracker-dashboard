@@ -340,7 +340,7 @@ function breakdown(){
 /* ---- screen 3: cards ---- */
 const PER_PAGE=8;
 function cardRows(){
-  let rows = rowsForInput().filter(r=> teamId(r)===state.tid && (r.ent||'—')===state.ent);
+  let rows = rowsForInput().filter(r=> isDelivered(r) && teamId(r)===state.tid && (r.ent||'—')===state.ent);
   if(state.from) rows = rows.filter(r=> (r.c||'').slice(0,10) >= state.from);
   if(state.to)   rows = rows.filter(r=> (r.c||'').slice(0,10) <= state.to);
   return rows.sort((a,b)=> String(b.c||b.sc||'').localeCompare(String(a.c||a.sc||'')));   // newest first
@@ -379,7 +379,7 @@ function cards(){
     <button ${pg>=pages-1?'disabled':''} onclick="state.page=${pg+1};render();window.scrollTo(0,0);">Next →</button>
   </div>`;
   return `
-  <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} ${state.input} SKUs${(state.from||state.to)?' (filtered)':''}, newest first. 360 spin auto-loads for <b>Delivered</b> only.</div>
+  <div class="note"><b>${esc(state.ent)} · ${esc(state.tm)}</b> — ${nfmt(total)} Delivered ${state.input} SKUs${(state.from||state.to)?' (filtered)':''}, newest first.</div>
   ${flt}
   <div class="cards">${html||'<div class="center">No SKUs in this range.</div>'}</div>
   ${total?nav:''}`;
