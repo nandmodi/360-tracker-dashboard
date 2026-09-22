@@ -901,6 +901,20 @@ document.addEventListener('DOMContentLoaded', function(){
         <div class="ms-list" id="msPocObList"></div>
       </div>
     </div>
+    <div class="f-group ms-wrap" id="msInputTypeWrap">
+      <label class="f-label">Input Type</label>
+      <div class="ms-trigger compact" id="msInputTypeTrigger" tabindex="0">
+        <span class="ms-text" id="msInputTypeText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msInputTypePanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="inputtype">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="inputtype">Clear all</button>
+        </div>
+        <div class="ms-list" id="msInputTypeList"></div>
+      </div>
+    </div>
     <div class="f-group ms-wrap" id="msVerifiedWrap">
       <label class="f-label">Status</label>
       <div class="ms-trigger compact" id="msVerifiedTrigger" tabindex="0">
@@ -1518,6 +1532,20 @@ document.addEventListener('DOMContentLoaded', function(){
         <div class="ms-list" id="accMsObList"></div>
       </div>
     </div>
+    <div class="f-group ms-wrap" id="accMsInputTypeWrap">
+      <label class="f-label">Input Type</label>
+      <div class="ms-trigger compact" id="accMsInputTypeTrigger" tabindex="0">
+        <span class="ms-text" id="accMsInputTypeText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsInputTypePanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="inputtype">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="inputtype">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsInputTypeList"></div>
+      </div>
+    </div>
     <div class="f-group ms-wrap" id="accMsVerifiedWrap">
       <label class="f-label">Status</label>
       <div class="ms-trigger compact" id="accMsVerifiedTrigger" tabindex="0">
@@ -1977,6 +2005,7 @@ function passesFilters(r){
   if (F.team     && !F.team.has(r.tm))                return false;
   if (F.cs       && !F.cs.has(r.csCol))                  return false;
   if (F.ob       && !F.ob.has(r.ob))                     return false;
+  if (F.tt       && !F.tt.has(r.tt||''))                 return false;
   if (F.verified && !F.verified.has(r.fs||'')) return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
@@ -2016,6 +2045,7 @@ function passesNonDateFilters(r){
   if (F.team     && !F.team.has(r.tm))                return false;
   if (F.cs       && !F.cs.has(r.csCol))                  return false;
   if (F.ob       && !F.ob.has(r.ob))                     return false;
+  if (F.tt       && !F.tt.has(r.tt||''))                 return false;
   if (F.verified && !F.verified.has(r.fs||'')) return false;
   if (F.sla){
     if (F.sla.size === 0) return false;
@@ -2059,6 +2089,7 @@ function passesAccNonDateFilters(r){
   if (F_ACC.team     && !F_ACC.team.has(r.tm))                  return false;
   if (F_ACC.cs       && !F_ACC.cs.has(r.csCol))                 return false;
   if (F_ACC.ob       && !F_ACC.ob.has(r.ob))                    return false;
+  if (F_ACC.tt       && !F_ACC.tt.has(r.tt||''))                return false;
   if (F_ACC.verified && !F_ACC.verified.has(r.fs||''))          return false;
   if (F_ACC.sla){
     if (F_ACC.sla.size === 0) return false;
@@ -4254,6 +4285,7 @@ async function syncFromServer({silent=false, force=false}={}){
     msTeam.setOptions(sc.teamList);
     msPocCs.setOptions(sc.csList);
     msPocOb.setOptions(sc.obList);
+    msInputType.setOptions(['Images','Video']);
     msVerified.setOptions(sc.verifiedList);
     msSla.setOptions(['Within SLA','Out of SLA']);
     msSeg.setOptions(sc.segList);
@@ -4261,6 +4293,7 @@ async function syncFromServer({silent=false, force=false}={}){
     accMsTeam.setOptions(sc.teamList);
     accMsCs.setOptions(sc.csList);
     accMsOb.setOptions(sc.obList);
+    accMsInputType.setOptions(['Images','Video']);
     accMsVerified.setOptions(sc.verifiedList);
     accMsSla.setOptions(['Within SLA','Out of SLA']);
     accMsSeg.setOptions(sc.segList);
@@ -4424,6 +4457,12 @@ const msPocOb = createMultiSelect({
   singularLabel:'OB', pluralLabel:'OB',
   onChange: ()=> setTimeout(()=>refresh(), 0),
 });
+const msInputType = createMultiSelect({
+  field:'tt', triggerId:'msInputTypeTrigger', panelId:'msInputTypePanel',
+  textId:'msInputTypeText', searchId:null, listId:'msInputTypeList',
+  singularLabel:'input type', pluralLabel:'input types',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
 const msVerified = createMultiSelect({
   field:'verified', triggerId:'msVerifiedTrigger', panelId:'msVerifiedPanel',
   textId:'msVerifiedText', searchId:null, listId:'msVerifiedList',
@@ -4444,8 +4483,8 @@ const msSeg = createMultiSelect({
   onChange: ()=> setTimeout(()=>refresh(),0),
 });
 
-const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msVerified, msSla, msSeg];
-const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
+const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msInputType, msVerified, msSla, msSeg];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msInputTypeWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
 
 // Close any open multi-select on outside click
 document.addEventListener('mousedown', e=>{
@@ -4487,6 +4526,12 @@ const accMsVerified = createMultiSelect({
   singularLabel:'status', pluralLabel:'statuses', state:F_ACC,
   onChange: ()=> setTimeout(()=>renderAccuracy(),0),
 });
+const accMsInputType = createMultiSelect({
+  field:'tt', triggerId:'accMsInputTypeTrigger', panelId:'accMsInputTypePanel',
+  textId:'accMsInputTypeText', searchId:null, listId:'accMsInputTypeList',
+  singularLabel:'input type', pluralLabel:'input types', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
 const accMsSla = createMultiSelect({
   field:'sla', triggerId:'accMsSlaTrigger', panelId:'accMsSlaPanel',
   textId:'accMsSlaText', searchId:null, listId:'accMsSlaList',
@@ -4499,8 +4544,8 @@ const accMsSeg = createMultiSelect({
   singularLabel:'segment', pluralLabel:'segments', state:F_ACC,
   onChange: ()=> setTimeout(()=>renderAccuracy(),0),
 });
-const ACC_MS_INSTANCES = [accMsEnt, accMsTeam, accMsCs, accMsOb, accMsVerified, accMsSla, accMsSeg];
-const ACC_MS_WRAPS = ['accMsEntWrap','accMsTeamWrap','accMsCsWrap','accMsObWrap','accMsVerifiedWrap','accMsSlaWrap','accMsSegWrap'];
+const ACC_MS_INSTANCES = [accMsEnt, accMsTeam, accMsCs, accMsOb, accMsInputType, accMsVerified, accMsSla, accMsSeg];
+const ACC_MS_WRAPS = ['accMsEntWrap','accMsTeamWrap','accMsCsWrap','accMsObWrap','accMsInputTypeWrap','accMsVerifiedWrap','accMsSlaWrap','accMsSegWrap'];
 document.addEventListener('mousedown', e=>{
   ACC_MS_WRAPS.forEach((id, idx)=>{
     if (!$(id).contains(e.target)) ACC_MS_INSTANCES[idx].close();
@@ -4993,7 +5038,7 @@ function bindSlaCells(){
 // ─────────────────────────────────────────────────────────────
 // DRILL-DOWN MODAL
 // ─────────────────────────────────────────────────────────────
-function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('CS', F.cs); setChip('OB', F.ob); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
+function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('CS', F.cs); setChip('OB', F.ob); setChip('Input Type', F.tt); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
   const chips=[];
   const setChip = (label, sel) => {
     if (!sel) return;
@@ -5006,6 +5051,7 @@ function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) 
   setChip('Team',       F.team);
   setChip('CS',         F.cs);
   setChip('OB',          F.ob);
+  setChip('Input Type', F.tt);
   setChip('Status',     F.verified);
   setChip('SLA',        F.sla);
   setChip('Segment',    F.seg);
@@ -6884,7 +6930,7 @@ async function downloadReport(){
       if (sel.size === 1) return `${label}: ${[...sel][0] || '(blank)'}`;
       return `${label}: ${sel.size} selected`;
     };
-    [['Enterprise',F.ent],['Team',F.team],['CS',F.cs],['OB',F.ob],
+    [['Enterprise',F.ent],['Team',F.team],['CS',F.cs],['OB',F.ob],['Input Type',F.tt],
      ['Verified',F.verified],['SLA',F.sla]].forEach(([l,s])=>{
       const t = summarizeSet(l, s); if (t) filters.push(t);
     });
