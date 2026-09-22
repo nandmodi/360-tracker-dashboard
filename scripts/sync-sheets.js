@@ -162,6 +162,69 @@ function averageMetrics(list) {
   return { sla_pct: avg('sla_pct'), p99_tat_hrs: avg('p99_tat_hrs'), p95_tat_hrs: avg('p95_tat_hrs'), delivery_pct: avg('delivery_pct') };
 }
 
+// ── 360_issue — QC/Validation/Tech&AI failure-reason breakdown, last 30 days ──
+// Mirrors the dashboard's own reason-card logic exactly (same field parsing,
+// same "Blocker" extraction from issues_by_severity, same totalReviewed
+// denominator) so the numbers match what Operations shows.
+function buildIssueBreakdown(allRows) {
+  const cutoff = new Date(Date.now() - 30 * 86400000);
+  const rows30 = allRows.filter(r => r._period && r._period >= cutoff);
+
+  const qcReasons = {}, valReasons = {}, techReasons = {};
+  let totalReviewed = 0;
+  for (const r of rows30) {
+    const fs = (r.fs || '').trim();
+    if ((r.cs || '').trim() === 'qc_done') totalReviewed++;
+
+    if (fs === 'QC Failed') {
+      let matchedBlocker = false;
+      if (r.isv) {
+        const parts = String(r.isv).split('||');
+        for (const part of parts) {
+          const t = part.trim();
+          if (/^blocker/i.test(t)) {
+            matchedBlocker = true;
+            const items = t.replace(/^blocker\s*-\s*/i, '').split(',');
+            for (const item of items) {
+              const k = item.trim();
+              if (k) qcReasons[k] = (qcReasons[k] || 0) + 1;
+            }
+          }
+        }
+      }
+      if (!matchedBlocker) {
+        const k = r.rej ? String(r.rej).trim().slice(0, 60) : '(no reason recorded)';
+        qcReasons[k] = (qcReasons[k] || 0) + 1;
+      }
+    }
+    if (fs === 'Validation Failed') {
+      const k = r.rej ? String(r.rej).trim().slice(0, 80) : '(no reason recorded)';
+      valReasons[k] = (valReasons[k] || 0) + 1;
+    }
+    if (fs === 'Tech Failure' || fs === 'AI Failed') {
+      const k = r.rej ? String(r.rej).trim().slice(0, 80) : '(no reason recorded)';
+      techReasons[k] = (techReasons[k] || 0) + 1;
+    }
+  }
+
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const out = [];
+  const addCategory = (category, map) => {
+    const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+    for (const [sub_issue, count] of entries) {
+      out.push({
+        category, sub_issue, count,
+        pct_of_reviewed: totalReviewed ? +((count / totalReviewed) * 100).toFixed(2) : null,
+        last_updated: now,
+      });
+    }
+  };
+  addCategory('QC Failed', qcReasons);
+  addCategory('Validation Failed', valReasons);
+  addCategory('Tech & AI Failure', techReasons);
+  return out;
+}
+
 function buildRegion(allRows) {
   const periods = getPeriods(allRows);
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -289,6 +352,8 @@ const REGION_HEADER = ['sort_group', 'sort_date', 'granularity', 'period', 'regi
   'total_smb_vin', 'total_smb_delivered', 'smb_sla_pct', 'smb_p99_tat_hrs', 'smb_p95_tat_hrs',
   'delivery_pct', 'ent_delivery_pct', 'mid_delivery_pct', 'resellers_delivery_pct', 'smb_delivery_pct', 'last_updated'];
 
+const ISSUE_HEADER = ['category', 'sub_issue', 'count', 'pct_of_reviewed', 'last_updated'];
+
 function getSpreadsheetInfo(accessToken) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties.title`;
   return new Promise((resolve, reject) => {
@@ -339,6 +404,8 @@ async function main() {
   const rtRows = buildSpinOrRt(allRows, 'rt');
   console.log('Computing 360_region…');
   const regionRows = buildRegion(allRows);
+  console.log('Computing 360_issue…');
+  const issueRows = buildIssueBreakdown(allRows);
 
   console.log('Authenticating with Google…');
   const token = await getAccessToken(creds);
@@ -347,7 +414,7 @@ async function main() {
   const info = await getSpreadsheetInfo(token);
   const existingTitles = (info.sheets || []).map(s => s.properties.title);
   console.log(`Existing tabs: ${existingTitles.join(', ') || '(none)'}`);
-  await ensureTabsExist(token, existingTitles, ['360_spin', '360_region', '360_rt']);
+  await ensureTabsExist(token, existingTitles, ['360_spin', '360_region', '360_rt', '360_issue']);
 
   console.log('Writing 360_spin…');
   await writeSheet(token, '360_spin', SPIN_HEADER, spinRows);
@@ -355,6 +422,8 @@ async function main() {
   await writeSheet(token, '360_region', REGION_HEADER, regionRows);
   console.log('Writing 360_rt…');
   await writeSheet(token, '360_rt', RT_HEADER, rtRows);
+  console.log('Writing 360_issue…');
+  await writeSheet(token, '360_issue', ISSUE_HEADER, issueRows);
 
   console.log('Done.');
 }
