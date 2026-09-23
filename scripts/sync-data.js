@@ -201,6 +201,17 @@ function mapRow(r) {
     if (pa) _diag.withProcessed++; else _diag.fallback++;
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
+  // Tech processing TAT = sku_created_on (or createdAt fallback) to processing_done
+  // — falls back to sc itself when processing_done is blank, giving 0h rather
+  // than excluding the row (same convention as the TAT/E2E fallback above).
+  let pd = parseDate(r.processing_done);
+  if (!pd) pd = sc;
+  let techTat = null;
+  if (sc && pd) {
+    const ms = pd - sc;
+    if (ms >= 0) techTat = Math.round(ms / 36000) / 100;
+  }
+
   // SLA = sku_created_on to first_qc_done (both with fallbacks above) <= 6h
   const finalStatus = (r.final_status || '').trim();
     let sla = null;
@@ -221,6 +232,7 @@ function mapRow(r) {
     if (sla !== null) row.sla = sla;
     if (tat !== null) row.tat = tat;
     if (e2e !== null) row.e2e = e2e;
+    if (techTat !== null) row.techTat = techTat;
     set('rej', r.failure_reason);
     set('vid', r.mediaId);
     set('sid', r['ss.spin_id']);
