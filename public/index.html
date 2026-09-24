@@ -5511,62 +5511,32 @@ function rptStepTone(metric, prev, cur){
 }
 
 // ── Sparkline (movement-coloured, matches the reference exactly) ──
-function rptDualSparkline(series, techSeries, metric, labels){
-  const MAIN='#2a78d6', TECH='#eb6834';
-  const techCount = techSeries.filter(v=>v!=null).length;
-  const legend = `<div style="display:flex;gap:14px;justify-content:center;margin-top:6px;font-size:11px;color:var(--muted);">
-    <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:${MAIN};display:inline-block;"></span>Main</span>
-    <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:${TECH};display:inline-block;"></span>Tech${techCount<2?' <span style="font-style:italic;">(no data yet)</span>':''}</span>
-  </div>`;
-  const idx = []; series.forEach((v,i)=>{ if (v!=null || techSeries[i]!=null) idx.push(i); });
-  if (idx.length<2) return '<div style="height:110px"></div>'+legend;
-  const W=240,H=122,padT=18,padB=30,padX=22;
-  const allVals = idx.flatMap(i=>[series[i],techSeries[i]]).filter(v=>v!=null);
-  const min=Math.min(...allVals), max=Math.max(...allVals), span=(max-min)||1;
-  const n=series.length, base=H-padB;
-  const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
-  const y = v => padT+(base-padT)*(1-(v-min)/span);
-  // For each period the higher value's label goes above its point, the lower one's below —
-  // keeps the two label sets from colliding and never lets a label cross the axis labels.
-  function labelY(v, other){
-    const py = y(v);
-    const above = other==null || v>=other;
-    return above ? Math.max(11, py-8) : Math.min(base+10, py+13);
-  }
-  function drawLine(vals, others, color){
-    const pts = []; vals.forEach((v,i)=>{ if (v!=null) pts.push([x(i), y(v), i]); });
-    if (pts.length<2) return '';
-    let s = '';
-    for (let k=1;k<pts.length;k++){
-      s += `<path d="M${pts[k-1][0].toFixed(1)} ${pts[k-1][1].toFixed(1)} L${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`;
-    }
-    pts.forEach((p,k)=>{
-      const isLast = k===pts.length-1;
-      s += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?color:'var(--surface)'}" stroke="${color}" stroke-width="1.7"/>`;
-      s += `<text x="${p[0].toFixed(1)}" y="${labelY(vals[p[2]], others[p[2]]).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="${isLast?'700':'500'}" fill="${color}">${rptFmt(metric, vals[p[2]])}</text>`;
-    });
-    return s;
-  }
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(metric.label)} trend, main versus tech">`;
-  svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
-  svg += drawLine(series, techSeries, MAIN);
-  svg += drawLine(techSeries, series, TECH);
-  (labels||[]).forEach((lab,i)=>{
-    svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
-  });
-  return svg+'</svg>'+legend;
-}
-
-function rptSparkline(series, metric, labels){
-  const idx = []; series.forEach((v,i)=>{ if (v!=null) idx.push(i); });
+const RPT_TECH_COLOR = '#eb6834';
+function rptSparkline(series, metric, labels, techSeries){
+  const tech = techSeries || null;
+  const idx = []; series.forEach((v,i)=>{ if (v!=null || (tech && tech[i]!=null)) idx.push(i); });
   if (idx.length<2) return '<div style="height:100px"></div>';
   const W=240,H=110,padT=18,padB=18,padX=22;
-  const vals = idx.map(i=>series[i]);
+  const vals = idx.flatMap(i=>[series[i], tech?tech[i]:null]).filter(v=>v!=null);
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
   const n=series.length, base=H-padB;
   const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
   const y = v => padT+(base-padT)*(1-(v-min)/span);
-  const pts = idx.map(i=>[x(i), y(series[i]), i]);
+  // Label placement, worked out for both lines together per period: the higher value
+  // labels above its point, the lower one below — or, if the lower point is too close to
+  // the axis, above it, with the higher label pushed up far enough to clear it.
+  const labPair = i => {
+    const a = series[i], b = tech ? tech[i] : null;
+    if (a==null || b==null) return { e2e: a!=null?Math.max(11,y(a)-8):null, tech: b!=null?Math.max(11,y(b)-8):null };
+    const hiIsE2E = a>=b, hi = hiIsE2E?a:b, lo = hiIsE2E?b:a;
+    const loPy = y(lo);
+    const loY = (loPy+13 <= base-2) ? loPy+13 : loPy-8;
+    let hiY = y(hi)-8;
+    if (loY < loPy && hiY > loY-11) hiY = loY-11;
+    hiY = Math.max(11, hiY);
+    return hiIsE2E ? { e2e:hiY, tech:loY } : { e2e:loY, tech:hiY };
+  };
+  const pts = []; series.forEach((v,i)=>{ if (v!=null) pts.push([x(i), y(v), i]); });
   const tones = pts.map((p,k)=> k===0 ? null : rptStepTone(metric, series[pts[k-1][2]], series[p[2]]));
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(metric.label)} trend">`;
   svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
@@ -5579,12 +5549,33 @@ function rptSparkline(series, metric, labels){
     const isLast = k===pts.length-1;
     const c = rptToneColor(k===0?tones[1]:tones[k]);
     svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?c:'var(--surface)'}" stroke="${c}" stroke-width="1.7"/>`;
-    svg += `<text x="${p[0].toFixed(1)}" y="${Math.max(11,p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${k===0?'var(--ink-2)':c}">${rptFmt(metric, series[p[2]])}</text>`;
+    const ly = tech ? labPair(p[2]).e2e : Math.max(11,p[1]-8);
+    svg += `<text x="${p[0].toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${k===0?'var(--ink-2)':c}">${rptFmt(metric, series[p[2]])}</text>`;
   });
+  if (tech){
+    const tp = []; tech.forEach((v,i)=>{ if (v!=null) tp.push([x(i), y(v), i]); });
+    for (let k=1;k<tp.length;k++){
+      svg += `<path d="M${tp[k-1][0].toFixed(1)} ${tp[k-1][1].toFixed(1)} L${tp[k][0].toFixed(1)} ${tp[k][1].toFixed(1)}" fill="none" stroke="${RPT_TECH_COLOR}" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>`;
+    }
+    tp.forEach((p,k)=>{
+      const isLast = k===tp.length-1;
+      svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?RPT_TECH_COLOR:'var(--surface)'}" stroke="${RPT_TECH_COLOR}" stroke-width="1.7"/>`;
+      svg += `<text x="${p[0].toFixed(1)}" y="${labPair(p[2]).tech.toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${RPT_TECH_COLOR}">${rptFmt(metric, tech[p[2]])}</text>`;
+    });
+  }
   (labels||[]).forEach((lab,i)=>{
     svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
   });
   return svg+'</svg>';
+}
+// Compact legend that sits inside the card's header row (adds no height).
+function rptTechLegend(noTech){
+  const sw = (html)=>`<svg width="16" height="8" viewBox="0 0 16 8" style="display:inline-block;vertical-align:middle;">${html}</svg>`;
+  const e2e = sw('<path d="M1 6 L8 2" stroke="var(--green,#1b7a46)" stroke-width="2" stroke-linecap="round"/><path d="M8 2 L15 5" stroke="var(--red,#b3261e)" stroke-width="2" stroke-linecap="round"/>');
+  const tech = sw(`<path d="M1 4 L15 4" stroke="${RPT_TECH_COLOR}" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>`);
+  return `<span style="display:inline-flex;gap:10px;align-items:center;font-size:10.5px;color:var(--muted);margin-left:10px;">
+    <span style="display:inline-flex;gap:4px;align-items:center;">${e2e}E2E</span>
+    <span style="display:inline-flex;gap:4px;align-items:center;">${tech}Tech${noTech?' <i>(no data)</i>':''}</span></span>`;
 }
 
 // ── Full trend line chart (Chart.js) ──────────────────────────
@@ -5682,10 +5673,11 @@ function rptRenderGlance(){
       const pillBg = !d ? 'var(--surface-2)' : `color-mix(in srgb, ${rptToneColor(d.tone)} 15%, transparent)`;
       const techColName = RPT.techMode ? rptCombinedCol(colName, m.id) : null;
       const techSeries = techColName ? rptLaneSeries(lane.id, techColName) : null;
-      const graph = techSeries ? rptDualSparkline(series, techSeries, m, periods) : rptSparkline(series, m, periods);
+      const graph = rptSparkline(series, m, periods, techSeries);
+      const legend = techSeries ? rptTechLegend(techSeries.filter(v=>v!=null).length<2) : '';
       return `<div class="rpt-glance-card">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
-          <span style="font-size:13px;font-weight:500;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;">avg</span>':''}</span>
+          <span style="font-size:13px;font-weight:500;display:inline-flex;align-items:center;flex-wrap:wrap;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:4px;">avg</span>':''}${legend}</span>
           ${d?`<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${pillBg};color:${rptToneColor(d.tone)};">${d.txt}</span>`:''}
         </div>
         <div style="font-size:26px;font-weight:700;margin-top:4px;">${rptFmt(m,t.cur)}</div>
