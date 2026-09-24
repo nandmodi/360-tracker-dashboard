@@ -5512,16 +5512,28 @@ function rptStepTone(metric, prev, cur){
 
 // ── Sparkline (movement-coloured, matches the reference exactly) ──
 function rptDualSparkline(series, techSeries, metric, labels){
+  const MAIN='#2a78d6', TECH='#eb6834';
+  const techCount = techSeries.filter(v=>v!=null).length;
+  const legend = `<div style="display:flex;gap:14px;justify-content:center;margin-top:6px;font-size:11px;color:var(--muted);">
+    <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:${MAIN};display:inline-block;"></span>Main</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:2px;background:${TECH};display:inline-block;"></span>Tech${techCount<2?' <span style="font-style:italic;">(no data yet)</span>':''}</span>
+  </div>`;
   const idx = []; series.forEach((v,i)=>{ if (v!=null || techSeries[i]!=null) idx.push(i); });
-  if (idx.length<2) return '<div style="height:120px"></div>';
-  const W=240,H=118,padT=18,padB=32,padX=22;
+  if (idx.length<2) return '<div style="height:110px"></div>'+legend;
+  const W=240,H=122,padT=18,padB=30,padX=22;
   const allVals = idx.flatMap(i=>[series[i],techSeries[i]]).filter(v=>v!=null);
   const min=Math.min(...allVals), max=Math.max(...allVals), span=(max-min)||1;
   const n=series.length, base=H-padB;
   const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
   const y = v => padT+(base-padT)*(1-(v-min)/span);
-  const MAIN='#2a78d6', TECH='#eb6834';
-  function drawLine(vals, color, labelAbove){
+  // For each period the higher value's label goes above its point, the lower one's below —
+  // keeps the two label sets from colliding and never lets a label cross the axis labels.
+  function labelY(v, other){
+    const py = y(v);
+    const above = other==null || v>=other;
+    return above ? Math.max(11, py-8) : Math.min(base+10, py+13);
+  }
+  function drawLine(vals, others, color){
     const pts = []; vals.forEach((v,i)=>{ if (v!=null) pts.push([x(i), y(v), i]); });
     if (pts.length<2) return '';
     let s = '';
@@ -5531,24 +5543,20 @@ function rptDualSparkline(series, techSeries, metric, labels){
     pts.forEach((p,k)=>{
       const isLast = k===pts.length-1;
       s += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?color:'var(--surface)'}" stroke="${color}" stroke-width="1.7"/>`;
-      const ty = labelAbove ? p[1]-8 : p[1]+14;
-      s += `<text x="${p[0].toFixed(1)}" y="${Math.max(11,ty).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="${isLast?'700':'500'}" fill="${color}">${rptFmt(metric, vals[p[2]])}</text>`;
+      s += `<text x="${p[0].toFixed(1)}" y="${labelY(vals[p[2]], others[p[2]]).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="${isLast?'700':'500'}" fill="${color}">${rptFmt(metric, vals[p[2]])}</text>`;
     });
     return s;
   }
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(metric.label)} trend, main versus tech">`;
   svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
-  svg += drawLine(series, MAIN, true);
-  svg += drawLine(techSeries, TECH, false);
+  svg += drawLine(series, techSeries, MAIN);
+  svg += drawLine(techSeries, series, TECH);
   (labels||[]).forEach((lab,i)=>{
-    svg += `<text x="${x(i).toFixed(1)}" y="${base+14}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
+    svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
   });
-  svg += `<g transform="translate(${padX},${H-10})">
-    <rect width="9" height="9" y="-8" fill="${MAIN}" rx="2"/><text x="13" y="0" font-size="9.5" fill="var(--muted)">Main</text>
-    <rect width="9" height="9" x="55" y="-8" fill="${TECH}" rx="2"/><text x="68" y="0" font-size="9.5" fill="var(--muted)">Tech</text>
-  </g>`;
-  return svg+'</svg>';
+  return svg+'</svg>'+legend;
 }
+
 function rptSparkline(series, metric, labels){
   const idx = []; series.forEach((v,i)=>{ if (v!=null) idx.push(i); });
   if (idx.length<2) return '<div style="height:100px"></div>';
