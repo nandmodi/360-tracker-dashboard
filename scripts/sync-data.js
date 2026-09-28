@@ -226,6 +226,8 @@ function mapRow(r) {
   set('c',   r.createdAt);
   set('pa',  r.processedAt || r.processed_at || r.processed_on); // raw processedAt — date-basis for Google Sheets export (360_spin/360_region/360_rt)
   set('sc',  r.sku_created_on); // raw sku_created_on — used in Find VIN
+  set('pd',  r.processing_done);         // raw processing_done — for Tech TAT audits/exports
+  set('fsc', r.first_spin_created_time); // raw first_spin_created_time — for Tech TAT audits/exports
   set('fq',  r.first_qc_done);  // raw first_qc_done — used in Find VIN
     set('u',   r.final_time);
     set('ent', r.enterprise_name);
