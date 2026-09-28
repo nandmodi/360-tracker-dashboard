@@ -170,7 +170,7 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
-const _diag = { withProcessed:0, fallback:0, sample:[] };
+const _diag = { withProcessed:0, fallback:0, withFirstSpin:0, noFirstSpin:0, sample:[] };
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
@@ -201,10 +201,12 @@ function mapRow(r) {
     if (pa) _diag.withProcessed++; else _diag.fallback++;
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
-  // Tech processing TAT = sku_created_on (or createdAt fallback) to processing_done
-  // — falls back to sc itself when processing_done is blank, giving 0h rather
+  // Tech TAT = sku_created_on (or createdAt fallback) to first_spin_created_time
+  // — falls back to sc itself when first_spin_created_time is blank, giving 0h rather
   // than excluding the row (same convention as the TAT/E2E fallback above).
-  let pd = parseDate(r.processing_done);
+  // (Was processing_done, which gets overwritten on reprocessing after QC.)
+  let pd = parseDate(r.first_spin_created_time);
+  if (pd) _diag.withFirstSpin++; else _diag.noFirstSpin++;
   if (!pd) pd = sc;
   let techTat = null;
   if (sc && pd) {
@@ -305,6 +307,7 @@ async function main() {
     process.exit(1);
   }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
+    console.log(`[Tech] rows with first_spin_created_time: ${_diag.withFirstSpin} | blank (Tech TAT = 0h): ${_diag.noFirstSpin}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
