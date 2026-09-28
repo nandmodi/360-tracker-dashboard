@@ -170,7 +170,7 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
-const _diag = { withProcessed:0, fallback:0, withFirstSpin:0, noFirstSpin:0, procReplaced:0, sample:[] };
+const _diag = { withProcessed:0, fallback:0, procReplaced:0, techBlank:0, sample:[] };
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
@@ -201,30 +201,17 @@ function mapRow(r) {
     if (pa) _diag.withProcessed++; else _diag.fallback++;
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
-  // Tech TAT = sku_created_on (or createdAt fallback) to first_spin_created_time
-  // — falls back to sc itself when first_spin_created_time is blank, giving 0h rather
-  // than excluding the row (same convention as the TAT/E2E fallback above).
-  // (Was processing_done, which gets overwritten on reprocessing after QC.)
-  let pd = parseDate(r.first_spin_created_time);
-  if (pd) _diag.withFirstSpin++; else _diag.noFirstSpin++;
-  if (!pd) pd = sc;
+  // Tech TAT = sku_created_on (or createdAt fallback) to processing_done.
+  // processing_done is overwritten when an SKU is reprocessed after QC, so when it is later
+  // than first_qc_done (or final_time fallback) use first_spin_created_time instead.
+  // Any blank end time falls back to sc itself → 0h (same convention as TAT/E2E above).
+  let pd = parseDate(r.processing_done);
+  if (pd && fq && pd > fq) { pd = parseDate(r.first_spin_created_time); _diag.procReplaced++; }
+  if (!pd) { pd = sc; _diag.techBlank++; }
   let techTat = null;
   if (sc && pd) {
     const ms = pd - sc;
     if (ms >= 0) techTat = Math.round(ms / 36000) / 100;
-  }
-
-  // Processing TAT = sku_created_on (or createdAt fallback) to processing_done.
-  // processing_done is overwritten when an SKU is reprocessed after QC, so when it is
-  // later than first_qc_done (or final_time fallback) use first_spin_created_time instead.
-  // Blank processing_done → 0h (same convention as Tech).
-  let procEnd = parseDate(r.processing_done);
-  if (procEnd && fq && procEnd > fq) { procEnd = parseDate(r.first_spin_created_time) || sc; _diag.procReplaced++; }
-  if (!procEnd) procEnd = sc;
-  let procTat = null;
-  if (sc && procEnd) {
-    const ms = procEnd - sc;
-    if (ms >= 0) procTat = Math.round(ms / 36000) / 100;
   }
 
   // SLA = sku_created_on to first_qc_done (both with fallbacks above) <= 6h
@@ -248,7 +235,6 @@ function mapRow(r) {
     if (tat !== null) row.tat = tat;
     if (e2e !== null) row.e2e = e2e;
     if (techTat !== null) row.techTat = techTat;
-    if (procTat !== null) row.procTat = procTat;
     set('rej', r.failure_reason);
     set('vid', r.mediaId);
     set('sid', r['ss.spin_id']);
@@ -321,8 +307,7 @@ async function main() {
     process.exit(1);
   }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
-    console.log(`[Tech] rows with first_spin_created_time: ${_diag.withFirstSpin} | blank (Tech TAT = 0h): ${_diag.noFirstSpin}`);
-    console.log(`[Processing] processing_done after first QC → used first_spin_created_time: ${_diag.procReplaced}`);
+    console.log(`[Tech] processing_done after first QC → used first_spin_created_time: ${_diag.procReplaced} | blank end time (Tech TAT = 0h): ${_diag.techBlank}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
