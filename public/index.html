@@ -5268,7 +5268,7 @@ const RPT_SLA_H = 6;
 
 const RPT = {
   granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
-  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false, procMode:false,
+  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false,
   matrixMetric:'sla_pct', matrixLane:'spin',
   drillRegion:null, recordsLane:'spin', recordsQuery:'', hidden:new Set(),
   sortCol:null, sortDir:-1,
@@ -5313,7 +5313,6 @@ function rptRowPeriodDate(r){
 // E2E (same eligible rows, same 6h SLA, same percentile method) but from its own row field.
 const RPT_OVERLAYS = [
   { id:'tech', label:'Tech',       field:'techTat', color:'#eb6834', dash:'4 3',     mode:'techMode', toggle:'toggleRptTechMode' },
-  { id:'proc', label:'Processing', field:'procTat', color:'#7b5cd6', dash:'1.5 2.5', mode:'procMode', toggle:'toggleRptProcMode' },
 ];
 const RPT_OVERLAY_BASES = ['sla_pct','p99_tat_hrs','p95_tat_hrs'];
 const RPT_OVERLAY_FIELDS = RPT_OVERLAYS.flatMap(o => RPT_OVERLAY_BASES.map(b => o.id+'_'+b));
@@ -5719,7 +5718,6 @@ function rptRenderGlance(){
 }
 function toggleRptCard(id){ if (RPT.hiddenCards.has(id)) RPT.hiddenCards.delete(id); else RPT.hiddenCards.add(id); renderReports(); }
 function toggleRptTechMode(){ RPT.techMode = !RPT.techMode; renderReports(); }
-function toggleRptProcMode(){ RPT.procMode = !RPT.procMode; renderReports(); }
 
 // ── Drill-down matrix ────────────────────────────────────────
 function rptHeatStyle(metric, v, min, max){
