@@ -5268,7 +5268,7 @@ const RPT_SLA_H = 6;
 
 const RPT = {
   granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
-  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false,
+  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false, procMode:false,
   matrixMetric:'sla_pct', matrixLane:'spin',
   drillRegion:null, recordsLane:'spin', recordsQuery:'', hidden:new Set(),
   sortCol:null, sortDir:-1,
@@ -5309,29 +5309,43 @@ function rptRowPeriodDate(r){
   r._rptPeriod = (d && !isNaN(d)) ? d : null;
   return r._rptPeriod;
 }
+// Extra TAT lines that can be overlaid on the E2E cards. Each one is computed exactly like
+// E2E (same eligible rows, same 6h SLA, same percentile method) but from its own row field.
+const RPT_OVERLAYS = [
+  { id:'tech', label:'Tech',       field:'techTat', color:'#eb6834', dash:'4 3',     mode:'techMode', toggle:'toggleRptTechMode' },
+  { id:'proc', label:'Processing', field:'procTat', color:'#7b5cd6', dash:'1.5 2.5', mode:'procMode', toggle:'toggleRptProcMode' },
+];
+const RPT_OVERLAY_BASES = ['sla_pct','p99_tat_hrs','p95_tat_hrs'];
+const RPT_OVERLAY_FIELDS = RPT_OVERLAYS.flatMap(o => RPT_OVERLAY_BASES.map(b => o.id+'_'+b));
+function rptTatStats(vals){
+  if (!vals.length) return { sla:null, p99:null, p95:null };
+  const sorted = [...vals].sort((a,b)=>a-b);
+  const pct = p => +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2);
+  return { sla: +((vals.filter(v=>v<=RPT_SLA_H).length/vals.length)*100).toFixed(2), p99:pct(0.99), p95:pct(0.95) };
+}
 function rptComputeMetrics(rows){
-  if (!rows.length) return { total_vin:0, total_delivered:0, sla_pct:null, p99_tat_hrs:null, p95_tat_hrs:null, delivery_pct:null, tech_sla_pct:null, tech_p99_tat_hrs:null, tech_p95_tat_hrs:null };
+  const out = { total_vin:0, total_delivered:0, sla_pct:null, p99_tat_hrs:null, p95_tat_hrs:null, delivery_pct:null };
+  RPT_OVERLAY_FIELDS.forEach(f=>out[f]=null);
+  if (!rows.length) return out;
   const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
   const eligible = rows.filter(r => TAT_ELIGIBLE.has((r.fs||'').trim()));
-  const tatRows = eligible.map(r => (typeof r.e2e==='number' && r.e2e>=0) ? r.e2e : null).filter(v=>v!=null);
-  const techRows = eligible.map(r => (typeof r.techTat==='number' && r.techTat>=0) ? r.techTat : null).filter(v=>v!=null);
-  const sla_pct = tatRows.length ? +((tatRows.filter(v=>v<=RPT_SLA_H).length/tatRows.length)*100).toFixed(2) : null;
-  const tech_sla_pct = techRows.length ? +((techRows.filter(v=>v<=RPT_SLA_H).length/techRows.length)*100).toFixed(2) : null;
-  const sorted = [...tatRows].sort((a,b)=>a-b);
-  const techSorted = [...techRows].sort((a,b)=>a-b);
-  const pct = p => sorted.length ? +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2) : null;
-  const techPct = p => techSorted.length ? +techSorted[Math.min(techSorted.length-1, Math.ceil(p*techSorted.length)-1)].toFixed(2) : null;
+  const valsOf = f => eligible.map(r => (typeof r[f]==='number' && r[f]>=0) ? r[f] : null).filter(v=>v!=null);
+  const main = rptTatStats(valsOf('e2e'));
+  out.sla_pct = main.sla; out.p99_tat_hrs = main.p99; out.p95_tat_hrs = main.p95;
+  RPT_OVERLAYS.forEach(o => { const st = rptTatStats(valsOf(o.field));
+    out[o.id+'_sla_pct'] = st.sla; out[o.id+'_p99_tat_hrs'] = st.p99; out[o.id+'_p95_tat_hrs'] = st.p95; });
   const received = rows.length;
   const pending = rows.filter(isPending).length;
   const delivered = rows.filter(isDelivered).length;
-  const delivery_pct = +((delivered/Math.max(received-pending,1))*100).toFixed(2);
-  return { total_vin:received, total_delivered:delivered, sla_pct, p99_tat_hrs:pct(0.99), p95_tat_hrs:pct(0.95), delivery_pct,
-    tech_sla_pct, tech_p99_tat_hrs:techPct(0.99), tech_p95_tat_hrs:techPct(0.95) };
+  out.total_vin = received; out.total_delivered = delivered;
+  out.delivery_pct = +((delivered/Math.max(received-pending,1))*100).toFixed(2);
+  return out;
 }
 function rptAverageMetrics(list){
   const avg = key => { const vals=list.map(m=>m[key]).filter(v=>v!=null); return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null; };
-  return { sla_pct:avg('sla_pct'), p99_tat_hrs:avg('p99_tat_hrs'), p95_tat_hrs:avg('p95_tat_hrs'), delivery_pct:avg('delivery_pct'),
-    tech_sla_pct:avg('tech_sla_pct'), tech_p99_tat_hrs:avg('tech_p99_tat_hrs'), tech_p95_tat_hrs:avg('tech_p95_tat_hrs') };
+  const out = { sla_pct:avg('sla_pct'), p99_tat_hrs:avg('p99_tat_hrs'), p95_tat_hrs:avg('p95_tat_hrs'), delivery_pct:avg('delivery_pct') };
+  RPT_OVERLAY_FIELDS.forEach(f=>out[f]=avg(f));
+  return out;
 }
 function rptGetPeriods(allRows){
   let maxDate = new Date(2026,3,1);
@@ -5368,8 +5382,8 @@ function rptBuildSpinOrRt(allRows, laneId){
     const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, v:{
       total_vin:overallTotals.total_vin, total_delivered:overallTotals.total_delivered,
       sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs, delivery_pct:overall.delivery_pct,
-      tech_sla_pct:overall.tech_sla_pct, tech_p99_tat_hrs:overall.tech_p99_tat_hrs, tech_p95_tat_hrs:overall.tech_p95_tat_hrs,
     }};
+    RPT_OVERLAY_FIELDS.forEach(f=>row.v[f]=overall[f]);
     for (const seg of RPT_SEGMENTS){
       if (!seg.prefix) continue;
       const segRows = pop.filter(r=>rptSegKey(r.seg)===seg.id);
@@ -5377,7 +5391,7 @@ function rptBuildSpinOrRt(allRows, laneId){
       row.v[seg.prefix+'total_vin']=mTotals.total_vin; row.v[seg.prefix+'total_delivered']=mTotals.total_delivered;
       row.v[seg.prefix+'sla_pct']=m.sla_pct; row.v[seg.prefix+'p99_tat_hrs']=m.p99_tat_hrs;
       row.v[seg.prefix+'p95_tat_hrs']=m.p95_tat_hrs; row.v[seg.prefix+'delivery_pct']=m.delivery_pct;
-      row.v[seg.prefix+'tech_sla_pct']=m.tech_sla_pct; row.v[seg.prefix+'tech_p99_tat_hrs']=m.tech_p99_tat_hrs; row.v[seg.prefix+'tech_p95_tat_hrs']=m.tech_p95_tat_hrs;
+      RPT_OVERLAY_FIELDS.forEach(f=>row.v[seg.prefix+f]=m[f]);
     }
     return row;
   });
@@ -5395,15 +5409,15 @@ function rptBuildRegion(allRows){
       const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, region:region||'Unknown', v:{
         total_vin:overall.total_vin, total_delivered:overall.total_delivered,
         sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs,
-        tech_sla_pct:overall.tech_sla_pct, tech_p99_tat_hrs:overall.tech_p99_tat_hrs, tech_p95_tat_hrs:overall.tech_p95_tat_hrs,
       }};
+      RPT_OVERLAY_FIELDS.forEach(f=>row.v[f]=overall[f]);
       const segMetrics = {};
       for (const seg of RPT_SEGMENTS){
         if (!seg.prefix) continue;
         segMetrics[seg.id] = rptComputeMetrics(regionPop.filter(r=>rptSegKey(r.seg)===seg.id));
         row.v[seg.prefix+'total_vin']=segMetrics[seg.id].total_vin; row.v[seg.prefix+'total_delivered']=segMetrics[seg.id].total_delivered;
         row.v[seg.prefix+'sla_pct']=segMetrics[seg.id].sla_pct; row.v[seg.prefix+'p99_tat_hrs']=segMetrics[seg.id].p99_tat_hrs; row.v[seg.prefix+'p95_tat_hrs']=segMetrics[seg.id].p95_tat_hrs;
-        row.v[seg.prefix+'tech_sla_pct']=segMetrics[seg.id].tech_sla_pct; row.v[seg.prefix+'tech_p99_tat_hrs']=segMetrics[seg.id].tech_p99_tat_hrs; row.v[seg.prefix+'tech_p95_tat_hrs']=segMetrics[seg.id].tech_p95_tat_hrs;
+        RPT_OVERLAY_FIELDS.forEach(f=>row.v[seg.prefix+f]=segMetrics[seg.id][f]);
       }
       row.v.delivery_pct = overall.delivery_pct;
       for (const seg of RPT_SEGMENTS){ if (seg.prefix) row.v[seg.prefix+'delivery_pct'] = segMetrics[seg.id].delivery_pct; }
@@ -5441,12 +5455,12 @@ function rptActiveRegions(){
   return sel.length ? sel : all;
 }
 function rptCol(metricId){ return (RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).prefix + metricId; }
-const RPT_TECH_MAP = { sla_pct:'tech_sla_pct', p99_tat_hrs:'tech_p99_tat_hrs', p95_tat_hrs:'tech_p95_tat_hrs' };
-function rptCombinedCol(colName, techId){
-  const baseId = Object.keys(RPT_TECH_MAP).find(k => colName===k || colName.endsWith('_'+k));
+// Maps a card's column (e.g. "ent_sla_pct") to the same column for an overlay ("ent_tech_sla_pct").
+function rptOverlayCol(colName, ovId){
+  const baseId = RPT_OVERLAY_BASES.find(k => colName===k || colName.endsWith('_'+k));
   if (!baseId) return null;
   const prefix = colName===baseId ? '' : colName.slice(0, colName.length-baseId.length);
-  return prefix + RPT_TECH_MAP[baseId];
+  return prefix + ovId + '_' + baseId;
 }
 function rptPeriodsOf(){
   const a = rptRowsFor('spin'), b = rptRowsFor('rt');
@@ -5511,30 +5525,34 @@ function rptStepTone(metric, prev, cur){
 }
 
 // ── Sparkline (movement-coloured, matches the reference exactly) ──
-const RPT_TECH_COLOR = '#eb6834';
-function rptSparkline(series, metric, labels, techSeries){
-  const tech = techSeries || null;
-  const idx = []; series.forEach((v,i)=>{ if (v!=null || (tech && tech[i]!=null)) idx.push(i); });
+function rptSparkline(series, metric, labels, overlays){
+  const ovs = (overlays||[]).filter(o=>o && o.values);
+  const idx = []; series.forEach((v,i)=>{ if (v!=null || ovs.some(o=>o.values[i]!=null)) idx.push(i); });
   if (idx.length<2) return '<div style="height:100px"></div>';
   const W=240,H=110,padT=18,padB=18,padX=22;
-  const vals = idx.flatMap(i=>[series[i], tech?tech[i]:null]).filter(v=>v!=null);
+  const vals = idx.flatMap(i=>[series[i], ...ovs.map(o=>o.values[i])]).filter(v=>v!=null);
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
   const n=series.length, base=H-padB;
   const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
   const y = v => padT+(base-padT)*(1-(v-min)/span);
-  // Label placement, worked out for both lines together per period: the higher value
-  // labels above its point, the lower one below — or, if the lower point is too close to
-  // the axis, above it, with the higher label pushed up far enough to clear it.
-  const labPair = i => {
-    const a = series[i], b = tech ? tech[i] : null;
-    if (a==null || b==null) return { e2e: a!=null?Math.max(11,y(a)-8):null, tech: b!=null?Math.max(11,y(b)-8):null };
-    const hiIsE2E = a>=b, hi = hiIsE2E?a:b, lo = hiIsE2E?b:a;
-    const loPy = y(lo);
-    const loY = (loPy+13 <= base-2) ? loPy+13 : loPy-8;
-    let hiY = y(hi)-8;
-    if (loY < loPy && hiY > loY-11) hiY = loY-11;
-    hiY = Math.max(11, hiY);
-    return hiIsE2E ? { e2e:hiY, tech:loY } : { e2e:loY, tech:hiY };
+  // Label placement per period, across every visible line: the highest value labels above
+  // its point, lower ones below (or above when too close to the axis); then labels are
+  // spread so none sit within 11px of another, without crossing the x-axis labels.
+  const labCache = {};
+  const labYs = i => {
+    if (labCache[i]) return labCache[i];
+    const items = [{k:'e2e', v:series[i]}, ...ovs.map(o=>({k:o.id, v:o.values[i]}))].filter(t=>t.v!=null);
+    const res = {};
+    if (items.length<=1){ items.forEach(t=>res[t.k]=Math.max(11, y(t.v)-8)); return labCache[i]=res; }
+    items.sort((a,b)=>b.v-a.v);
+    items.forEach((t,j)=>{ const py=y(t.v); t.ly = (j===0 || py+13 > base-2) ? py-8 : py+13; });
+    items.sort((a,b)=>a.ly-b.ly);
+    const MAXY = base+4;
+    if (items[items.length-1].ly > MAXY) items[items.length-1].ly = MAXY;
+    for (let j=items.length-2;j>=0;j--) if (items[j].ly > items[j+1].ly-11) items[j].ly = items[j+1].ly-11;
+    if (items[0].ly < 11){ items[0].ly = 11; for (let j=1;j<items.length;j++) if (items[j].ly < items[j-1].ly+11) items[j].ly = items[j-1].ly+11; }
+    items.forEach(t=>res[t.k]=t.ly);
+    return labCache[i]=res;
   };
   const pts = []; series.forEach((v,i)=>{ if (v!=null) pts.push([x(i), y(v), i]); });
   const tones = pts.map((p,k)=> k===0 ? null : rptStepTone(metric, series[pts[k-1][2]], series[p[2]]));
@@ -5549,33 +5567,35 @@ function rptSparkline(series, metric, labels, techSeries){
     const isLast = k===pts.length-1;
     const c = rptToneColor(k===0?tones[1]:tones[k]);
     svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?c:'var(--surface)'}" stroke="${c}" stroke-width="1.7"/>`;
-    const ly = tech ? labPair(p[2]).e2e : Math.max(11,p[1]-8);
+    const ly = ovs.length ? labYs(p[2]).e2e : Math.max(11,p[1]-8);
     svg += `<text x="${p[0].toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${k===0?'var(--ink-2)':c}">${rptFmt(metric, series[p[2]])}</text>`;
   });
-  if (tech){
-    const tp = []; tech.forEach((v,i)=>{ if (v!=null) tp.push([x(i), y(v), i]); });
+  ovs.forEach(o=>{
+    const tp = []; o.values.forEach((v,i)=>{ if (v!=null) tp.push([x(i), y(v), i]); });
     for (let k=1;k<tp.length;k++){
-      svg += `<path d="M${tp[k-1][0].toFixed(1)} ${tp[k-1][1].toFixed(1)} L${tp[k][0].toFixed(1)} ${tp[k][1].toFixed(1)}" fill="none" stroke="${RPT_TECH_COLOR}" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>`;
+      svg += `<path d="M${tp[k-1][0].toFixed(1)} ${tp[k-1][1].toFixed(1)} L${tp[k][0].toFixed(1)} ${tp[k][1].toFixed(1)}" fill="none" stroke="${o.color}" stroke-width="2" stroke-dasharray="${o.dash}" stroke-linecap="round"/>`;
     }
     tp.forEach((p,k)=>{
       const isLast = k===tp.length-1;
-      svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?RPT_TECH_COLOR:'var(--surface)'}" stroke="${RPT_TECH_COLOR}" stroke-width="1.7"/>`;
-      svg += `<text x="${p[0].toFixed(1)}" y="${labPair(p[2]).tech.toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${RPT_TECH_COLOR}">${rptFmt(metric, tech[p[2]])}</text>`;
+      svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?o.color:'var(--surface)'}" stroke="${o.color}" stroke-width="1.7"/>`;
+      svg += `<text x="${p[0].toFixed(1)}" y="${labYs(p[2])[o.id].toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${o.color}">${rptFmt(metric, o.values[p[2]])}</text>`;
     });
-  }
+  });
   (labels||[]).forEach((lab,i)=>{
     svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
   });
   return svg+'</svg>';
 }
 // Compact legend that sits inside the card's header row (adds no height).
-function rptTechLegend(noTech){
+function rptOverlayLegend(ovs){
   const sw = (html)=>`<svg width="16" height="8" viewBox="0 0 16 8" style="display:inline-block;vertical-align:middle;">${html}</svg>`;
+  const item = (icon, label)=>`<span style="display:inline-flex;gap:4px;align-items:center;">${icon}${label}</span>`;
   const e2e = sw('<path d="M1 6 L8 2" stroke="var(--green,#1b7a46)" stroke-width="2" stroke-linecap="round"/><path d="M8 2 L15 5" stroke="var(--red,#b3261e)" stroke-width="2" stroke-linecap="round"/>');
-  const tech = sw(`<path d="M1 4 L15 4" stroke="${RPT_TECH_COLOR}" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>`);
-  return `<span style="display:inline-flex;gap:10px;align-items:center;font-size:10.5px;color:var(--muted);margin-left:10px;">
-    <span style="display:inline-flex;gap:4px;align-items:center;">${e2e}E2E</span>
-    <span style="display:inline-flex;gap:4px;align-items:center;">${tech}Tech${noTech?' <i>(no data)</i>':''}</span></span>`;
+  return `<span style="display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:10.5px;color:var(--muted);margin-left:10px;font-weight:400;">`
+    + item(e2e,'E2E')
+    + ovs.map(o => item(sw(`<path d="M1 4 L15 4" stroke="${o.color}" stroke-width="2" stroke-dasharray="${o.dash}" stroke-linecap="round"/>`),
+        esc(o.label) + (o.values.filter(v=>v!=null).length<2 ? ' <i>(no data)</i>' : ''))).join('')
+    + `</span>`;
 }
 
 // ── Full trend line chart (Chart.js) ──────────────────────────
@@ -5663,7 +5683,7 @@ function rptRenderGlance(){
   $('rptGlanceSub').textContent = `${rptPeriodName(latest)} · ${(RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).label.toLowerCase()} · change vs period before it`;
   $('rptCardToggles').innerHTML = RPT_METRICS.map(x =>
     `<span class="rpt-chip${!RPT.hiddenCards.has(x.id)?' sel':''}" onclick="toggleRptCard('${x.id}')">${esc(x.label)}</span>`).join('')
-    + `<span class="rpt-chip${RPT.techMode?' sel':''}" onclick="toggleRptTechMode()" style="margin-left:6px;border-left:1px solid var(--line);padding-left:12px;">Tech</span>`;
+    + RPT_OVERLAYS.map((o,k)=>`<span class="rpt-chip${RPT[o.mode]?' sel':''}" onclick="${o.toggle}()"${k===0?' style="margin-left:6px;border-left:1px solid var(--line);padding-left:12px;"':''}>${esc(o.label)}</span>`).join('');
 
   $('rptGlanceGrid').innerHTML = RPT_LANES.map(lane => {
     const cards = RPT_METRICS.filter(m=>!RPT.hiddenCards.has(m.id)).map(m => {
@@ -5671,10 +5691,12 @@ function rptRenderGlance(){
       const series = rptLaneSeries(lane.id, colName);
       const t = rptLastTwo(series), d = rptFmtDelta(m, t.cur, t.prev);
       const pillBg = !d ? 'var(--surface-2)' : `color-mix(in srgb, ${rptToneColor(d.tone)} 15%, transparent)`;
-      const techColName = RPT.techMode ? rptCombinedCol(colName, m.id) : null;
-      const techSeries = techColName ? rptLaneSeries(lane.id, techColName) : null;
-      const graph = rptSparkline(series, m, periods, techSeries);
-      const legend = techSeries ? rptTechLegend(techSeries.filter(v=>v!=null).length<2) : '';
+      const overlays = RPT_OVERLAYS.filter(o=>RPT[o.mode]).map(o=>{
+        const oc = rptOverlayCol(colName, o.id);
+        return oc ? Object.assign({}, o, { values: rptLaneSeries(lane.id, oc) }) : null;
+      }).filter(Boolean);
+      const graph = rptSparkline(series, m, periods, overlays);
+      const legend = overlays.length ? rptOverlayLegend(overlays) : '';
       return `<div class="rpt-glance-card">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
           <span style="font-size:13px;font-weight:500;display:inline-flex;align-items:center;flex-wrap:wrap;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:4px;">avg</span>':''}${legend}</span>
@@ -5697,6 +5719,7 @@ function rptRenderGlance(){
 }
 function toggleRptCard(id){ if (RPT.hiddenCards.has(id)) RPT.hiddenCards.delete(id); else RPT.hiddenCards.add(id); renderReports(); }
 function toggleRptTechMode(){ RPT.techMode = !RPT.techMode; renderReports(); }
+function toggleRptProcMode(){ RPT.procMode = !RPT.procMode; renderReports(); }
 
 // ── Drill-down matrix ────────────────────────────────────────
 function rptHeatStyle(metric, v, min, max){
