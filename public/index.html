@@ -5334,12 +5334,19 @@ function rptTatStats(vals){
   const pct = p => +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2);
   return { sla: +((vals.filter(v=>v<=RPT_SLA_H).length/vals.length)*100).toFixed(2), p99:pct(0.99), p95:pct(0.95) };
 }
+function rptIsPreLive(r){
+  if (r._rptPreLive !== undefined) return r._rptPreLive;
+  const ld = r.ld ? new Date(r.ld) : null;
+  const st = rptRowPeriodDate(r);
+  return r._rptPreLive = !!(ld && !isNaN(ld) && st && st < ld);
+}
 function rptComputeMetrics(rows){
   const out = { total_vin:0, total_delivered:0, sla_pct:null, p99_tat_hrs:null, p95_tat_hrs:null, delivery_pct:null };
   RPT_OVERLAY_FIELDS.forEach(f=>out[f]=null);
   if (!rows.length) return out;
   const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
-  const eligible = rows.filter(r => TAT_ELIGIBLE.has((r.fs||'').trim()));
+  // SKUs created before their live_date are left out of SLA/TAT/P95/P99 (still counted in totals below).
+  const eligible = rows.filter(r => TAT_ELIGIBLE.has((r.fs||'').trim()) && !rptIsPreLive(r));
   const valsOf = f => eligible.map(r => (typeof r[f]==='number' && r[f]>=0) ? r[f] : null).filter(v=>v!=null);
   const main = rptTatStats(valsOf('e2e'));
   out.sla_pct = main.sla; out.p99_tat_hrs = main.p99; out.p95_tat_hrs = main.p95;
