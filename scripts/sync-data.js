@@ -1,382 +1,7870 @@
-// scripts/sync-data.js — GitHub Actions data sync
-// Runs in Node.js on GitHub Actions (no memory/timeout limits)
-// Saves compact JSON to public/data.json → served as static file
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<title>360 Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg:#eef2ff;--surface:#ffffff;--surface-2:#f6f8ff;--ink:#171a2e;--ink-2:#3d4266;
+    --muted:#8589a8;--line:#e3e6f7;--line-2:#d2d7ee;--accent:#4f46e5;--green:#1f7a52;
+    --amber:#b27a00;--red:#b3261e;--orange:#c2410c;--purple:#4f46e5;--teal:#0e7490;
+    --theme-btn-bg:#4f46e5;--theme-btn-fg:#ffffff;
+    --shadow:rgba(0,0,0,0.05);--shadow-md:rgba(0,0,0,0.08);--shadow-lg:rgba(0,0,0,0.18);
+  }
+  [data-theme="dark"]{
+    --bg:#12141f;--surface:#1b1e2e;--surface-2:#222639;--ink:#eef0f9;--ink-2:#b3b8d0;
+    --muted:#7d829c;--line:#2b2f45;--line-2:#373c56;--accent:#818cf8;--green:#4ade80;
+    --amber:#f5c265;--red:#f87171;--orange:#fb923c;--purple:#818cf8;--teal:#22d3ee;
+    --theme-btn-bg:#818cf8;--theme-btn-fg:#12141f;
+    --shadow:rgba(0,0,0,0.3);--shadow-md:rgba(0,0,0,0.4);--shadow-lg:rgba(0,0,0,0.6);
+  }
+  *{box-sizing:border-box;}
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px;min-height:100vh;transition:background .25s,color .25s;}
+  .mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
 
-const fs   = require('fs');
-const path = require('path');
-const https= require('https');
-const zlib = require('zlib');
+  /* HEADER */
+  #sticky-top{position:sticky;top:0;z-index:100;}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px;transition:background .25s,border-color .25s;}
+  .brand{display:flex;align-items:baseline;gap:14px;}
+  header h1{margin:0;font-family:'Bricolage Grotesque',serif;font-weight:600;font-size:22px;letter-spacing:-.025em;}
+  .tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
+  .actions{display:flex;align-items:center;gap:10px;}
+  .sync-info{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .autosync-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap;}
+  .btn-icon{background:var(--surface);color:var(--ink-2);border:1px solid var(--line);padding:7px 14px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;transition:background .15s,color .15s,border-color .15s;display:inline-flex;align-items:center;gap:6px;}
+  .btn-icon:hover{background:var(--bg);color:var(--ink);}
+  .btn-icon.active{background:var(--accent);color:var(--surface);border-color:var(--accent);}
+  .btn-sync{background:var(--ink);color:var(--surface);border:none;padding:8px 16px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;transition:opacity .15s;}
+  .btn-sync:hover{opacity:.82;}.btn-sync[disabled]{opacity:.45;cursor:wait;}
 
-// ── Metabase auth (session-token based, NOT the public-link method) ──
-// Requires GitHub Actions secrets: METABASE_USERNAME, METABASE_PASSWORD
-// (never hardcode credentials here; they are injected as env vars by the workflow).
-const METABASE_BASE     = process.env.METABASE_BASE     || 'https://metabase.spyne.ai';
-const METABASE_CARD_ID  = process.env.METABASE_CARD_ID  || '12025'; // 360-vin-data(NK) model
-const METABASE_USERNAME = process.env.METABASE_USERNAME;
-const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
-const SLA_H    = 6;
-const OUT_DIR  = path.join(__dirname, '..', 'public', 'data');
-const KEEP_DAYS= 365; // ~1 year — safe now that data is split into one file per month (each ~20MB, well under GitHub's 100MB per-file limit)
+  /* FILTERS */
+  .filters{background:var(--surface);border-bottom:1px solid var(--line);padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;box-shadow:0 2px 10px var(--shadow);transition:background .25s,border-color .25s;-webkit-overflow-scrolling:touch;}
+  .filters::-webkit-scrollbar{height:3px;}.filters::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px;}
+  .f-group{display:flex;flex-direction:column;gap:4px;flex-shrink:0;}
+  .f-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+  .f-select{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:400 13px 'Inter';color:var(--ink);outline:none;cursor:pointer;min-width:150px;transition:border-color .15s,background .25s,color .25s;}
+  .f-select:focus{border-color:var(--ink);}.f-select:disabled{opacity:.45;cursor:not-allowed;}
+  .btn-reset{align-self:flex-end;background:transparent;border:1px solid var(--line);padding:7px 14px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--ink-2);height:34px;transition:background .15s;flex-shrink:0;}
+  .btn-reset:hover{background:var(--bg);}
+  #vinSearchWrap{position:relative;align-self:flex-end;}
+  #vinSearchToggle{display:flex;align-items:center;gap:6px;}
+  .vin-search-box{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);z-index:2000;background:var(--surface);border-radius:16px;box-shadow:0 20px 60px var(--shadow-lg);padding:20px 22px;display:none;flex-direction:column;gap:14px;width:min(92vw,480px);opacity:0;transition:transform .2s cubic-bezier(.32,.72,.32,1),opacity .2s;}
+  .vin-search-box.show{display:flex;transform:translate(-50%,-50%) scale(1);opacity:1;}
+  .vin-search-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1999;display:none;}
+  .vin-search-backdrop.show{display:block;}
+  .vin-search-title-row{display:flex;justify-content:space-between;align-items:center;}
+  .vin-search-title-row h4{font-size:16px;font-weight:600;margin:0;color:var(--ink);}
+  .vin-search-inputwrap{display:flex;align-items:flex-start;gap:8px;background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:10px 12px;}
+  .vin-search-box.show{display:flex;}
+  .vin-search-box textarea{border:none;outline:none;background:transparent;font-size:13px;width:360px;padding:6px 4px;resize:vertical;min-height:34px;max-height:120px;font-family:inherit;}
+  .vin-search-submit{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;flex-shrink:0;margin-top:2px;}
+  .vin-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  .vin-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
+  .vin-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
+  .vin-search-box .vin-search-close{cursor:pointer;color:var(--ink-2);padding:4px;flex-shrink:0;}
+  .vin-result-field{}
+  .vin-result-field p:first-child{color:var(--ink-2);margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+  .vin-result-field p:last-child{margin:0;font-size:13px;color:var(--ink);}
+  .vin-flash{animation:vinflash 1.3s ease-out;}
+  @keyframes vinflash{0%{background:var(--accent);opacity:.12;}100%{opacity:0;}}
 
-function fetchCSV(url, redirects = 0) {
-    if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
-    return new Promise((resolve, reject) => {
-          https.get(url, { headers: { Accept: 'text/csv', 'Accept-Encoding': 'gzip, deflate' } }, res => {
-                  if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
-                            return resolve(fetchCSV(res.headers.location, redirects + 1));
-                  if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
-                  let stream = res;
-                  const enc = res.headers['content-encoding'];
-                  if (enc === 'gzip')    stream = res.pipe(zlib.createGunzip());
-                  if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
-                  const chunks = [];
-                  stream.on('data', c => chunks.push(c));
-                  stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-                  stream.on('error', reject);
-          }).on('error', reject);
+  /* DATE PICKER */
+  .date-filter{position:relative;display:flex;flex-direction:column;gap:4px;}
+  .date-trigger{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 12px;font:400 13px 'Inter';color:var(--ink);cursor:pointer;min-width:220px;user-select:none;transition:border-color .15s;white-space:nowrap;flex-shrink:0;}
+  .date-trigger:hover,.date-trigger.open{border-color:var(--accent);}
+  .dt-text{flex:1;}.dt-chev{opacity:.4;transition:transform .2s;flex-shrink:0;}
+  .date-trigger.open .dt-chev{transform:rotate(180deg);}
+  .date-panel{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:600;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 32px var(--shadow-lg);min-width:600px;overflow:hidden;}
+  .date-panel.open{display:flex;}
+  .dp-presets{width:165px;flex-shrink:0;border-right:1px solid var(--line);padding:8px 0;background:var(--bg);overflow-y:auto;}
+  .dp-sec{padding:6px 14px 3px;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+  .dp-preset,.acc-dp-preset{display:block;width:100%;text-align:left;padding:7px 14px;background:none;border:none;border-left:2px solid transparent;font:400 13px 'Inter';color:var(--ink-2);cursor:pointer;transition:background .1s,color .1s;}
+  .dp-preset:hover,.acc-dp-preset:hover{background:var(--surface);color:var(--ink);}
+  .dp-preset.sel,.acc-dp-preset.sel{color:var(--accent);font-weight:500;border-left-color:var(--accent);background:var(--surface);}
+  .dp-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0;}
+  .dp-title{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+  .dp-hint{font-family:'Inter',sans-serif;font-size:11px;color:var(--muted);}
+  .dp-preview{padding:8px 12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .dp-preview .dp-clear{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px;}
+  .dp-preview .dp-clear:hover{background:var(--surface);color:var(--ink);}
+
+  /* VIEW SWITCHER (in header) */
+  .view-switch{display:inline-flex;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px;flex-shrink:0;margin-right:8px;}
+  .view-switch button{background:transparent;border:none;padding:6px 14px;border-radius:999px;cursor:pointer;font:500 12px 'Inter';color:var(--muted);transition:background .15s,color .15s;letter-spacing:-.005em;display:inline-flex;align-items:center;gap:6px;}
+  .view-switch button:hover{color:var(--ink);}
+  .view-switch button.sel{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px var(--shadow);}
+  .view-switch button svg{width:13px;height:13px;}
+
+  /* PERFORMANCE VIEW */
+  #viewPerformance{display:none;}
+  #viewAccuracy{display:none;}
+  body.view-accuracy #viewOperations{display:none;}
+  body.view-accuracy .filters:not(.acc-filters){display:none;}
+  body.view-accuracy #viewAccuracy{display:block;}
+  #viewReports{display:none;}
+  body.view-reports #viewOperations{display:none;}
+  body.view-reports .filters:not(.rpt-filters){display:none;}
+  body.view-reports #viewReports{display:block;}
+  .rpt-chip{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--ink-2);}
+  .rpt-chip.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
+  .rpt-glance-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px 10px;margin-bottom:10px;}
+  .rpt-heat{border-radius:4px;padding:3px 8px;display:inline-block;min-width:52px;text-align:right;font-size:11px;font-family:'JetBrains Mono',monospace;}
+  .acc-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .acc-mini-card{background:var(--surface-2);border:0.5px solid var(--line);border-radius:10px;padding:12px 14px;}
+  .acc-mini-card h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.03em;}
+  .acc-table-wrap{overflow-x:auto;overflow-y:auto;max-height:420px;border:0.5px solid var(--line);border-radius:10px;}
+  .acc-table th.sortable{cursor:pointer;user-select:none;}
+  .acc-table th.sortable:hover{color:var(--accent);}
+  .acc-filters{gap:6px;}
+  .acc-name-link{cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px;}
+  .acc-seg-tooltip{position:fixed;display:none;background:var(--ink);color:#fff;font-size:11px;line-height:1.6;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:9999;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.25);}
+  .mtrend-stack{cursor:default;}
+  #accTrendBody .mtrend-stack{max-width:160px;}
+  #accTrendBody .mtrend-cols{height:340px;gap:24px;}
+  .acc-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  .acc-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
+  .acc-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
+  body.view-performance #viewOperations{display:none;}
+  body.view-performance #viewPerformance{display:block;}
+  body.view-performance .filters{padding-top:10px;padding-bottom:10px;}
+  /* Hide filters that don't apply in the performance view */
+  body.view-performance #msPocObWrap,
+  body.view-performance #msPocCsWrap,
+  body.view-performance #msVerifiedWrap,
+  body.view-performance #msSlaWrap{display:none;}
+
+  /* User picker — large, prominent */
+  .user-picker-block{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:22px;display:flex;flex-wrap:wrap;align-items:center;gap:18px;}
+  .user-picker-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;flex-shrink:0;}
+  .user-picker-input{flex:1;min-width:240px;max-width:380px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 36px 10px 14px;font:500 14px 'Inter';color:var(--ink);outline:none;cursor:pointer;transition:border-color .15s;}
+  .user-picker-input:focus{border-color:var(--accent);}
+  .user-picker-input::placeholder{color:var(--muted);}
+  .user-picker-chev{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;transition:transform .15s;}
+  .user-picker-wrap.open .user-picker-chev{transform:translateY(-50%) rotate(180deg);}
+  .user-picker-name{font-family:'Bricolage Grotesque',serif;font-size:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink);}
+  .user-picker-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:3px;letter-spacing:.04em;}
+  .user-picker-meta{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;}
+  .user-picker-clear{background:transparent;border:1px solid var(--line);color:var(--ink-2);padding:6px 12px;border-radius:6px;font:500 12px 'Inter';cursor:pointer;transition:background .12s;}
+  .user-picker-clear:hover{background:var(--bg);}
+
+  /* User-list autocomplete */
+  .user-suggest{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 32px var(--shadow-lg);max-height:380px;overflow:auto;display:none;z-index:500;}
+  .user-suggest-header{position:sticky;top:0;padding:6px 14px;background:var(--bg);border-bottom:1px solid var(--line);font:500 10px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);z-index:1;}
+  .user-suggest.show{display:block;}
+  .user-suggest-item{padding:9px 14px;cursor:pointer;font:400 13px 'Inter';color:var(--ink);display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line);}
+  .user-suggest-item:last-child{border-bottom:none;}
+  .user-suggest-item:hover,.user-suggest-item.kbd{background:var(--bg);}
+  .user-suggest-count{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .user-picker-wrap{position:relative;flex:1;min-width:240px;max-width:380px;}
+
+  /* Granularity tabs (Daily/Monthly/Yearly) — same styling as trend-tabs but bigger */
+  .gran-tabs{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px;flex-shrink:0;}
+  .gran-tab{background:transparent;border:none;padding:6px 14px;border-radius:999px;cursor:pointer;font:500 12px 'Inter';color:var(--muted);transition:background .15s,color .15s;}
+  .gran-tab:hover{color:var(--ink);}
+  .gran-tab.sel{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px var(--shadow);}
+
+  /* Performance KPI strip — slightly different than overview KPIs */
+  .perf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:22px;}
+  .perf-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:0;cursor:default;position:relative;}
+  .perf-kpi.clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;}
+  .perf-kpi.clickable:hover{transform:translateY(-2px);box-shadow:0 6px 18px var(--shadow-md);border-color:var(--line-2);}
+  .perf-kpi.clickable .kpi-arrow{position:absolute;top:14px;right:14px;color:var(--muted);opacity:0;transition:opacity .15s,transform .15s;}
+  .perf-kpi.clickable:hover .kpi-arrow{opacity:.7;transform:translate(2px,-2px);}
+  .perf-kpi.clickable .kpi-arrow svg{width:13px;height:13px;display:block;}
+  .perf-kpi-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;}
+  .perf-kpi-value{font-family:'Bricolage Grotesque',serif;font-size:32px;font-weight:600;letter-spacing:-.025em;margin-top:10px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .perf-kpi-value.green{color:var(--green);} .perf-kpi-value.red{color:var(--red);} .perf-kpi-value.orange{color:var(--orange);} .perf-kpi-value.amber{color:var(--amber);} .perf-kpi-value.blue{color:var(--accent);}
+  .perf-kpi-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:6px;line-height:1.4;font-variant-numeric:tabular-nums;}
+  .perf-kpi-delta{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;margin-top:8px;display:inline-flex;align-items:center;gap:4px;}
+  .perf-kpi-delta.up{color:var(--green);} .perf-kpi-delta.down{color:var(--red);} .perf-kpi-delta.flat{color:var(--muted);}
+
+  /* Empty state for performance view */
+  .perf-empty{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:60px 30px;text-align:center;color:var(--muted);}
+  .perf-empty-title{font-family:'Bricolage Grotesque',serif;font-size:20px;font-weight:600;color:var(--ink);margin-bottom:8px;letter-spacing:-.01em;}
+  .perf-empty-sub{font-size:13px;color:var(--muted);max-width:480px;margin:0 auto;line-height:1.5;}
+
+  /* Rejection summary table */
+  .reason-row{cursor:pointer;}
+  .reason-row:hover td{background:var(--bg);}
+  .reason-name{max-width:320px;white-space:normal;line-height:1.4;}
+  .reason-bar-cell{width:120px;}
+  .reason-bar{display:block;height:6px;background:var(--line);border-radius:3px;overflow:hidden;}
+  .reason-bar-fill{display:block;height:100%;background:var(--red);transition:width .3s;}
+
+
+  .ms-wrap{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0;}
+  .ms-trigger{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:400 12px 'Inter';color:var(--ink);cursor:pointer;min-width:128px;max-width:180px;user-select:none;transition:border-color .15s;white-space:nowrap;height:32px;flex-shrink:0;}
+  .ms-trigger.compact{min-width:125px;max-width:170px;}
+  .ms-trigger:hover,.ms-trigger.open{border-color:var(--accent);}
+  .ms-text{flex:1;overflow:hidden;text-overflow:ellipsis;}
+  .ms-chev{opacity:.4;flex-shrink:0;transition:transform .2s;}
+  .ms-trigger.open .ms-chev{transform:rotate(180deg);}
+  .ms-pill{display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--surface);font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:999px;padding:1px 6px;margin-left:4px;min-width:18px;font-variant-numeric:tabular-nums;}
+  .ms-panel{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:600;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 32px var(--shadow-lg);min-width:280px;max-width:340px;flex-direction:column;overflow:hidden;}
+  .ms-panel.open{display:flex;}
+  .ms-search-wrap{padding:8px 10px;border-bottom:1px solid var(--line);background:var(--bg);}
+  .ms-search{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:400 13px 'Inter';color:var(--ink);outline:none;}
+  .ms-search:focus{border-color:var(--accent);}
+  .ms-actions{padding:6px 10px;display:flex;gap:8px;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;border-bottom:1px solid var(--line);background:var(--bg);}
+  .ms-action{background:none;border:none;color:var(--accent);cursor:pointer;font-family:inherit;font-size:inherit;text-transform:uppercase;letter-spacing:.06em;padding:2px 4px;border-radius:3px;}
+  .ms-action:hover{background:var(--surface);}
+  .ms-action.muted{color:var(--muted);}
+  .ms-list{max-height:240px;overflow:auto;padding:4px 0;}
+  .ms-item{display:flex;align-items:center;gap:9px;padding:6px 12px;cursor:pointer;font:400 13px 'Inter';color:var(--ink);user-select:none;transition:background .1s;}
+  .ms-item:hover{background:var(--bg);}
+  .ms-item input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--accent);margin:0;flex-shrink:0;}
+  .ms-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ms-item-count{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .ms-empty{padding:16px;color:var(--muted);font-size:12px;text-align:center;}
+
+  .cal-wrap{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;}
+  .cal-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px 4px;}
+  .cal-month-label{font-family:'Bricolage Grotesque',serif;font-size:14px;font-weight:600;color:var(--ink);letter-spacing:-.01em;flex:1;text-align:center;}
+  .cal-nav{background:transparent;border:1px solid var(--line);width:26px;height:26px;border-radius:6px;cursor:pointer;color:var(--ink-2);display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;flex-shrink:0;transition:background .12s,color .12s,border-color .12s;}
+  .cal-nav:hover{background:var(--surface);color:var(--ink);border-color:var(--accent);}
+  .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:0;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;text-align:center;padding:2px 0;}
+  .cal-weekdays span{padding:4px 0;}
+  .cal-days{display:grid;grid-template-columns:repeat(7,1fr);gap:0;}
+  .cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font:400 12px 'Inter',sans-serif;font-variant-numeric:tabular-nums;border-radius:6px;cursor:pointer;border:none;background:transparent;color:var(--ink);position:relative;transition:background .1s,color .1s;}
+  .cal-day:hover:not(.muted):not(.start):not(.end){background:var(--surface);}
+  .cal-day.muted{color:var(--muted);opacity:.4;}
+  .cal-day.today{font-weight:600;}
+  .cal-day.today::after{content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:3px;height:3px;border-radius:50%;background:var(--accent);}
+  .cal-day.today.start::after,.cal-day.today.end::after{background:var(--surface);}
+  .cal-day.in-range{background:rgba(31,63,114,.12);border-radius:0;color:var(--ink);}
+  [data-theme="dark"] .cal-day.in-range{background:rgba(107,158,255,.18);}
+  .cal-day.start,.cal-day.end{background:var(--accent);color:var(--surface);font-weight:500;}
+  .cal-day.start{border-top-right-radius:0;border-bottom-right-radius:0;}
+  .cal-day.end{border-top-left-radius:0;border-bottom-left-radius:0;}
+  .cal-day.start.end{border-radius:6px;}
+
+  /* MAIN */
+  main{padding:22px 28px 80px;}
+
+  /* OVERVIEW SECTION */
+  .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:14px;font-weight:500;display:flex;align-items:center;gap:10px;}
+
+  /* KPI CARDS */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:28px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;display:flex;flex-direction:column;gap:0;}
+  .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--shadow-md);border-color:var(--line-2);}
+  .kpi:active{transform:translateY(0);}
+  .kpi-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;line-height:1.35;}
+  .kpi-value{font-family:'Bricolage Grotesque',serif;font-size:36px;font-weight:600;letter-spacing:-.025em;margin-top:14px;line-height:1;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .kpi-value.green{color:var(--green);}.kpi-value.red{color:var(--red);}.kpi-value.orange{color:var(--orange);}.kpi-value.amber{color:var(--amber);}.kpi-value.blue{color:var(--accent);}.kpi-value.purple{color:var(--purple);}
+  .kpi-pct{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2);font-weight:500;margin-top:6px;font-variant-numeric:tabular-nums;}
+  .kpi-pct.muted{color:var(--muted);}
+  .kpi-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:auto;padding-top:10px;line-height:1.4;}
+  .kpi-arrow{position:absolute;top:18px;right:18px;color:var(--muted);opacity:0;transition:opacity .15s,transform .15s;}
+  .kpi:hover .kpi-arrow{opacity:.7;transform:translate(2px,-2px);}
+  .kpi-arrow svg{width:14px;height:14px;display:block;}
+  .seg-tooltip{
+    position:fixed; background:#1a1a2e; color:#ffffff;
+    font-size:12px; padding:8px 12px; border-radius:8px;
+    pointer-events:none; z-index:9999; display:none;
+    white-space:nowrap; line-height:1.9;
+    box-shadow:0 4px 16px rgba(0,0,0,.5);
+    border:1px solid rgba(255,255,255,.1);
+  }
+  .seg-tooltip div{ color:#ffffff; }
+    display:none;position:absolute;top:calc(100% + 8px);left:50%;
+    transform:translateX(-50%);background:var(--ink);color:#fff;
+    font-size:11px;border-radius:6px;padding:8px 12px;
+    white-space:nowrap;z-index:200;pointer-events:none;line-height:1.9;
+  }
+  .kpi-tooltip::after{
+    content:'';position:absolute;bottom:100%;left:50%;
+    transform:translateX(-50%);border:5px solid transparent;
+    border-bottom-color:var(--ink);
+  }
+  .kpi:hover .kpi-tooltip,.kpi:focus-within .kpi-tooltip{display:block;}
+  .kpi.kpi-flip{ overflow:hidden; position:relative; }
+  .kpi-front{
+    transition:transform .28s ease, opacity .28s ease;
+    will-change:transform;
+  }
+  .kpi-back{
+    position:absolute; inset:0; padding:18px 20px;
+    display:flex; flex-direction:column; justify-content:center; gap:5px;
+    transform:translateY(100%); opacity:0;
+    transition:transform .28s ease, opacity .28s ease;
+    will-change:transform;
+    pointer-events:none;
+  }
+  .kpi.kpi-flip:hover .kpi-front,
+  .kpi.kpi-flip:focus-within .kpi-front{
+    transform:translateY(-100%); opacity:0;
+  }
+  .kpi.kpi-flip:hover .kpi-back,
+  .kpi.kpi-flip:focus-within .kpi-back{
+    transform:translateY(0); opacity:1; pointer-events:auto;
+  }
+  .rb-row{ display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .rb-lbl{ font-size:9px; font-weight:700; letter-spacing:.06em; color:var(--muted); white-space:nowrap; }
+  .rb-num{ font-size:16px; font-weight:800; letter-spacing:-.02em; flex-shrink:0; }
+
+  /* PANEL GRID — customizable */
+  .panel-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:16px;}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:0;transition:background .25s,border-color .25s;position:relative;}
+  .panel[data-size="full"]{grid-column:span 6;}
+  .panel[data-size="half"]{grid-column:span 3;}
+  .panel[data-size="third"]{grid-column:span 2;}
+  .panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}
+  .panel-title-wrap{flex:1;min-width:0;}
+  .panel h3{margin:0;font-family:'Bricolage Grotesque',serif;font-size:16px;font-weight:600;letter-spacing:-.01em;}
+  .panel-sub{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-top:4px;}
+  .chart-wrap{position:relative;height:300px;}
+  .chart-wrap.tall{height:340px;}
+  .chart-wrap.short{height:260px;}
+
+  /* TREND CHART TABS */
+  .trend-tabs{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px;flex-shrink:0;}
+  .trend-tab{background:transparent;border:none;padding:5px 12px;border-radius:999px;cursor:pointer;font:500 12px 'Inter';color:var(--muted);transition:background .15s,color .15s;letter-spacing:-.005em;}
+  .trend-tab:hover{color:var(--ink);}
+  .trend-tab.sel{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px var(--shadow);}
+  .trend-legend{display:flex;gap:18px;margin-top:8px;flex-wrap:wrap;justify-content:center;}
+  .trend-legend-item{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;}
+  .trend-legend-item .ldot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .trend-legend-item .lval{color:var(--ink);font-weight:500;}
+
+  /* SLA PANEL */
+  .sla-content{display:flex;flex-direction:column;gap:14px;padding-top:6px;}
+  .sla-cells{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  /* In third-size panels the value digits get cramped at 2-up; tighten the
+     cell padding and slightly shrink the heading number for breathing room. */
+  .panel[data-size="third"] .sla-cell{padding:12px 14px;}
+  .panel[data-size="third"] .sla-num{font-size:26px;}
+  .sla-cell{padding:14px 16px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;}
+  .sla-cell:hover{transform:translateY(-2px);box-shadow:0 4px 14px var(--shadow-md);border-color:var(--line-2);}
+  .sla-cell.sla-in{border-left:3px solid var(--green);}
+  .sla-cell.sla-out{border-left:3px solid var(--orange);}
+  .sla-num{font-family:'Bricolage Grotesque',serif;font-size:30px;font-weight:600;letter-spacing:-.025em;line-height:1;font-variant-numeric:tabular-nums;}
+  .sla-num.green{color:var(--green);}.sla-num.orange{color:var(--orange);}
+  .sla-pct{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums;font-weight:500;}
+  .sla-cell-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:2px;}
+  .sla-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--bg);border:1px solid var(--line);}
+  .sla-bar-in{background:var(--green);transition:width .4s ease;height:100%;width:0;}
+  .sla-bar-out{background:var(--orange);transition:width .4s ease;height:100%;width:0;}
+  .sla-tick{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);}
+  .sla-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .sla-bottom strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+  /* Slim bar-only variant for SLA / Delivery / Accuracy cards */
+  .sla-cells-slim{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;}
+  .sla-cell-slim{padding:0;border:none;background:transparent;border-radius:0;flex-direction:row;align-items:baseline;gap:5px;box-shadow:none;}
+  .sla-cell-slim:hover{transform:none;box-shadow:none;border-color:transparent;}
+  .sla-cell-slim .sla-num{display:none;}
+  .sla-cell-slim .sla-cell-label{order:1;margin-top:0;text-transform:none;letter-spacing:0;font-family:inherit;font-size:11px;color:var(--muted);}
+  .sla-cell-slim .sla-pct{order:2;font-size:13px;font-weight:600;color:var(--ink);}
+  .sla-bar-slim{height:8px;border-radius:4px;}
+
+  /* TABLE */
+  .table-wrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:background .25s,border-color .25s;}
+  .table-head{padding:14px 18px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;}
+  .table-head h3{margin:0;font-family:'Bricolage Grotesque',serif;font-size:16px;font-weight:600;letter-spacing:-.01em;}
+  .table-count{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .table-scroll{max-height:480px;overflow:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead{position:sticky;top:0;background:var(--surface);z-index:1;}
+  th{text-align:left;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th.sortable{cursor:pointer;user-select:none;transition:color .12s;position:relative;padding-right:22px;}
+  th.sortable:hover{color:var(--ink);}
+  th.sortable .sort-ind{display:inline-block;margin-left:6px;opacity:.35;font-family:'Inter',sans-serif;font-size:11px;transition:opacity .12s;}
+  th.sortable:hover .sort-ind{opacity:.65;}
+  th.sortable.sorted{color:var(--accent);}
+  th.sortable.sorted .sort-ind{opacity:1;color:var(--accent);}
+  .table-head-actions{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .reset-sort-btn{background:transparent;border:1px solid var(--line);color:var(--ink-2);padding:4px 10px;border-radius:6px;font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;display:none;align-items:center;gap:5px;transition:background .12s,color .12s,border-color .12s;}
+  .reset-sort-btn.show{display:inline-flex;}
+  .reset-sort-btn:hover{background:var(--bg);color:var(--ink);border-color:var(--accent);}
+  .btn-download{background:var(--accent);color:var(--surface);border:none;padding:8px 14px;border-radius:6px;font:500 13px 'Inter';cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:opacity .15s,transform .12s;}
+  .btn-download:hover{opacity:.9;}
+  .btn-download:active{transform:translateY(1px);}
+  .btn-download[disabled]{opacity:.5;cursor:wait;}
+  .btn-download svg{width:13px;height:13px;}
+
+  td{padding:10px 14px;border-bottom:1px solid var(--line);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;transition:background .1s;}
+  tr:last-child td{border-bottom:none;}tr:hover td{background:var(--bg);}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--line);background:var(--bg);color:var(--ink-2);}
+  .pill.delivered{background:rgba(31,122,82,.1);color:var(--green);border-color:rgba(31,122,82,.3);}
+  .pill.rejected{background:rgba(179,38,30,.1);color:var(--red);border-color:rgba(179,38,30,.3);}
+  .pill.pending{background:rgba(178,122,0,.1);color:var(--amber);border-color:rgba(178,122,0,.3);}
+  .pill.sla-in{background:rgba(31,122,82,.1);color:var(--green);border-color:rgba(31,122,82,.3);}
+  .pill.sla-out{background:rgba(194,65,12,.1);color:var(--orange);border-color:rgba(194,65,12,.3);}
+  /* Inline video link in records tables */
+  .v-link{display:inline-flex;align-items:center;gap:4px;color:var(--accent);text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;transition:opacity .12s;}
+  .v-link:hover{text-decoration:underline;opacity:.85;}
+  .v-link svg{flex-shrink:0;opacity:.65;}
+
+  #errBox{margin-bottom:12px;}
+  .err{background:rgba(179,38,30,.07);border:1px solid rgba(179,38,30,.25);color:var(--red);padding:12px 16px;border-radius:8px;font-size:13px;}
+  .empty{padding:60px 20px;text-align:center;color:var(--muted);font-size:13px;}
+
+  /* LOADING OVERLAY */
+  #loadOverlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.35);backdrop-filter:blur(2px);align-items:center;justify-content:center;}
+  #loadOverlay.show{display:flex;}
+  .spinner-box{background:var(--surface);border-radius:12px;padding:28px 36px;display:flex;flex-direction:column;align-items:center;gap:14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);}
+  .spinner{width:28px;height:28px;border:2.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+  .load-progress-wrap{width:220px;height:5px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:4px;}
+  .load-progress-bar{height:100%;background:var(--accent);border-radius:999px;width:0%;transition:width .4s ease;}
+  .load-pct{font-size:11px;color:var(--accent);font-weight:600;letter-spacing:.04em;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* DRILL-DOWN MODAL */
+  .modal-backdrop{display:none;position:fixed;inset:0;z-index:800;background:rgba(0,0,0,0);transition:background .25s;}
+  .modal-backdrop.show{display:block;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);}
+  .modal-panel{position:fixed;top:0;right:0;bottom:0;width:min(95vw,1100px);background:var(--surface);display:flex;flex-direction:column;box-shadow:-12px 0 40px var(--shadow-lg);transform:translateX(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1);}
+  .modal-backdrop.show .modal-panel{transform:translateX(0);}
+  .modal-panel.centered{position:fixed;top:50%;left:50%;right:auto;bottom:auto;width:95vw;max-width:1600px;max-height:92vh;border-radius:16px;transform:translate(-50%,-50%) scale(.96);opacity:0;box-shadow:0 20px 60px var(--shadow-lg);transition:transform .25s cubic-bezier(.32,.72,.32,1),opacity .25s;}
+  .modal-backdrop.show .modal-panel.centered{transform:translate(-50%,-50%) scale(1);opacity:1;}
+  .modal-head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
+  .modal-title{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink);line-height:1.1;}
+  .modal-sub{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:6px;}
+  .modal-close{background:transparent;border:1px solid var(--line);cursor:pointer;width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:20px;line-height:1;transition:background .15s,color .15s;flex-shrink:0;}
+  .modal-close:hover{background:var(--bg);color:var(--ink);}
+  .modal-head-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .modal-dl-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-size:12px;height:34px;}
+  .modal-dl-btn svg:last-child{opacity:.7;transition:transform .15s;}
+  .dl-menu-wrap{position:relative;display:inline-block;}
+  .dl-menu-wrap.open .modal-dl-btn svg:last-child{transform:rotate(180deg);}
+  .dl-menu{display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 32px var(--shadow-lg);min-width:240px;overflow:hidden;z-index:10;}
+  .dl-menu-wrap.open .dl-menu{display:block;}
+  .dl-menu-item{display:flex;flex-direction:column;align-items:flex-start;width:100%;background:none;border:none;padding:10px 14px;text-align:left;cursor:pointer;color:var(--ink);transition:background .12s;gap:2px;border-bottom:1px solid var(--line);}
+  .dl-menu-item:last-child{border-bottom:none;}
+  .dl-menu-item:hover{background:var(--bg);}
+  .dl-fmt-name{font:600 13px 'Inter';color:var(--ink);}
+  .dl-fmt-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.04em;}
+
+  .modal-stats{padding:14px 26px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:24px;background:var(--surface-2);}
+  .modal-stat{display:flex;flex-direction:column;gap:4px;}
+  .modal-stat-label{font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
+  .modal-stat-value{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;}
+  .modal-stat-value.green{color:var(--green);}.modal-stat-value.red{color:var(--red);}
+  .modal-stat-value.orange{color:var(--orange);}.modal-stat-value.amber{color:var(--amber);}
+  .modal-body{flex:1;overflow:auto;}
+  .modal-footer{padding:10px 26px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .filter-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;} .active-filters-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#FFF7E6;border:1px solid #F5C265;border-radius:10px;padding:8px 14px;margin-bottom:14px;} .active-filters-bar .afb-label{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#8A5A00;font-weight:700;} .active-filters-bar .afb-reset{margin-left:auto;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;text-decoration:underline;background:none;border:none;}
+  .chip strong{color:var(--ink);font-weight:500;}
+  .modal-body table{font-size:13px;}
+  .modal-body th{padding:11px 16px;background:var(--surface);}
+  .modal-body td{padding:11px 16px;}
+  .breakdown-row{cursor:pointer;}
+  .breakdown-row:hover td{background:var(--bg);}
+  .breakdown-name{font-weight:500;color:var(--ink);}
+  .num-cell{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
+  .pct-bar{display:inline-block;width:60px;height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-left:8px;vertical-align:middle;}
+  .pct-bar-fill{display:block;height:100%;background:var(--green);}
+
+  /* THEME TOGGLE */
+  .theme-toggle{position:fixed;bottom:24px;left:24px;z-index:200;background:var(--theme-btn-bg);color:var(--theme-btn-fg);border:none;border-radius:999px;padding:10px 16px;font:500 12px 'JetBrains Mono',monospace;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 4px 18px var(--shadow);transition:background .25s,color .25s,transform .15s;letter-spacing:.04em;}
+  .theme-toggle:hover{transform:translateY(-2px);}
+  .theme-toggle svg{width:14px;height:14px;flex-shrink:0;}
+
+  /* EDIT MODE */
+  .edit-controls{display:none;align-items:center;gap:4px;}
+  body.edit-mode .edit-controls{display:flex;}
+  body.edit-mode .panel{border:1px dashed var(--accent);background:linear-gradient(var(--surface),var(--surface)) padding-box;}
+  body.edit-mode .panel::before{content:'';position:absolute;inset:0;background:rgba(31,63,114,0.025);border-radius:12px;pointer-events:none;}
+  [data-theme="dark"] body.edit-mode .panel::before{background:rgba(107,158,255,0.04);}
+  .ec-btn{background:transparent;border:1px solid var(--line);color:var(--ink-2);width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;transition:background .12s,color .12s,border-color .12s;}
+  .ec-btn:hover{background:var(--bg);color:var(--ink);border-color:var(--accent);}
+  .ec-btn:disabled{opacity:.3;cursor:not-allowed;}
+  .ec-btn.size-btn{width:auto;padding:0 8px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;}
+  body.edit-mode .kpi{cursor:default;}
+  body.edit-mode .kpi:hover{transform:none;box-shadow:none;border-color:var(--line);}
+  body.edit-mode .panel{transition:none;}
+  .edit-hint{display:none;background:rgba(31,63,114,0.08);border:1px solid rgba(31,63,114,0.2);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--accent);margin-bottom:16px;font-family:'JetBrains Mono',monospace;}
+  body.edit-mode .edit-hint{display:flex;align-items:center;gap:8px;}
+  [data-theme="dark"] .edit-hint{background:rgba(107,158,255,0.1);border-color:rgba(107,158,255,0.3);color:var(--accent);}
+
+  /* ── RESPONSIVE ─────────────────────────────────────────────── */
+
+  /* Tablet: 600–1024px */
+  @media(max-width:1024px){
+    header{ padding:0 16px; gap:8px; flex-wrap:wrap; height:auto; min-height:52px; }
+    .header-left{ gap:8px; }
+    .nav-tabs{ gap:4px; }
+    .nav-tab{ padding:6px 10px; font-size:12px; }
+    .header-right{ gap:6px; flex-wrap:wrap; }
+    .sync-badge{ font-size:10px; }
+    main{ padding:16px 16px 60px; }
+    .filters{ padding:8px 16px; gap:8px; flex-wrap:wrap; }
+    .f-group{ min-width:120px; }
+    .ms-trigger{ min-width:110px; max-width:160px; font-size:12px; }
+    .ms-trigger.compact{ min-width:100px; }
+    .date-trigger{ min-width:160px; font-size:12px; }
+    .kpis{ grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; }
+    .kpi{ padding:14px 16px; }
+    .kpi-value{ font-size:24px; }
+    .panel-grid{ gap:12px; }
+    .panel[data-size="full"]  { grid-column:span 6; }
+    .panel[data-size="half"]  { grid-column:span 6; }
+    .panel[data-size="third"] { grid-column:span 6; }
+    .sla-cells{ grid-template-columns:1fr 1fr; }
+  }
+
+  /* Large tablet: 768–1024px — allow half panels side by side */
+  @media(min-width:768px) and (max-width:1024px){
+    .panel[data-size="half"]  { grid-column:span 3; }
+    .panel[data-size="third"] { grid-column:span 2; }
+    .kpis{ grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); }
+  }
+
+  /* Mobile: < 768px */
+  @media(max-width:768px){
+    header{ padding:8px 12px; flex-direction:column; align-items:flex-start; height:auto; gap:8px; }
+    .header-left{ width:100%; justify-content:space-between; }
+    .header-right{ width:100%; justify-content:space-between; gap:6px; }
+    .brand{ font-size:16px; }
+    .nav-tabs{ gap:0; background:var(--surface-2); border-radius:8px; padding:2px; }
+    .nav-tab{ padding:5px 10px; font-size:11px; border-radius:6px; }
+    .btn-sync{ padding:6px 12px; font-size:12px; }
+    .btn-download{ display:none; } /* hide download on mobile */
+    .sync-badge{ display:none; }
+    main{ padding:12px 12px 60px; }
+    .filters{ padding:6px 12px; gap:6px; overflow-x:auto; flex-wrap:nowrap; }
+    .f-group{ flex-shrink:0; }
+    .ms-trigger{ min-width:100px; max-width:140px; font-size:11px; padding:5px 8px; }
+    .date-trigger{ min-width:130px; font-size:11px; }
+    .section-label{ font-size:10px; }
+    .kpis{ grid-template-columns:repeat(2,1fr); gap:8px; margin-bottom:16px; }
+    .kpi{ padding:12px 14px; }
+    .kpi-label{ font-size:9px; }
+    .kpi-value{ font-size:22px; }
+    .panel-grid{ grid-template-columns:1fr; gap:10px; }
+    .panel[data-size="full"],
+    .panel[data-size="half"],
+    .panel[data-size="third"]{ grid-column:span 1 !important; }
+    .panel{ padding:14px 14px; }
+    .panel-header{ margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+    h3{ font-size:13px; }
+    .panel-sub{ font-size:9px; }
+    .sla-cells{ grid-template-columns:1fr 1fr; gap:8px; }
+    .sla-num{ font-size:22px; }
+    .sla-cell{ padding:10px 12px; }
+    .chart-wrap{ height:200px; }
+    .chart-wrap.tall{ height:220px; }
+    .trend-tabs{ gap:2px; }
+    .trend-tab{ padding:4px 7px; font-size:10px; }
+    .date-panel{ min-width:0; width:calc(100vw - 24px); left:-12px; }
+    .dp-presets{ width:100%; border-right:none; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; }
+    .modal-panel{ width:100vw; max-width:100vw; border-radius:0; }
+    .modal-header{ padding:12px 16px; }
+    .modal-body table{ font-size:12px; }
+    .modal-body th,.modal-body td{ padding:8px 10px; }
+    td{ max-width:120px; }
+    .kpi.kpi-flip:hover .kpi-front,
+    .kpi.kpi-flip:focus-within .kpi-front{ transform:none; opacity:1; }
+    .kpi.kpi-flip:hover .kpi-back,
+    .kpi.kpi-flip:focus-within .kpi-back{ transform:translateY(100%); opacity:0; }
+  }
+
+  /* Small mobile: < 480px */
+  @media(max-width:480px){
+    .kpis{ grid-template-columns:repeat(2,1fr); gap:6px; }
+    .kpi-value{ font-size:20px; }
+    .filters{ gap:4px; }
+    .ms-trigger{ min-width:88px; font-size:10px; padding:4px 6px; }
+    h3{ font-size:12px; }
+    .sla-num{ font-size:20px; }
+    .chart-wrap{ height:180px; }
+    .chart-wrap.tall{ height:200px; }
+    .trend-tab{ padding:3px 6px; font-size:9px; }
+    main{ padding:10px 10px 60px; }
+  }
+
+  /* ── keep modal usable on small screens ─────────────────────── */
+  @media(max-width:600px){
+    .modal-stats{ gap:12px; padding:10px 14px; }
+    .modal-stat-value{ font-size:18px; }
+  }
+
+  .hly-tog{padding:4px 10px;border-radius:20px;background:transparent;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:all .15s;opacity:0.45;}
+  .hly-tog.sel{opacity:1;}
+
+  /* ===== 2026 redesign layer (visual only) ===== */
+  .hero{background:linear-gradient(135deg,#3730a3 0%,#4f46e5 60%,#6366f1 100%);border-radius:18px;padding:20px 24px;margin-bottom:20px;box-shadow:0 8px 28px rgba(79,70,229,.28);}
+  .hero-top{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+  .hero-top h2{font-family:'Bricolage Grotesque',serif;font-size:22px;font-weight:600;color:#fff;margin:0;letter-spacing:-.02em;}
+  .hero-top .hero-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;color:#e0e7ff;background:rgba(255,255,255,.16);padding:4px 12px;border-radius:20px;}
+  .hero-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;}
+  .hero-metric .hm-label{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#c7d2fe;}
+  .hero-metric .hm-value{font-family:'Bricolage Grotesque',serif;font-size:28px;font-weight:600;color:#fff;line-height:1.1;margin-top:3px;font-variant-numeric:tabular-nums;}
+  @media(max-width:820px){.hero-metrics{grid-template-columns:repeat(2,1fr);}}
+  [data-theme="dark"] .hero{background:linear-gradient(135deg,#312e81 0%,#4338ca 60%,#4f46e5 100%);box-shadow:0 8px 28px rgba(0,0,0,.4);}
+
+  .kpis{grid-template-columns:repeat(6,minmax(0,1fr));}
+  @media(max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr));}}
+  @media(max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .kpi{border-top-width:3px;border-top-style:solid;padding-top:14px;}
+  .kpi::before{font-size:19px;line-height:1;margin-bottom:5px;display:block;}
+  .kpi[data-id="ent"]::before{content:"\1F3E2";} .kpi[data-id="team"]::before{content:"\1F465";}
+  .kpi[data-id="received"]::before{content:"\1F4E5";} .kpi[data-id="processing"]::before{content:"\1F504";}
+  .kpi[data-id="delivered"]::before{content:"\2705";} .kpi[data-id="rejected"]::before{content:"\274C";}
+  .kpi[data-id="tech-ai"]::before{content:"\1F527";} .kpi[data-id="pending"]::before{content:"\23F3";}
+  .kpi[data-id="sla"]::before{content:"\26A1";} .kpi[data-id="tat"]::before{content:"\1F550";}
+  .kpi[data-id="e2e-tat"]::before{content:"\23F1";} .kpi[data-id="w6h"]::before{content:"\1F4C8";} .kpi[data-id="p99"]::before{content:"\1F4CA";}
+  .kpi[data-id="ent"],.kpi[data-id="received"],.kpi[data-id="sla"],.kpi[data-id="e2e-tat"]{border-top-color:var(--accent);}
+  .kpi[data-id="team"],.kpi[data-id="processing"]{border-top-color:#2563eb;}
+  .kpi[data-id="delivered"],.kpi[data-id="w6h"]{border-top-color:var(--green);}
+  .kpi[data-id="rejected"]{border-top-color:var(--red);}
+  .kpi[data-id="pending"],.kpi[data-id="tech-ai"]{border-top-color:var(--amber);}
+  .kpi[data-id="tat"],.kpi[data-id="p99"]{border-top-color:var(--teal);}
+
+  .trend-tab.sel,.gran-tab.sel,.view-switch button.sel{background:var(--accent);color:#fff;box-shadow:0 1px 4px rgba(79,70,229,.35);}
+  [data-theme="dark"] .trend-tab.sel,[data-theme="dark"] .gran-tab.sel,[data-theme="dark"] .view-switch button.sel{color:#12141f;}
+
+  .section-label{color:var(--accent);}
+  .section-label::before{content:"";width:14px;height:3px;border-radius:2px;background:var(--accent);display:inline-block;margin-right:2px;vertical-align:middle;}
+
+  /* Mini 3-period trend (SLA / Delivery / Accuracy cards) */
+  .mini-trend-wrap{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);}
+  .mtrend-cols{display:flex;align-items:flex-end;gap:10px;height:64px;}
+  .mtrend-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .mtrend-stack{width:88%;max-width:80px;border-radius:8px 8px 0 0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;transition:height .3s ease;}
+  .mtrend-val{font-size:11px;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mtrend-lbl{font-size:10px;color:var(--muted);margin-top:4px;white-space:nowrap;}
+  .mtrend-legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .mtrend-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);}
+  .mtrend-legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0;}
+  .mini-trend-wrap{padding-bottom:2px;}
+  .mtrend-cols{height:208px;gap:14px;}
+  .trend-tabs-mini{gap:0;padding:2px;background:var(--surface-2);border-radius:8px;}
+  .trend-tabs-mini .trend-tab{padding:3px 9px;min-width:26px;font-size:11px;font-weight:600;}
+  #authGate{position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center;}
+  #authGate.hidden{display:none;}
+  .auth-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;box-shadow:0 20px 60px var(--shadow-lg);}
+  .auth-card h2{font-size:20px;font-weight:700;margin:0 0 6px;}
+  .auth-card p{font-size:13px;color:var(--muted);margin:0 0 22px;}
+  .auth-denied{color:var(--red);font-size:12px;margin-top:14px;display:none;}
+  .auth-user-badge{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);}
+  .auth-user-badge img{width:22px;height:22px;border-radius:50%;}
+  .auth-signout{cursor:pointer;color:var(--accent);text-decoration:underline;font-size:11px;background:none;border:none;padding:0;}
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<div id="authGate">
+  <div class="auth-card">
+    <h2>360 Dashboard</h2>
+    <p>Sign in with your Spyne Google account to continue.</p>
+    <div id="googleSignInBtn" style="display:flex;justify-content:center;"></div>
+    <p class="auth-denied" id="authDeniedMsg">This account isn't on the access list. Contact your admin if you think this is a mistake.</p>
+  </div>
+</div>
+
+<div id="segTooltip" class="seg-tooltip"></div>
+<div id="loadOverlay"><div class="spinner-box"><div class="spinner"></div><span id="loadMsg">Loading…</span><div class="load-progress-wrap"><div class="load-progress-bar" id="loadBar"></div></div><span class="load-pct" id="loadPct"></span></div></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const AUTH_KEY = 'dashAuthSession';
+  const gate = document.getElementById('authGate');
+  const gateCard = gate.querySelector('.auth-card');
+  const signInBtn = document.getElementById('googleSignInBtn');
+  const deniedMsg = document.getElementById('authDeniedMsg');
+
+  function getToken(){ return localStorage.getItem(AUTH_KEY); }
+  function setToken(token){ localStorage.setItem(AUTH_KEY, token); }
+  function clearToken(){ localStorage.removeItem(AUTH_KEY); }
+
+  function showBadge(email){
+    document.getElementById('authUserEmail').textContent = email;
+    document.getElementById('authUserBadge').style.display = 'flex';
+  }
+  function hideGate(email){
+    gate.classList.add('hidden');
+    showBadge(email);
+  }
+  function showSignInUI(message){
+    signInBtn.style.display = '';
+    deniedMsg.style.display = message ? 'block' : 'none';
+    if (message) deniedMsg.textContent = message;
+    initGoogleButton();
+  }
+
+  async function verifySession(token){
+    try{
+      const res = await fetch('/api/auth-check', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ token }),
+      });
+      return await res.json();
+    } catch(e){ return { allowed:false, error:'network' }; }
+  }
+  async function verifyCredential(credential){
+    try{
+      const res = await fetch('/api/auth-check', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ credential }),
+      });
+      return await res.json();
+    } catch(e){ return { allowed:false, error:'network' }; }
+  }
+
+  async function handleCredential(response){
+    deniedMsg.style.display = 'none';
+    const data = await verifyCredential(response.credential);
+    if (data.allowed && data.email && data.token){
+      setToken(data.token);
+      hideGate(data.email);
+    } else if (data.error === 'network'){
+      showSignInUI('Could not verify sign-in — check your connection and try again.');
+    } else {
+      showSignInUI("This account isn't on the access list. Contact your admin if you think this is a mistake.");
+    }
+  }
+
+  function initGoogleButton(){
+    if (!window.google || !google.accounts || !google.accounts.id) { setTimeout(initGoogleButton, 200); return; }
+    google.accounts.id.initialize({
+      client_id: '713197071795-fsr4u5j8d3o91olgcdb96kit4oaiqfu7.apps.googleusercontent.com',
+      callback: handleCredential,
     });
-}
+    google.accounts.id.renderButton(signInBtn, { theme:'outline', size:'large', text:'signin_with' });
+  }
 
-// POST helper — sends JSON body, returns parsed JSON response.
-function postJSON(url, bodyObj, extraHeaders = {}) {
-    const data = JSON.stringify(bodyObj);
-    const u = new URL(url);
-    return new Promise((resolve, reject) => {
-          const req = https.request(u, {
-                  method: 'POST',
-                  headers: {
-                        'Content-Type': 'application/json',
-                        'Content-Length': Buffer.byteLength(data),
-                        ...extraHeaders,
-                  },
-          }, res => {
-                  const chunks = [];
-                  res.on('data', c => chunks.push(c));
-                  res.on('end', () => {
-                        const body = Buffer.concat(chunks).toString('utf8');
-                        if (res.statusCode < 200 || res.statusCode >= 300) {
-                                  return reject(new Error(`HTTP ${res.statusCode}: ${body.slice(0,300)}`));
-                        }
-                        try { resolve(JSON.parse(body)); }
-                        catch (e) { reject(new Error('Invalid JSON response: ' + body.slice(0,300))); }
-                  });
-          });
-          req.on('error', reject);
-          req.write(data);
-          req.end();
-    });
-}
-
-// Logs in with username/password (from GitHub Actions secrets) and returns a
-// short-lived Metabase session token. Never logs the credentials themselves.
-async function getMetabaseSession() {
-    if (!METABASE_USERNAME || !METABASE_PASSWORD) {
-          throw new Error('Missing METABASE_USERNAME / METABASE_PASSWORD — set them as GitHub Actions secrets.');
+  (async function boot(){
+    const token = getToken();
+    if (!token){ showSignInUI(); return; }
+    // Existing session — re-verify its signature + expiry with the server on
+    // every load (a value typed straight into localStorage by hand won't
+    // carry a valid signature, so it's rejected here instead of trusted blindly).
+    signInBtn.style.display = 'none';
+    const data = await verifySession(token);
+    if (data.allowed && data.email){
+      if (data.token) setToken(data.token); // sliding renewal — extend the session
+      hideGate(data.email);
+    } else {
+      clearToken();
+      showSignInUI(data.error === 'network' ? 'Could not reach the server — check your connection and try again.' : 'Your session expired — please sign in again.');
     }
-    console.log('Authenticating with Metabase…');
-    const resp = await postJSON(`${METABASE_BASE}/api/session`, {
-          username: METABASE_USERNAME,
-          password: METABASE_PASSWORD,
-    });
-    if (!resp || !resp.id) throw new Error('Metabase login did not return a session token.');
-    console.log('Metabase session acquired.');
-    return resp.id;
+  })();
+
+  document.getElementById('authSignOutBtn').addEventListener('click', function(){
+    clearToken();
+    location.reload();
+  });
+});
+</script>
+
+<button class="theme-toggle" id="themeBtn">
+  <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+  </svg>
+  <span id="themeLabel">Dark</span>
+</button>
+
+<div id="sticky-top">
+  <header>
+    <div class="brand"><h1>360 Dashboard</h1><span class="tag">QC · Throughput · SLA</span></div>
+    <div class="actions">
+      <div class="view-switch" id="viewSwitch">
+        <button data-view="operations" class="sel" title="Operations view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+          Operations
+        </button>
+        <button data-view="performance" title="QC Performance view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+          QC Performance
+        </button>
+        <button data-view="accuracy" title="Accuracy view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.4"/></svg>
+          Accuracy
+        </button>
+        <button data-view="reports" title="Reports view">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13V7M8 13V3M13 13v-4"/></svg>
+          Reports
+        </button>
+      </div>
+      <span class="sync-info" id="syncInfo">—</span>
+      <div class="auth-user-badge" id="authUserBadge" style="display:none;">
+        <span id="authUserEmail"></span>
+        <button class="auth-signout" id="authSignOutBtn">Sign out</button>
+      </div>
+      <button class="btn-sync" id="syncBtn">Sync</button>
+    </div>
+  </header>
+
+  <div class="filters">
+    <div class="date-filter" id="dateWrap">
+      <label class="f-label">Date range</label>
+      <div class="date-trigger" id="dateTrigger" tabindex="0">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="12" height="13" rx="2"/><line x1="5" y1="1" x2="5" y2="4"/><line x1="11" y1="1" x2="11" y2="4"/><line x1="2" y1="7" x2="14" y2="7"/></svg>
+        <span class="dt-text" id="dtLabel">This month</span>
+        <svg class="dt-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="date-panel" id="datePanel">
+        <div class="dp-presets">
+          <div class="dp-sec">Quick select</div>
+          <button class="dp-preset" data-p="all">All time</button>
+          <button class="dp-preset" data-p="today">Today</button>
+          <button class="dp-preset" data-p="yesterday">Yesterday</button>
+          <button class="dp-preset" data-p="this_week">This week</button>
+          <button class="dp-preset" data-p="last_week">Last week</button>
+          <div class="dp-sec" style="margin-top:6px">Months</div>
+          <button class="dp-preset sel" data-p="this_month">This month</button>
+          <button class="dp-preset" data-p="last_month">Last month</button>
+          <button class="dp-preset" data-p="last_30">Last 30 days</button>
+          <button class="dp-preset" data-p="last_3_months">Last 3 months</button>
+          <div class="dp-sec" style="margin-top:6px">Custom</div>
+          <button class="dp-preset" data-p="custom">Custom range</button>
+        </div>
+        <div class="dp-body">
+          <div class="dp-title">Custom date range</div>
+          <div class="dp-hint">Click a date to set start, click another to set end and apply.</div>
+          <div class="cal-wrap">
+            <div class="cal-header">
+              <button type="button" class="cal-nav" id="calPrev" aria-label="Previous month">‹</button>
+              <span class="cal-month-label" id="calLabel">—</span>
+              <button type="button" class="cal-nav" id="calNext" aria-label="Next month">›</button>
+            </div>
+            <div class="cal-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+            <div class="cal-days" id="calDays"></div>
+          </div>
+          <div class="dp-preview" id="dpPreview"><span id="dpPreviewText">Pick a date to begin</span><button class="dp-clear" id="dpClear" type="button">Clear</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="f-group ms-wrap" id="msEntWrap">
+      <label class="f-label">Enterprise</label>
+      <div class="ms-trigger" id="msEntTrigger" tabindex="0">
+        <span class="ms-text" id="msEntText">All enterprises</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msEntPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msEntSearch" placeholder="Search enterprises…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ent">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ent">Clear all</button>
+        </div>
+        <div class="ms-list" id="msEntList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msTeamWrap">
+      <label class="f-label">Team</label>
+      <div class="ms-trigger" id="msTeamTrigger" tabindex="0">
+        <span class="ms-text" id="msTeamText">All teams</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msTeamPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msTeamSearch" placeholder="Search teams…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="team">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="team">Clear all</button>
+        </div>
+        <div class="ms-list" id="msTeamList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msPocCsWrap">
+      <label class="f-label">CS</label>
+      <div class="ms-trigger" id="msPocCsTrigger" tabindex="0">
+        <span class="ms-text" id="msPocCsText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msPocCsPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msPocCsSearch" placeholder="Search CS…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="cs">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="cs">Clear all</button>
+        </div>
+        <div class="ms-list" id="msPocCsList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msPocObWrap">
+      <label class="f-label">OB</label>
+      <div class="ms-trigger" id="msPocObTrigger" tabindex="0">
+        <span class="ms-text" id="msPocObText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msPocObPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="msPocObSearch" placeholder="Search OB…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ob">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ob">Clear all</button>
+        </div>
+        <div class="ms-list" id="msPocObList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msInputTypeWrap">
+      <label class="f-label">Input Type</label>
+      <div class="ms-trigger compact" id="msInputTypeTrigger" tabindex="0">
+        <span class="ms-text" id="msInputTypeText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msInputTypePanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="inputtype">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="inputtype">Clear all</button>
+        </div>
+        <div class="ms-list" id="msInputTypeList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msVerifiedWrap">
+      <label class="f-label">Status</label>
+      <div class="ms-trigger compact" id="msVerifiedTrigger" tabindex="0">
+        <span class="ms-text" id="msVerifiedText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msVerifiedPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="verified">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="verified">Clear all</button>
+        </div>
+        <div class="ms-list" id="msVerifiedList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msSlaWrap">
+      <label class="f-label">SLA</label>
+      <div class="ms-trigger compact" id="msSlaTrigger" tabindex="0">
+        <span class="ms-text" id="msSlaText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msSlaPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="sla">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="sla">Clear all</button>
+        </div>
+        <div class="ms-list" id="msSlaList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="msSegWrap">
+      <label class="f-label">Segment</label>
+      <div class="ms-trigger compact" id="msSegTrigger" tabindex="0">
+        <span class="ms-text" id="msSegText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="msSegPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="seg">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="seg">Clear all</button>
+        </div>
+        <div class="ms-list" id="msSegList"></div>
+      </div>
+    </div>
+    <div id="vinSearchWrap">
+      <button class="btn-reset" id="vinSearchToggle" type="button" title="Find by VIN / spin_sku_id / spin_id / mediaID / dealerVinId">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+        Find VIN
+      </button>
+    </div>
+    <div class="vin-search-backdrop" id="vinSearchBackdrop"></div>
+    <div class="vin-search-box" id="vinSearchBox">
+      <div class="vin-search-title-row">
+        <h4>Find VIN</h4>
+        <span class="vin-search-close" id="vinSearchClose">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+        </span>
+      </div>
+      <div class="vin-search-inputwrap">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="margin-top:2px;flex-shrink:0;"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+        <textarea id="vinSearchInput" rows="2" placeholder="VIN / spin_sku_id / spin_id / mediaID / dealerVinId — comma or new line for multiple"></textarea>
+      </div>
+      <button class="vin-search-submit" id="vinSearchSubmit" type="button">Search</button>
+    </div>
+    <button class="btn-reset" id="resetBtn">Reset</button>
+  </div>
+</div>
+
+<main>
+  <div id="errBox"></div>
+  <div class="edit-hint">
+    <span>Customize mode active.</span>
+    <span style="opacity:.85">Use ↑ ↓ to reorder panels, half / full to resize.</span>
+  </div>
+
+  <div id="viewOperations">
+  <div class="hero" id="heroBanner">
+    <div class="hero-top">
+      <h2>360 QC Dashboard</h2>
+      <span class="hero-tag">QC · Throughput · SLA</span>
+    </div>
+    <div class="hero-metrics">
+      <div class="hero-metric"><div class="hm-label">Received</div><div class="hm-value" id="hkv-received">—</div></div>
+      <div class="hero-metric"><div class="hm-label">Delivered</div><div class="hm-value" id="hkv-delivered">—</div></div>
+      <div class="hero-metric"><div class="hm-label">SLA %</div><div class="hm-value" id="hkv-sla">—</div></div>
+      <div class="hero-metric"><div class="hm-label">Pending</div><div class="hm-value" id="hkv-pending">—</div></div>
+      <div class="hero-metric"><div class="hm-label">Avg TAT</div><div class="hm-value" id="hkv-tat">—</div></div>
+    </div>
+  </div>
+  <div class="section-label">Overview</div>
+  <div id="activeFiltersBar" class="active-filters-bar" style="display:none"></div><section class="kpis" id="kpiGrid"></section>
+
+  <div class="panel-grid" id="panelGrid">
+    <div class="panel" data-panel="trend" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Throughput trend</h3>
+          <div class="panel-sub" id="trendSub">received · delivered · rejected</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="trend-tabs" id="trendTabs">
+            <button class="trend-tab" data-r="15days">15 Days</button>
+            <button class="trend-tab" data-r="this_month">This month</button>
+            <button class="trend-tab" data-r="6weeks">6 Weeks</button>
+            <button class="trend-tab sel" data-r="months">Since April</button>
+          </div>
+          <div class="edit-controls" data-panel-ctl="trend"></div>
+        </div>
+      </div>
+      <div class="chart-wrap tall"><canvas id="cTrend"></canvas></div>
+      <div class="trend-legend" id="trendLegend"></div>
+    </div>
+
+    <!-- Hourly Throughput — data from Google Sheets -->
+    <div class="panel" data-panel="hourly" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Hourly throughput</h3>
+          <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="trend-tabs" id="hourlyTabs">
+            <button class="trend-tab sel" data-hr="today">Today</button>
+            <button class="trend-tab" data-hr="yesterday">Yesterday</button>
+            <button class="trend-tab" data-hr="15days">Last 15 days</button>
+            <button class="trend-tab" data-hr="30days">Last 30 days</button>
+            <button class="trend-tab" data-hr="45days">Last 45 days</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+            <button id="btnHlyHour" class="trend-tab sel" onclick="setHlyView('hour',this)" style="font-size:11px">Hour-wise</button>
+            <button id="btnHlyDay"  class="trend-tab"     onclick="setHlyView('day',this)"  style="font-size:11px">Day-wise</button>
+          </div>
+          <button id="btnHlyForecast" onclick="toggleHourlyForecast()"
+            style="margin-left:6px;padding:4px 12px;border-radius:20px;border:1.5px solid var(--accent);
+                   background:transparent;color:var(--accent);font-size:11px;font-weight:600;
+                   cursor:pointer;letter-spacing:.3px;transition:all .2s">
+            📈 Forecast
+          </button>
+          <div class="edit-controls" data-panel-ctl="hourly"></div>
+        </div>
+      </div>
+      <div id="hourlyToggles" style="display:flex;gap:8px;padding:8px 0 4px;flex-wrap:wrap">
+        <button class="hly-tog sel" data-ds="recv"    onclick="toggleHlyDs('recv',this)"   style="border:1.5px solid var(--accent);color:var(--accent)">● Received</button>
+        <button class="hly-tog sel" data-ds="qcdone"  onclick="toggleHlyDs('qcdone',this)" style="border:1.5px solid var(--green);color:var(--green)">● QC Done</button>
+        <button class="hly-tog sel" data-ds="backlog" onclick="toggleHlyDs('backlog',this)" style="border:1.5px solid var(--amber);color:var(--amber)">● Pendency</button>
+        <button class="hly-tog"     data-ds="cap"     onclick="toggleHlyDs('cap',this)"     style="border:1.5px solid var(--orange);color:var(--orange)">● Capacity</button>
+      </div>
+      <div id="hourlyLoader" style="display:none;text-align:center;padding:40px;color:var(--muted);font-size:12px">Loading data…</div>
+      <div class="chart-wrap tall"><canvas id="cHourly"></canvas></div>
+      <div class="trend-legend" id="hourlyLegend"></div>
+    </div>
+
+    <div class="panel" data-panel="sla" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>SLA performance</h3>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
+        </div>
+        <div class="edit-controls" data-panel-ctl="sla"></div>
+      </div>
+      <div class="sla-content">
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="slaCellIn" tabindex="0" role="button">
+              <div class="sla-num green" id="slaNumIn">—</div>
+              <div class="sla-pct" id="slaPctIn">—%</div>
+              <div class="sla-cell-label">Within SLA</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="slaCellOut" tabindex="0" role="button">
+              <div class="sla-num orange" id="slaNumOut">—</div>
+              <div class="sla-pct" id="slaPctOut">—%</div>
+              <div class="sla-cell-label">Out of SLA</div>
+            </div>
+          </div>
+          <div class="sla-bar sla-bar-slim">
+            <div class="sla-bar-in" id="slaBarIn"></div>
+            <div class="sla-bar-out" id="slaBarOut"></div>
+          </div>
+          <div class="sla-bottom">
+            <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
+            <span id="slaMeta">—</span>
+          </div>
+        </div>
+        <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#7c3aed"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#a78bfa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#c4b5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#e9d5ff"></span>Resellers</span></div>
+          <div class="mini-trend" id="slaTrend"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="delivery" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Delivery rate</h3>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
+        </div>
+        <div class="edit-controls" data-panel-ctl="delivery"></div>
+      </div>
+      <div class="sla-content">
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="delvCellDone" tabindex="0" role="button">
+              <div class="sla-num green" id="delvNumDone">—</div>
+              <div class="sla-pct" id="delvPctDone">—%</div>
+              <div class="sla-cell-label">Delivered</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
+              <div class="sla-num" id="delvNumRej" style="color:var(--red);">—</div>
+              <div class="sla-pct" id="delvPctRej">—%</div>
+              <div class="sla-cell-label">Not delivered</div>
+            </div>
+          </div>
+          <div class="sla-bar sla-bar-slim"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
+          <div class="sla-bottom">
+            <span>Rejected: <strong id="delvRejCount">—</strong> · Pending: <strong id="delvPendCount">—</strong></span>
+            <span id="delvMeta">—</span>
+          </div>
+        </div>
+        <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2563eb"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#60a5fa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#93c5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#dbeafe"></span>Resellers</span></div>
+          <div class="mini-trend" id="delivTrend"></div>
+        </div>
+      </div>
+    </div>
+
+
+    <div class="panel" data-panel="accuracy" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Accuracy</h3>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
+          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
+        </div>
+        <div class="edit-controls" data-panel-ctl="accuracy"></div>
+      </div>
+      <div class="sla-content">
+        <div class="sla-hidden-block" style="display:none">
+          <div class="sla-cells sla-cells-slim">
+            <div class="sla-cell sla-in sla-cell-slim" id="accCellAuto" tabindex="0" role="button">
+              <div class="sla-num green" id="accNumAuto">—</div>
+              <div class="sla-pct" id="accPctAuto">—%</div>
+              <div class="sla-cell-label">AUTO</div>
+            </div>
+            <div class="sla-cell sla-out sla-cell-slim" id="accCellManual" tabindex="0" role="button">
+              <div class="sla-num red" id="accNumManual">—</div>
+              <div class="sla-pct" id="accPctManual">—%</div>
+              <div class="sla-cell-label">MANUALLY EDITED</div>
+            </div>
+          </div>
+          <div class="sla-bar sla-bar-slim">
+            <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
+            <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
+          </div>
+          <div class="sla-bottom">
+            <span id="accMeta">—</span>
+            <span id="accTotal">—</span>
+          </div>
+        </div>
+        <div class="mini-trend-wrap">
+          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#0f766e"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2dd4bf"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#5eead4"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#99f6e4"></span>Resellers</span></div>
+          <div class="mini-trend" id="accTrend"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="reasons" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>QC Failed reasons</h3>
+          <div class="panel-sub">Blocker severity issues · all reasons, scroll for more</div>
+        </div>
+        <div id="qcReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+      </div>
+      <div id="cQcReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
+    </div>
+
+    <div class="panel" data-panel="reasons2" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Validation Failed reasons</h3>
+          <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
+        </div>
+        <div id="valReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+      </div>
+      <div id="cValReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
+    </div>
+
+    <div class="panel" data-panel="reasons3" data-size="third">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Tech &amp; AI Failure reasons</h3>
+          <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
+        </div>
+        <div id="techReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+      </div>
+      <div id="cTechReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
+    </div>
+
+
+
+    <div class="panel" data-panel="topEnt" data-size="half">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Top enterprises</h3>
+          <div class="panel-sub">by job count · click to filter</div>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="ent"><button class="trend-tab sel" data-sort="total" onclick="setEntSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setEntSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topEnt"></div>
+      </div>
+      <div id="cEnt" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
+    </div>
+
+    <div class="panel" data-panel="topTeam" data-size="half">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Top teams</h3>
+          <div class="panel-sub">by job count · click to filter</div>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="team"><button class="trend-tab sel" data-sort="total" onclick="setTeamSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setTeamSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topTeam"></div>
+      </div>
+      <div id="cTeam" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
+    </div>
+
+
+    <div class="panel" data-panel="records" data-size="full" style="padding:0;">
+      <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
+        <div class="panel-title-wrap"><h3>Recent records</h3><div class="panel-sub" id="tCount">—</div></div>
+        <div class="table-head-actions">
+          <button class="reset-sort-btn show" id="downloadRecordsBtn" title="Download all filtered records as XLSX"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v9m0 0 3-3m-3 3L5 7"/><path d="M2 12v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2"/></svg>Download</button><button class="reset-sort-btn" id="resetSortBtn" title="Clear column sort">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3"/></svg>
+            Reset sort
+          </button>
+          <div class="edit-controls" data-panel-ctl="records"></div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead id="tHead"><tr>
+            <th class="sortable" data-sort="vin">VIN<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="sku">SKU ID<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="spin_id">Spin ID<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="ent">Enterprise<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="team">Team<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="qc">QC User<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="_status">Status<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="sla">SLA<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="tat">TAT<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="rej">Rejection Reason<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="ttype">Input Type<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="vmode">Platform<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="_created">Created At<span class="sort-ind">↕</span></th>
+            <th class="sortable" data-sort="_updated">Final Time<span class="sort-ind">↕</span></th>
+          </tr></thead>
+          <tbody id="tBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  </div><!-- /#viewOperations -->
+
+  <div id="viewPerformance">
+    <div class="section-label">QC Performance · individual user analytics</div>
+
+    <div class="user-picker-block">
+      <span class="user-picker-label">QC User</span>
+      <div class="user-picker-wrap">
+        <input type="text" class="user-picker-input" id="upInput" placeholder="Pick a QC user — click to browse, type to search" autocomplete="off">
+        <svg class="user-picker-chev" id="upChev" width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+        <div class="user-suggest" id="upSuggest"></div>
+      </div>
+
+      <div class="user-picker-meta" id="upMetaWrap" style="display:none;">
+        <div>
+          <div class="user-picker-name" id="upName">—</div>
+          <div class="user-picker-sub" id="upRange">—</div>
+        </div>
+      </div>
+
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+        <div class="gran-tabs" id="granTabs">
+          <button class="gran-tab" data-g="15days">15 Days</button>
+          <button class="gran-tab" data-g="this_month">This month</button>
+          <button class="gran-tab" data-g="6weeks">6 Weeks</button>
+          <button class="gran-tab sel" data-g="months">4 Months</button>
+        </div>
+        <button class="user-picker-clear" id="upClear" style="display:none;">Clear</button>
+      </div>
+    </div>
+
+    <div id="perfContent" style="display:none;">
+      <div class="perf-kpis" id="perfKpis"></div>
+
+      <div class="panel-grid">
+        <div class="panel" data-size="full">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <h3>Efficiency trend</h3>
+              <div class="panel-sub" id="perfTrendSub">received · delivered · rejected · within SLA</div>
+            </div>
+          </div>
+          <div class="chart-wrap tall"><canvas id="cPerfTrend"></canvas></div>
+          <div class="trend-legend" id="perfTrendLegend"></div>
+        </div>
+
+        <div class="panel" data-size="third">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <h3>SLA performance</h3>
+              <div class="panel-sub">within / out of SLA on delivered records</div>
+            </div>
+          </div>
+          <div class="sla-content">
+            <div class="sla-cells">
+              <div class="sla-cell sla-in" id="perfSlaCellIn" tabindex="0" role="button">
+                <div class="sla-num green" id="perfSlaNumIn">—</div>
+                <div class="sla-pct" id="perfSlaPctIn">—%</div>
+                <div class="sla-cell-label">Within SLA</div>
+              </div>
+              <div class="sla-cell sla-out" id="perfSlaCellOut" tabindex="0" role="button">
+                <div class="sla-num orange" id="perfSlaNumOut">—</div>
+                <div class="sla-pct" id="perfSlaPctOut">—%</div>
+                <div class="sla-cell-label">Out of SLA</div>
+              </div>
+            </div>
+            <div class="sla-bar"><div class="sla-bar-in" id="perfSlaBarIn"></div><div class="sla-bar-out" id="perfSlaBarOut"></div></div>
+            <div class="sla-tick"><span>0%</span><span>100%</span></div>
+            <div class="sla-bottom">
+              <span>Delivery rate: <strong id="perfDeliveryRate">—</strong></span>
+              <span id="perfSlaMeta">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" data-size="third">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <h3>Delivery vs Rejection</h3>
+              <div class="panel-sub">of all records this user handled</div>
+            </div>
+          </div>
+          <div class="sla-content">
+            <div class="sla-cells">
+              <div class="sla-cell sla-in" id="perfDelvCellDone" tabindex="0" role="button">
+                <div class="sla-num green" id="perfDelvNumDone">—</div>
+                <div class="sla-pct" id="perfDelvPctDone">—%</div>
+                <div class="sla-cell-label">Delivered</div>
+              </div>
+              <div class="sla-cell sla-out" id="perfDelvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
+                <div class="sla-num" id="perfDelvNumRej" style="color:var(--red);">—</div>
+                <div class="sla-pct" id="perfDelvPctRej">—%</div>
+                <div class="sla-cell-label">Rejected</div>
+              </div>
+            </div>
+            <div class="sla-bar"><div class="sla-bar-in" id="perfDelvBarDone"></div><div class="sla-bar-out" id="perfDelvBarRej" style="background:var(--red);"></div></div>
+            <div class="sla-tick"><span>0%</span><span>100%</span></div>
+            <div class="sla-bottom">
+              <span>Pending: <strong id="perfPendCount">—</strong></span>
+              <span id="perfDelvMeta">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" data-size="full" style="padding:0;">
+          <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
+            <div class="panel-title-wrap"><h3>Enterprise-wise performance</h3><div class="panel-sub" id="perfEntSub">delivery & rejection % per enterprise · click to drill</div></div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead id="perfEntHead"><tr>
+                <th class="sortable" data-sort="name">Enterprise<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="total">Records<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="delivered">Delivered<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="rejected">Rejected<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="deliveryRate">Delivery %<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="rejectionRate">Rejection %<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="slaPct">SLA %<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="avgTat">Avg TAT<span class="sort-ind">↕</span></th>
+              </tr></thead>
+              <tbody id="perfEntBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" data-size="full" style="padding:0;">
+          <div class="panel-header" style="padding:14px 18px 12px;border-bottom:1px solid var(--line);margin-bottom:0;">
+            <div class="panel-title-wrap"><h3>Rejection summary</h3><div class="panel-sub" id="perfReasonsSub">reasons this user caused · click a reason to see records</div></div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead id="perfReasonHead"><tr>
+                <th class="sortable" data-sort="name">Reason<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="count">Count<span class="sort-ind">↕</span></th>
+                <th class="sortable num-cell" data-sort="pct">% of rejections<span class="sort-ind">↕</span></th>
+                <th class="reason-bar-cell">Share</th>
+              </tr></thead>
+              <tbody id="perfReasonBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="perfEmpty" class="perf-empty">
+      <div class="perf-empty-title">Pick a QC user to begin</div>
+      <div class="perf-empty-sub">
+        Search by email above. You'll see efficiency trends, SLA compliance, enterprise-wise breakdown, and rejection summary — over the last 30 days or 4 months. Useful for appraisals and performance reviews.
+      </div>
+    </div>
+  </div><!-- /#viewPerformance -->
+
+  <div id="viewAccuracy">
+  <div id="accSegTooltip" class="acc-seg-tooltip"></div>
+  <div class="filters acc-filters">
+    <div class="date-filter" id="accDateWrap">
+      <label class="f-label">Date range</label>
+      <div class="date-trigger" id="accDateTrigger" tabindex="0">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="12" height="13" rx="2"/><line x1="5" y1="1" x2="5" y2="4"/><line x1="11" y1="1" x2="11" y2="4"/><line x1="2" y1="7" x2="14" y2="7"/></svg>
+        <span class="dt-text" id="accDtLabel">This month</span>
+        <svg class="dt-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="date-panel" id="accDatePanel">
+        <div class="dp-presets">
+          <div class="dp-sec">Quick select</div>
+          <button class="acc-dp-preset" data-p="all">All time</button>
+          <button class="acc-dp-preset" data-p="today">Today</button>
+          <button class="acc-dp-preset" data-p="yesterday">Yesterday</button>
+          <button class="acc-dp-preset" data-p="this_week">This week</button>
+          <button class="acc-dp-preset" data-p="last_week">Last week</button>
+          <div class="dp-sec" style="margin-top:6px">Months</div>
+          <button class="acc-dp-preset sel" data-p="this_month">This month</button>
+          <button class="acc-dp-preset" data-p="last_month">Last month</button>
+          <button class="acc-dp-preset" data-p="last_30">Last 30 days</button>
+          <button class="acc-dp-preset" data-p="last_3_months">Last 3 months</button>
+          <div class="dp-sec" style="margin-top:6px">Custom</div>
+          <button class="acc-dp-preset" data-p="custom">Custom range</button>
+        </div>
+        <div class="dp-body">
+          <div class="dp-title">Custom date range</div>
+          <div class="dp-hint">Click a date to set start, click another to set end and apply.</div>
+          <div class="cal-wrap">
+            <div class="cal-header">
+              <button type="button" class="cal-nav" id="accCalPrev" aria-label="Previous month">‹</button>
+              <span class="cal-month-label" id="accCalLabel">—</span>
+              <button type="button" class="cal-nav" id="accCalNext" aria-label="Next month">›</button>
+            </div>
+            <div class="cal-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+            <div class="cal-days" id="accCalDays"></div>
+          </div>
+          <div class="dp-preview" id="accDpPreview"><span id="accDpPreviewText">Pick a date to begin</span><button class="dp-clear" id="accDpClear" type="button">Clear</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsEntWrap">
+      <label class="f-label">Enterprise</label>
+      <div class="ms-trigger" id="accMsEntTrigger" tabindex="0">
+        <span class="ms-text" id="accMsEntText">All enterprises</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsEntPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsEntSearch" placeholder="Search enterprises…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ent">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ent">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsEntList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsTeamWrap">
+      <label class="f-label">Team</label>
+      <div class="ms-trigger" id="accMsTeamTrigger" tabindex="0">
+        <span class="ms-text" id="accMsTeamText">All teams</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsTeamPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsTeamSearch" placeholder="Search teams…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="team">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="team">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsTeamList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsCsWrap">
+      <label class="f-label">CS</label>
+      <div class="ms-trigger" id="accMsCsTrigger" tabindex="0">
+        <span class="ms-text" id="accMsCsText">All CS</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsCsPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsCsSearch" placeholder="Search CS…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="cs">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="cs">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsCsList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsObWrap">
+      <label class="f-label">OB</label>
+      <div class="ms-trigger" id="accMsObTrigger" tabindex="0">
+        <span class="ms-text" id="accMsObText">All OB</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsObPanel">
+        <div class="ms-search-wrap"><input type="text" class="ms-search" id="accMsObSearch" placeholder="Search OB…"></div>
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="ob">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="ob">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsObList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsInputTypeWrap">
+      <label class="f-label">Input Type</label>
+      <div class="ms-trigger compact" id="accMsInputTypeTrigger" tabindex="0">
+        <span class="ms-text" id="accMsInputTypeText">All</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsInputTypePanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="inputtype">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="inputtype">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsInputTypeList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsVerifiedWrap">
+      <label class="f-label">Status</label>
+      <div class="ms-trigger compact" id="accMsVerifiedTrigger" tabindex="0">
+        <span class="ms-text" id="accMsVerifiedText">All statuses</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsVerifiedPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="verified">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="verified">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsVerifiedList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsSlaWrap">
+      <label class="f-label">SLA</label>
+      <div class="ms-trigger compact" id="accMsSlaTrigger" tabindex="0">
+        <span class="ms-text" id="accMsSlaText">All SLA states</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsSlaPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="sla">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="sla">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsSlaList"></div>
+      </div>
+    </div>
+    <div class="f-group ms-wrap" id="accMsSegWrap">
+      <label class="f-label">Segment</label>
+      <div class="ms-trigger compact" id="accMsSegTrigger" tabindex="0">
+        <span class="ms-text" id="accMsSegText">All segments</span>
+        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
+      </div>
+      <div class="ms-panel" id="accMsSegPanel">
+        <div class="ms-actions">
+          <button class="ms-action" type="button" data-act="all" data-ms="seg">Select all</button>
+          <button class="ms-action muted" type="button" data-act="none" data-ms="seg">Clear all</button>
+        </div>
+        <div class="ms-list" id="accMsSegList"></div>
+      </div>
+    </div>
+    <button class="btn-reset" id="accResetBtn">Reset</button>
+  </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Accuracy trend</h3>
+          <div class="panel-sub" id="accTrendSub">Month-wise since April</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="trend-tabs trend-tabs-mini" data-acctrendtype>
+            <button class="trend-tab" data-t="line" onclick="setAccTrendChartType('line')" title="Line graph">Graph</button>
+            <button class="trend-tab sel"     data-t="bar"  onclick="setAccTrendChartType('bar')"  title="Bar chart">Bar</button>
+          </div>
+          <div class="trend-tabs trend-tabs-mini" data-acctrendgran>
+            <button class="trend-tab sel" data-g="month" onclick="setAccTrendGran('month')" title="Month-wise since April">M</button>
+            <button class="trend-tab"     data-g="week"  onclick="setAccTrendGran('week')"  title="Last 4 weeks">W</button>
+          </div>
+        </div>
+      </div>
+      <div class="mtrend-legend" id="accTrendLegend"></div>
+      <div style="position:relative;height:280px;padding:8px 4px;" id="accTrendCanvasWrap">
+        <canvas id="accTrendCanvas"></canvas>
+      </div>
+      <div id="accTrendBody" style="padding:8px 4px 4px;display:none;"></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Failure reasons</h3>
+          <div class="panel-sub">as per date range filter · % of reviewed</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">QC Failed reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Blocker severity issues</p>
+            </div>
+            <div id="accQcReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accQcReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">Validation Failed reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Failure reasons</p>
+            </div>
+            <div id="accValReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accValReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <p style="font-size:13px;font-weight:600;margin:0;">Tech &amp; AI Failure reasons</p>
+              <p style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:2px 0 0;">Failure reasons</p>
+            </div>
+            <div id="accTechReasonsPct" style="text-align:right;flex-shrink:0;"></div>
+          </div>
+          <div id="accTechReasons" style="overflow-y:auto;max-height:220px;padding-right:4px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Manual correction trends</h3>
+          <div class="panel-sub" id="accMiniSub">Current month and previous 3</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="trend-tabs trend-tabs-mini" data-accminitype>
+            <button class="trend-tab sel" data-t="line" onclick="setAccMiniChartType('line')" title="Line graph">Graph</button>
+            <button class="trend-tab"     data-t="bar"  onclick="setAccMiniChartType('bar')"  title="Bar chart">Bar</button>
+          </div>
+          <div class="trend-tabs trend-tabs-mini" data-accgran>
+            <button class="trend-tab sel" data-g="month" onclick="setAccGran('month')" title="Month-wise, current + previous 3">M</button>
+            <button class="trend-tab"     data-g="week"  onclick="setAccGran('week')"  title="Week-wise, last 4 weeks">W</button>
+          </div>
+        </div>
+      </div>
+      <div class="mtrend-legend" id="accMiniLegend"></div>
+      <div class="acc-mini-grid" id="accMiniGrid"></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Enterprise list</h3>
+          <div class="panel-sub">as per date range filter · percentage of deliveries with each issue</div>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="accEntTable"></table></div>
+    </div>
+
+    <div class="panel" data-size="full">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Team list</h3>
+          <div class="panel-sub">as per date range filter · percentage of deliveries with each issue</div>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="accTeamTable"></table></div>
+    </div>
+  </div><!-- /#viewAccuracy -->
+
+  <div id="viewReports">
+    <div id="rptTooltip" class="acc-seg-tooltip"></div>
+    <div class="filters rpt-filters">
+      <div class="f-group">
+        <label class="f-label">Period</label>
+        <div class="trend-tabs" id="rptGranTabs">
+          <button class="trend-tab" data-g="week" onclick="setRptGran('week')">Weekly</button>
+          <button class="trend-tab sel" data-g="month" onclick="setRptGran('month')">Monthly</button>
+        </div>
+      </div>
+      <div class="f-group">
+        <label class="f-label">Segment</label>
+        <div id="rptSegChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div class="f-group" id="rptRegionGroup">
+        <label class="f-label">Region</label>
+        <div class="chips" id="rptRegionChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div class="f-group" style="margin-left:auto;">
+        <label class="f-label">&nbsp;</label>
+        <div style="display:flex;align-items:center;gap:10px;height:34px;">
+          <span id="rptSyncTxt" style="font-size:11px;color:var(--muted);"></span>
+          <button class="btn-reset" id="rptRefreshBtn" onclick="rptComputeAll()">Refresh data</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rptStatus"></div>
+
+    <div class="panel" data-size="full" id="rptGlancePanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>At a glance</h3>
+          <div class="panel-sub" id="rptGlanceSub">Latest period · change vs period before it</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--muted);">Cards</span>
+          <div id="rptCardToggles" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+      </div>
+      <div id="rptGlanceGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;"></div>
+    </div>
+
+    <div class="panel" data-size="full" id="rptTrendPanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Trend</h3>
+          <div class="panel-sub" id="rptTrendSub"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="trend-tabs" id="rptMetricTabs"></div>
+          <div class="trend-tabs" id="rptSplitTabs">
+            <button class="trend-tab sel" data-split="lane" onclick="setRptTrendSplit('lane')">Cut</button>
+            <button class="trend-tab" data-split="segment" onclick="setRptTrendSplit('segment')">Segment</button>
+            <button class="trend-tab" data-split="region" onclick="setRptTrendSplit('region')">Region</button>
+          </div>
+          <div class="trend-tabs" id="rptColourTabs">
+            <button class="trend-tab sel" data-cmode="auto" onclick="setRptColourMode('auto')">Movement</button>
+            <button class="trend-tab" data-cmode="series" onclick="setRptColourMode('series')">Series</button>
+          </div>
+        </div>
+      </div>
+      <div id="rptTrendChart" style="position:relative;min-height:300px;padding:8px 4px;"></div>
+      <div class="mtrend-legend" id="rptTrendLegend" style="cursor:pointer;"></div>
+      <div class="acc-table-wrap" style="margin-top:14px;"><table class="acc-table" id="rptTrendSummary"></table></div>
+    </div>
+
+    <div class="panel" data-size="full" id="rptMatrixPanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Drill down</h3>
+          <div class="panel-sub">Oldest period on the left · colour runs worst (red) to best (green) within each grid</div>
+        </div>
+        <div class="trend-tabs" id="rptMatrixMetricTabs"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="font-size:13px;font-weight:600;margin:0;">By region</h4>
+            <span style="font-size:11px;color:var(--muted);">Click a row for detail</span>
+          </div>
+          <div class="acc-table-wrap"><table class="acc-table" id="rptRegionMatrix"></table></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="font-size:13px;font-weight:600;margin:0;">By segment</h4>
+            <div class="trend-tabs" id="rptMatrixLaneTabs"></div>
+          </div>
+          <div class="acc-table-wrap"><table class="acc-table" id="rptSegmentMatrix"></table></div>
+        </div>
+      </div>
+      <div id="rptDrillPanel" style="margin-top:16px;display:none;"></div>
+    </div>
+
+    <div class="panel" data-size="full" id="rptRecordsPanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>Records</h3>
+          <div class="panel-sub" id="rptRecordsSub"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="trend-tabs" id="rptRecordsLaneTabs"></div>
+          <input type="text" id="rptRecordsSearch" placeholder="Filter periods or regions" style="height:34px;border:1px solid var(--line);border-radius:6px;padding:0 10px;font-size:12px;min-width:170px;">
+          <button class="btn-reset" id="rptCsvBtn">Download CSV</button>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="rptRecordsTable"></table></div>
+    </div>
+  </div><!-- /#viewReports -->
+
+</main>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <div style="flex:1;min-width:0;">
+        <div class="modal-title" id="modalTitle">—</div>
+        <div class="modal-sub" id="modalSub">—</div>
+      </div>
+      <div class="modal-head-actions">
+        <div class="dl-menu-wrap" id="modalDlWrap">
+          <button class="btn-download modal-dl-btn" id="modalDlBtn" title="Download this view">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v9M4 6.5L8 10.5l4-4M2 13h12"/></svg>
+            Download
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,4 6,8 10,4"/></svg>
+          </button>
+          <div class="dl-menu" id="modalDlMenu">
+            <button class="dl-menu-item" data-fmt="csv">
+              <span class="dl-fmt-name">CSV</span>
+              <span class="dl-fmt-sub">.csv · spreadsheet compatible</span>
+            </button>
+            <button class="dl-menu-item" data-fmt="xlsx">
+              <span class="dl-fmt-name">Excel</span>
+              <span class="dl-fmt-sub">.xlsx · Microsoft Excel</span>
+            </button>
+            <button class="dl-menu-item" data-fmt="pdf">
+              <span class="dl-fmt-name">PDF</span>
+              <span class="dl-fmt-sub">.pdf · printable report</span>
+            </button>
+          </div>
+        </div>
+        <button class="modal-close" id="modalClose" aria-label="Close">×</button>
+      </div>
+    </div>
+    <div class="modal-stats" id="modalStats"></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer">
+      <div class="filter-chips" id="modalChips"></div>
+      <span id="modalCount">—</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = n => (n==null||isNaN(+n))?'—':(+n).toLocaleString();
+const isoDate = d => d?d.toISOString().slice(0,10):'';
+const fmtShort = d => d?d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
+const fmtDate = s => { if(!s) return '—'; const d=new Date(s); return isNaN(d)?s:d.toLocaleDateString(undefined,{month:'short',day:'2-digit'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); };
+
+// Parse "YYYY-MM-DD[T ]HH:MM:SS[Z]" as NAIVE LOCAL time (ignore any Z / offset).
+// Source data is already in the source DB's timezone; using new Date() on a
+// "...Z" string would convert UTC→local and drift records across month
+// boundaries in non-UTC locales. Extract calendar parts directly.
+function parseTs(s){
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/.exec(s);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+  // Date-only fallback "YYYY-MM-DD"
+  const m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m2) return new Date(+m2[1], +m2[2]-1, +m2[3]);
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }
 
-// Fetches a card/model's data as CSV using an authenticated session token
-// (works for both regular questions and Models — both are "cards" in Metabase's API).
-function fetchCardCSV(cardId, sessionToken, redirects = 0, attempt = 1) {
-    if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
-    const url = `${METABASE_BASE}/api/card/${cardId}/query/csv`;
-    const postData = 'parameters=%5B%5D'; // form-encoded empty parameters array
-    return new Promise((resolve, reject) => {
-          const req = https.request(url, {
-                  method: 'POST',
-                  headers: {
-                        'X-Metabase-Session': sessionToken,
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Content-Length': Buffer.byteLength(postData),
-                        'Accept-Encoding': 'gzip, deflate',
-                  },
-          }, res => {
-                  if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
-                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1, attempt));
-                  if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} fetching card CSV`));
-                  let stream = res;
-                  const enc = res.headers['content-encoding'];
-                  if (enc === 'gzip')    stream = res.pipe(zlib.createGunzip());
-                  if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
-                  const chunks = [];
-                  stream.on('data', c => chunks.push(c));
-                  stream.on('end', () => {
-                        // res.complete is false if the connection closed before the full
-                        // response body arrived (e.g. a timeout mid-export) — Node still
-                        // fires 'end' on the piped stream in this case, so without this
-                        // check a truncated CSV is silently accepted as valid.
-                        if (!res.complete){
-                              const msg = `Response truncated (incomplete) after ${Buffer.concat(chunks).length} bytes`;
-                              if (attempt < 3){
-                                    console.warn(`${msg} — retrying (attempt ${attempt+1}/3)…`);
-                                    return resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
-                              }
-                              return reject(new Error(msg + ' — gave up after 3 attempts'));
-                        }
-                        resolve(Buffer.concat(chunks).toString('utf8'));
-                  });
-                  stream.on('error', reject);
-          });
-          req.on('error', err => {
-                if (attempt < 3){
-                      console.warn(`Request error (${err.message}) — retrying (attempt ${attempt+1}/3)…`);
-                      resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
-                } else {
-                      reject(new Error(`${err.message} — gave up after 3 attempts`));
-                }
-          });
-          // Large exports can take a while to generate on Metabase's side — give
-          // this plenty of room, but still fail (and retry) rather than hang forever.
-          req.setTimeout(180000, () => {
-                req.destroy(new Error('Request timed out after 180s'));
-          });
-          req.write(postData);
-          req.end();
-    });
+// TAT now stored in HOURS (matching SQL TAT_Hrs)
+function fmtTatHrs(h){
+  if(h==null||isNaN(+h)) return '—';
+  const v = +h;
+  if (v < 1)  return (v*60).toFixed(0)+'m';
+  return v.toFixed(2)+'h';  // always show in hours
 }
 
-function parseCSVLine(line) {
-    const result = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') {
-                  if (inQ && line[i+1] === '"') { cur += '"'; i++; }
-                  else inQ = !inQ;
-          } else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
-          else cur += ch;
+// Render a video_url cell as a small clickable link.
+// Falls back to a plain dash when missing. Truncates the visible text but keeps
+// the full URL in the title attribute for hover preview, and opens in a new tab.
+function videoLink(url){
+  if (!url) return '<span class="mono">—</span>';
+  const safe = esc(url);
+  // Show last segment of the URL as the visible text — usually the filename or ID.
+  // If the URL doesn't have a useful tail, fall back to "Open".
+  let label = url.split('?')[0].split('/').filter(Boolean).pop() || 'Open';
+  if (label.length > 22) label = label.slice(0, 19) + '…';
+  return `<a class="v-link" href="${safe}" target="_blank" rel="noopener noreferrer" title="${safe}">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4v4M14 2L7 9M6 3H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/></svg>
+    ${esc(label)}
+  </a>`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────
+const RAW = [];                 // all rows from server (parsed once)
+let lastSynced = null;
+let isDark = false;
+let editMode = false;
+let trendRange = 'months';      // '15days' | 'this_month' | 'months' | 'year'
+let currentView = 'operations'; // 'operations' | 'performance'
+const charts = {};
+
+// Default filter = This Month
+// All entity filters are inclusion Sets: null means "include everything" (default).
+// Non-null Set means "include only these". Multi-select keeps these in sync.
+// SLA uses the string values 'Within SLA' / 'Out of SLA' inside the Set.
+const F = {
+  preset:'this_month', from:null, to:null,
+  ent:null, team:null,
+  user:null,
+  verified:null, sla:null, seg:null, rejReason:null,
+  rejReason: null,
+};
+
+// Independent filter state for the Accuracy tab — completely separate from F,
+// so selecting filters on Operations never affects Accuracy and vice versa.
+// No date-range fields: the Accuracy tab's charts are month/week trends by
+// design and aren't scoped by a date-range picker.
+const F_ACC = {
+  preset:'this_month', from:null, to:null,
+  ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null,
+};
+
+// Records-table column sort
+const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
+
+// Layout — saved to localStorage. Bump key to v3 because schema changed (new panels).
+const DEFAULT_LAYOUT = [
+  { id:'trend',    size:'full'  },
+  { id:'hourly',   size:'full'  },
+  { id:'sla',      size:'third' },
+  { id:'delivery', size:'third' },
+  { id:'accuracy', size:'third' },
+  { id:'reasons',  size:'third' },
+  { id:'reasons2', size:'third' },
+  { id:'reasons3', size:'third' },
+  { id:'topEnt',   size:'half'  },
+  { id:'topTeam',  size:'half'  },
+  { id:'records',  size:'full'  },
+];
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v12'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v12',JSON.stringify(LAYOUT));}catch(e){}};
+
+// Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
+(function reconcileLayout(){
+  const have = new Set(LAYOUT.map(p=>p.id));
+  for (const p of DEFAULT_LAYOUT) if (!have.has(p.id)) LAYOUT.push({...p});
+  // Drop ids we no longer have markup for
+  const validIds = new Set(DEFAULT_LAYOUT.map(p=>p.id));
+  LAYOUT = LAYOUT.filter(p => validIds.has(p.id));
+  saveLayout();
+})();
+
+// ─────────────────────────────────────────────────────────────
+// PRESET RANGES
+// ─────────────────────────────────────────────────────────────
+const PLABELS={all:'All time',today:'Today',yesterday:'Yesterday',this_week:'This week',last_week:'Last week',this_month:'This month',last_month:'Last month',last_30:'Last 30 days',last_3_months:'Last 3 months',custom:'Custom range'};
+
+function presetRange(p){
+  const now=new Date(),tod=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const ago=n=>{const d=new Date(tod);d.setDate(tod.getDate()-n);return d;};
+  if(p==='all')           return{from:null,to:null};
+  if(p==='today')         return{from:new Date(tod),to:new Date(tod)};
+  if(p==='yesterday'){    const y=ago(1);return{from:y,to:y};}
+  if(p==='this_week'){    const day=tod.getDay(),diff=day===0?-6:1-day,mon=new Date(tod);mon.setDate(tod.getDate()+diff);return{from:mon,to:new Date(tod)};}
+  if(p==='last_week'){    const day=tod.getDay(),diff=day===0?-6:1-day,to2=new Date(tod);to2.setDate(tod.getDate()+diff-1);const fr=new Date(to2);fr.setDate(to2.getDate()-6);return{from:fr,to:to2};}
+  if(p==='this_month')    return{from:new Date(now.getFullYear(),now.getMonth(),1),to:new Date(tod)};
+  if(p==='last_month')    return{from:new Date(now.getFullYear(),now.getMonth()-1,1),to:new Date(now.getFullYear(),now.getMonth(),0)};
+  if(p==='last_30')       return{from:ago(29),to:new Date(tod)};
+  if(p==='last_3_months') return{from:new Date(now.getFullYear(),now.getMonth()-3,1),to:new Date(tod)};
+  return{from:null,to:null};
+}
+
+// ─────────────────────────────────────────────────────────────
+// FILTERING & AGGREGATION  (client-side, instant)
+// ─────────────────────────────────────────────────────────────
+const COMPLETED_STATUSES = ['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed'];
+function isDelivered(r){       const s=(r.fs||'').trim(); return s==='Delivered'; }
+// TAT-eligible = Delivered + QC Failed + Validation Failed + Tech Failure + AI Failed + Undelivered
+// (i.e. everything EXCEPT Processing and Pending/Under Review — matches the "Status" checkbox selection)
+function isTatEligible(r){     const s=(r.fs||'').trim(); return s==='Delivered'||s==='QC Failed'||s==='Validation Failed'||s==='Tech Failure'||s==='AI Failed'||s==='Undelivered'; }
+function isRejected(r){        const s=(r.fs||'').trim(); return s==='QC Failed'||s==='Validation Failed'; }
+function isValidationFailed(r){const s=(r.fs||'').trim(); return s==='Validation Failed'; }
+function isQcFailed(r){        const s=(r.fs||'').trim(); return s==='QC Failed'; }
+function isPending(r){         const cs=(r.cs||'').trim(); return cs==='qc_unassigned'||cs==='qc_inprogress'; }
+function isCompleted(r){       const s=(r.fs||'').trim(); return COMPLETED_STATUSES.includes(s); }
+
+// Helper: normalize a rejection reason for comparison (lowercase, collapsed whitespace)
+function normReason(s){
+  if (!s) return '';
+  return String(s).trim().replace(/\s+/g,' ').toLowerCase();
+}
+
+function passesFilters(r){
+  if (F.ent      && !F.ent.has(r.ent))                  return false;
+  if (F.team     && !F.team.has(r.tm))                return false;
+  if (F.cs       && !F.cs.has(r.csCol))                  return false;
+  if (F.ob       && !F.ob.has(r.ob))                     return false;
+  if (F.tt       && !F.tt.has(r.tt||''))                 return false;
+  if (F.verified && !F.verified.has(r.fs||'')) return false;
+  if (F.sla){
+    if (F.sla.size === 0) return false;
+    const isWithin = r.sla === 1;
+    const isOut    = r.sla === 0;
+    let ok = false;
+    if (F.sla.has('Within SLA') && isWithin) ok = true;
+    if (F.sla.has('Out of SLA') && isOut)    ok = true;
+    if (!ok) return false;
+  }
+  if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
+  if (F.rejReason){
+    const { label, type } = F.rejReason; const fsTrim = (r.fs||'').trim();
+    if (type === 'qc') {
+      // QC reasons come from issues_by_severity (blocker issues)
+      if (fsTrim !== 'QC Failed') return false; if (!(r.isv||'').includes(label)) return false;
+    } else {
+      // Validation / Tech reasons come from failure_reason (r.rej)
+      if (fsTrim !== 'Validation Failed' && fsTrim !== 'Tech Failure' && fsTrim !== 'AI Failed') return false; if ((r.rej||'').trim() !== label) return false;
     }
-    result.push(cur);
-    return result;
+  }
+  if (F.from || F.to){
+    const ts = r._created || r._updated;
+    if (!ts) return false; // no date → exclude when date filter is active
+    const t = ts.getTime();
+    if (F.from && t < F.from.getTime()) return false;
+    if (F.to   && t >= F.to.getTime() + 86400000) return false;
+  }
+  return true;
 }
 
-function parseDate(s) {
-    if (!s) return null;
-    const d = new Date(String(s).trim());
-    return isNaN(d.getTime()) ? null : d;
-}
-
-function getDateStr(s) {
-    if (!s) return '';
-    const d = parseDate(s);
-    return d ? d.toISOString().slice(0, 10) : '';
-}
-
-const _diag = { withProcessed:0, fallback:0, techBlank:0, techExcluded:0, noFirstQc:0, sample:[] };
-
-function mapRow(r) {
-    const ca  = parseDate(r.createdAt);      // SKU created_at
-  const pa  = parseDate(r.processedAt || r.processed_at || r.processed_on); // processed timestamp (E2E start)
-  let scRaw = parseDate(r.sku_created_on); // sku_created_on (for TAT/SLA)
-  if (scRaw && scRaw.getTime() < 86400000) scRaw = null; // treat epoch-placeholder (~1970-01-01, meaning "no real value") as blank
-  const sc  = scRaw || ca; // fall back to createdAt when sku_created_on is blank/epoch (e.g. no spin_sku_id was ever generated)
-  const ft  = parseDate(r.final_time);
-    let fq  = parseDate(r.first_qc_done);  // first QC done time
-  const fqRaw = fq;
-  // No fallback: when first_qc_done is blank the SKU is excluded from TAT/E2E/SLA
-  // (it still counts in Received/Delivered/Fulfilment, which don't use timestamps).
-  // (A final_time fallback used to apply here; removed — it produced negative E2E for
-  // re-created SKUs whose final_time predates sku_created_on.)
-  if (!fq) _diag.noFirstQc++;
-
-  // TAT = sku_created_on (or createdAt fallback) to first_qc_done
-  let tat = null;
-    if (sc && fq) {
-          const ms = fq - sc;
-          if (ms >= 0) tat = Math.round(ms / 36000) / 100; // >=0 so instant Validation-Failed records (final_time == start) register as 0h, not silently excluded
-    }
-
-  // E2E TAT = same start/end logic as TAT
-  let e2e = null;
-    const e2eStart = sc;
-    if (e2eStart && fq) {
-          const ms = fq - e2eStart;
-          if (ms >= 0) e2e = Math.round(ms / 36000) / 100;
-    }
-    // --- E2E diagnostics ---
-    if (pa) _diag.withProcessed++; else _diag.fallback++;
-    if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
-
-  // Tech TAT = start (sku_created_on, or createdAt fallback) → processing_done:
-  //   processing_done blank                          → excluded (no end time, same as E2E)
-  //   first_qc_done blank                            → processing_done as-is
-  //   processing_done <= first_qc_done               → processing_done
-  //   processing_done >  first_qc_done (reprocessed) → excluded
-  const pdRaw = parseDate(r.processing_done);
-  let techEnd = null;
-  if (!pdRaw) { techEnd = null; _diag.techBlank++; }
-  else if (!fq || pdRaw <= fq) techEnd = pdRaw;
-  else { techEnd = null; _diag.techExcluded++; }
-  let techTat = null;
-  if (sc && techEnd) {
-    const ms = techEnd - sc;
-    if (ms >= 0) techTat = Math.round(ms / 36000) / 100;
+// Same as passesFilters but WITHOUT the date-range check — used by the
+// SLA/Delivery/Accuracy mini-trend (last 3 months / weeks), which needs its
+// own fixed date windows regardless of the global date-range filter.
+function passesNonDateFilters(r){
+  if (F.ent      && !F.ent.has(r.ent))                  return false;
+  if (F.team     && !F.team.has(r.tm))                return false;
+  if (F.cs       && !F.cs.has(r.csCol))                  return false;
+  if (F.ob       && !F.ob.has(r.ob))                     return false;
+  if (F.tt       && !F.tt.has(r.tt||''))                 return false;
+  if (F.verified && !F.verified.has(r.fs||'')) return false;
+  if (F.sla){
+    if (F.sla.size === 0) return false;
+    const isWithin = r.sla === 1;
+    const isOut    = r.sla === 0;
+    let ok = false;
+    if (F.sla.has('Within SLA') && isWithin) ok = true;
+    if (F.sla.has('Out of SLA') && isOut)    ok = true;
+    if (!ok) return false;
   }
-
-  // SLA = sku_created_on (or createdAt fallback) to first_qc_done <= 6h
-  const finalStatus = (r.final_status || '').trim();
-    let sla = null;
-    if (tat !== null && finalStatus !== 'Under Review')
-          sla = tat <= SLA_H ? 1 : 0;
-
-  const row = {};
-    const set = (k, v) => { if (v != null && v !== '') row[k] = v; };
-
-  set('c',   r.createdAt);
-  set('pa',  r.processedAt || r.processed_at || r.processed_on); // raw processedAt — date-basis for Google Sheets export (360_spin/360_region/360_rt)
-  set('sc',  r.sku_created_on); // raw sku_created_on — used in Find VIN
-  set('pd',  r.processing_done);         // raw processing_done — for Tech TAT audits/exports
-  set('fsc', r.first_spin_created_time); // raw first_spin_created_time — for Tech TAT audits/exports
-  set('fq',  r.first_qc_done);  // raw first_qc_done — used in Find VIN
-    set('u',   r.final_time);
-    set('ent', r.enterprise_name);
-    set('tm',  r.team_name);
-    set('qc',  r.qc_user);
-    if (sla !== null) row.sla = sla;
-    if (tat !== null) row.tat = tat;
-    if (e2e !== null) row.e2e = e2e;
-    if (techTat !== null) row.techTat = techTat;
-    set('rej', r.failure_reason);
-    set('vid', r.mediaId);
-    set('sid', r['ss.spin_id']);
-    set('vm',  r['fd.platform']);
-    set('tid', r.teamId);  // numeric team ID — used instead of team_name (which may not be unique) for VIN unique-count analysis
-    set('src', r['fd.source']);  // V1/V2 identifier — for VIN unique-count list
-    set('cs',  r.crm_status);
-    set('csCol', r.CS);     // "CS" column (distinct from crm_status) — used in Find VIN detail card
-    set('ob',  r.OB);       // "OB" column — fallback shown when CS is blank
-    set('dvid', r.dealerVinId); // "dealerVinId" column — searchable in Find VIN
-    set('region', r.region);  // AMER / EMEA / APAC / OTHERS — for Reports tab
-    set('seg', r.customer_segment);
-    set('tt',  r.input_type);
-    set('vin', r.vinName);
-    set('sku', r.spin_sku_id);
-    set('fs',  r.final_status);
-    set('isv', r.issues_by_severity);
-    if (r.manual_editing === 'true' || r.manual_editing === true) row.me = 1;
-    if (r.is_assisted_by_qc === 'true' || r.is_assisted_by_qc === true) row.aq = 1;
-    set('mc', r.manual_correction); // comma-separated: RBG, Sequence, Placement, Wall Height — used in Accuracy tab's Manual Correction Trends
-
-  return row;
-}
-
-async function main() {
-    console.log('Fetching CSV from Metabase (authenticated)...');
-    const t0   = Date.now();
-    const sessionToken = await getMetabaseSession();
-    const text = await fetchCardCSV(METABASE_CARD_ID, sessionToken);
-    console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
-
-  const lines   = text.split('\n');
-    const headers = parseCSVLine(lines[0]);
-    console.log(`Total rows: ${lines.length - 1}`);
-    console.log('[CSV headers] ' + headers.join(' | '));
-    const procCol = headers.find(h => /processed/i.test(h));
-    console.log('[processed-like column] ' + (procCol || 'NONE FOUND — E2E will always fall back to createdAt'));
-
-  const cutoff = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    console.log(`Keeping last ${KEEP_DAYS} days (cutoff: ${cutoff}) + all pending`);
-
-  const rows = [];
-    let skipped = 0;
-
-  for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const vals = parseCSVLine(line);
-        const r = {};
-        headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
-
-      const isPending = r.crm_status === 'qc_unassigned' || r.crm_status === 'qc_inprogress';
-        const dateStr   = getDateStr(r.createdAt);
-        if (!dateStr) { skipped++; continue; }
-        if (!isPending && dateStr < cutoff) { skipped++; continue; }
-
-      rows.push(mapRow(r));
-  }
-
-  console.log(`Kept: ${rows.length} | Skipped: ${skipped}`);
-
-  // Safety guard: if this run produced far fewer rows than a sane minimum,
-  // something went wrong upstream (bad fetch, auth issue, etc.) — abort
-  // BEFORE writing or deleting anything, so a bad run can never wipe out
-  // otherwise-good existing data. Better to leave yesterday's data in place
-  // than to overwrite it with garbage.
-  const MIN_SANE_ROWS = 150000; // normal syncs run ~190K-202K; this catches total/partial failures (0, 105K, 132K all seen before) while staying safely below normal variance
-  if (rows.length < MIN_SANE_ROWS){
-    console.error(`ABORTING: only ${rows.length} rows kept (minimum sane threshold is ${MIN_SANE_ROWS}). Leaving existing public/data/ untouched.`);
-    process.exit(1);
-  }
-    console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
-    console.log(`[E2E] first_qc_done blank → excluded from TAT/E2E/SLA: ${_diag.noFirstQc}`);
-    console.log(`[Tech] processing_done after first QC → excluded: ${_diag.techExcluded} | processing_done blank → excluded: ${_diag.techBlank}`);
-    console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
-
-  const delivered = rows.filter(r => r.fs === 'Delivered').length;
-    const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
-    const pending   = rows.filter(r => r.cs === 'qc_unassigned' || r.cs === 'qc_inprogress').length;
-
-  // ── Split into one file per month (YYYY-MM), so no single file ever
-  // approaches GitHub's 100MB per-file limit, no matter how much history
-  // accumulates. Each month's rows go in public/data/<YYYY-MM>.json;
-  // public/data/index.json lists which month-files exist + sync metadata.
-  const byMonth = {};
-  for (const r of rows){
-    const mk = (r.c || '').slice(0, 7); // "YYYY-MM"
-    if (!mk) continue;
-    if (!byMonth[mk]) byMonth[mk] = [];
-    byMonth[mk].push(r);
-  }
-  const monthKeys = Object.keys(byMonth).sort();
-
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-
-  // One-time cleanup: remove the old single-file data.json from before the
-  // monthly-split migration, if it's still around.
-  const oldSingleFile = path.join(__dirname, '..', 'public', 'data.json');
-  if (fs.existsSync(oldSingleFile)){
-    fs.unlinkSync(oldSingleFile);
-    console.log('Removed old public/data.json (replaced by public/data/*.json)');
-  }
-
-  // Remove stale month-files from previous runs that are no longer in range
-  // (e.g. if KEEP_DAYS is ever reduced later) — keeps the folder in sync
-  // with what's actually being generated, instead of accumulating forever.
-  const existing = fs.readdirSync(OUT_DIR).filter(f => /^\d{4}-\d{2}\.json$/.test(f));
-  for (const f of existing){
-    const mk = f.replace('.json', '');
-    if (!monthKeys.includes(mk)){
-      fs.unlinkSync(path.join(OUT_DIR, mk + '.json'));
-      console.log(`Removed stale month file: ${f}`);
+  if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
+  if (F.rejReason){
+    const { label, type } = F.rejReason; const fsTrim = (r.fs||'').trim();
+    if (type === 'qc') {
+      if (fsTrim !== 'QC Failed') return false; if (!(r.isv||'').includes(label)) return false;
+    } else {
+      if (fsTrim !== 'Validation Failed' && fsTrim !== 'Tech Failure' && fsTrim !== 'AI Failed') return false; if ((r.rej||'').trim() !== label) return false;
     }
   }
+  return true;
+}
 
-  let totalBytes = 0;
-  for (const mk of monthKeys){
-    const monthJson = JSON.stringify({ rows: byMonth[mk] });
-    fs.writeFileSync(path.join(OUT_DIR, `${mk}.json`), monthJson);
-    totalBytes += monthJson.length;
-    console.log(`  ${mk}.json — ${byMonth[mk].length} rows, ${(monthJson.length/1024/1024).toFixed(2)} MB`);
+// Accuracy tab's own filter check — same shape as passesNonDateFilters but
+// reads F_ACC instead of F, and has no rejReason/date concept (not used there).
+function passesAccFilters(r){
+  if (F_ACC.from && (!r._created || r._created < F_ACC.from)) return false;
+  if (F_ACC.to){
+    const toEnd = new Date(F_ACC.to.getFullYear(), F_ACC.to.getMonth(), F_ACC.to.getDate(), 23,59,59,999);
+    if (!r._created || r._created > toEnd) return false;
   }
+  return passesAccNonDateFilters(r);
+}
 
-  const indexPayload = {
-    months: monthKeys,
-    lastSynced: new Date().toISOString(),
-    meta: { total: rows.length, delivered, rejected, pending,
-      e2eDiag: { withProcessedAt: _diag.withProcessed, fellBackToCreatedAt: _diag.fallback, sample: _diag.sample } },
+// Same as passesAccFilters but WITHOUT the Date Range check — used by
+// Accuracy Trend and Manual Correction Trends, which show their own
+// month/week windows independent of the Date Range picker (matching how
+// "Throughput trend" ignores the Operations date filter). Enterprise/Team/
+// CS/OB/Status/SLA/Segment still apply everywhere, including these.
+function passesAccNonDateFilters(r){
+  if (F_ACC.ent      && !F_ACC.ent.has(r.ent))                  return false;
+  if (F_ACC.team     && !F_ACC.team.has(r.tm))                  return false;
+  if (F_ACC.cs       && !F_ACC.cs.has(r.csCol))                 return false;
+  if (F_ACC.ob       && !F_ACC.ob.has(r.ob))                    return false;
+  if (F_ACC.tt       && !F_ACC.tt.has(r.tt||''))                return false;
+  if (F_ACC.verified && !F_ACC.verified.has(r.fs||''))          return false;
+  if (F_ACC.sla){
+    if (F_ACC.sla.size === 0) return false;
+    const isWithin = r.sla === 1;
+    const isOut    = r.sla === 0;
+    let ok = false;
+    if (F_ACC.sla.has('Within SLA') && isWithin) ok = true;
+    if (F_ACC.sla.has('Out of SLA') && isOut)    ok = true;
+    if (!ok) return false;
+  }
+  if (F_ACC.seg && !F_ACC.seg.has(normSeg(r.seg))) return false;
+  return true;
+}
+
+// Teams that belong to the currently-selected enterprise(s) in the Accuracy
+// tab's own Enterprise filter (F_ACC.ent) — mirrors teamsForCurrentEntFilter().
+function accTeamsForCurrentEntFilter(){
+  const entSel = F_ACC.ent;
+  const team = new Set();
+  for (const r of RAW){
+    if (entSel && !entSel.has(r.ent)) continue;
+    if (r.tm) team.add(r.tm);
+  }
+  return [...team].sort();
+}
+
+// ── Mini-trend: last 3 months / weeks for SLA · Delivery · Accuracy ──
+let trendGran = 'month';   // 'month' | 'week' — shared across all 3 cards
+
+function getTrendPeriodsMonth(){
+  const now = new Date();
+  const periods = [];
+  for (let i=2;i>=0;i--){
+    const d    = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const from = new Date(d.getFullYear(), d.getMonth(), 1);
+    const to   = new Date(d.getFullYear(), d.getMonth()+1, 1); // exclusive
+    const label = d.toLocaleString('en-US',{month:'short'}) + "'" + String(d.getFullYear()).slice(2);
+    periods.push({label, from, to});
+  }
+  return periods;
+}
+
+function getTrendPeriodsWeek(){
+  const now = new Date();
+  const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1); // tomorrow 00:00, exclusive
+  const periods = [];
+  for (let i=2;i>=0;i--){
+    const to   = new Date(endToday); to.setDate(to.getDate() - i*7);
+    const from = new Date(to);       from.setDate(from.getDate() - 7);
+    const label = i===0 ? 'This wk' : (i+' wks ago');
+    periods.push({label, from, to});
+  }
+  return periods;
+}
+
+// Computes SLA% / Delivery% / Accuracy% for one date window, using the
+// exact same formulas as paintSla / paintDelivery / paintAccuracy.
+const SEG_STACK_ORDER = ['Ent','Mid','SMB','Resellers'];
+const SEG_COLORS = {
+  sla:      { Ent:{bg:'#7c3aed',text:'#fff'}, Mid:{bg:'#a78bfa',text:'#fff'}, SMB:{bg:'#c4b5fd',text:'#3b0764'}, Resellers:{bg:'#e9d5ff',text:'#3b0764'} },
+  delivery: { Ent:{bg:'#2563eb',text:'#fff'}, Mid:{bg:'#60a5fa',text:'#fff'}, SMB:{bg:'#93c5fd',text:'#1e3a8a'}, Resellers:{bg:'#dbeafe',text:'#1e3a8a'} },
+  accuracy: { Ent:{bg:'#0f766e',text:'#fff'}, Mid:{bg:'#2dd4bf',text:'#0f172a'}, SMB:{bg:'#5eead4',text:'#134e4a'}, Resellers:{bg:'#99f6e4',text:'#134e4a'} },
+};
+const SEG_ACCENT_GRAD = {
+  sla:      'linear-gradient(135deg,#7c3aed,#6d28d9)',
+  delivery: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
+  accuracy: 'linear-gradient(135deg,#0f766e,#0d9488)',
+};
+
+function trendMetricsForPeriod(from, to){
+  let withinSla=0, outOfSla=0, autoD=0, manualD=0, deliv=0, pend=0, total=0;
+  const segData = {};   // segment -> { withinSla, outOfSla, autoD, manualD, deliv, pend, total }
+  for (const r of RAW){
+    if (!passesNonDateFilters(r)) continue;
+    const ts = r._created;
+    if (!ts || ts < from || ts >= to) continue;
+    const seg = normSeg(r.seg);
+    const b = segData[seg] || (segData[seg] = { withinSla:0, outOfSla:0, autoD:0, manualD:0, deliv:0, pend:0, total:0 });
+    total++; b.total++;
+    if (isPending(r)){ pend++; b.pend++; }
+    if (isDelivered(r)){
+      deliv++; b.deliv++;
+      if (r.aq == 1){ manualD++; b.manualD++; } else { autoD++; b.autoD++; }
+    }
+    if (!isPending(r) && r.sla !== null){
+      if      (r.sla === 1){ withinSla++; b.withinSla++; }
+      else if (r.sla === 0){ outOfSla++; b.outOfSla++; }
+    }
+  }
+  const slaTot = withinSla + outOfSla;
+  const accTot = autoD + manualD;
+  const denom  = Math.max(total - pend, 1);
+
+  // Per-segment: OWN rate (independent, e.g. Ent's own SLA% = Ent-within / Ent-eligible)
+  // + weight (that segment's share of the eligible volume — used only to size the slice
+  //   in the stacked bar, NOT to compute the rate itself).
+  const segBreak = {};
+  for (const seg of Object.keys(segData)){
+    const b = segData[seg];
+    const segSlaTot   = b.withinSla + b.outOfSla;
+    const segAccTot   = b.autoD + b.manualD;
+    const segDenom    = Math.max(b.total - b.pend, 1);
+    segBreak[seg] = {
+      slaPct:         segSlaTot ? (b.withinSla/segSlaTot)*100 : null,
+      slaWeight:      slaTot    ? (segSlaTot/slaTot)*100      : 0,
+      deliveryPct:    b.total   ? (b.deliv/segDenom)*100      : null,
+      deliveryWeight: total     ? (b.total/total)*100 : 0,   // share of period volume for this segment
+      accPct:         segAccTot ? (b.autoD/segAccTot)*100    : null,
+      accWeight:      accTot    ? (segAccTot/accTot)*100     : 0,
+    };
+  }
+  return {
+    slaPct:      slaTot ? (withinSla/slaTot)*100 : null,
+    deliveryPct: total  ? (deliv/denom)*100      : null,
+    accPct:      accTot ? (autoD/accTot)*100     : null,
+    segBreak,
   };
-  fs.writeFileSync(path.join(OUT_DIR, 'index.json'), JSON.stringify(indexPayload));
-
-  console.log(`Total across ${monthKeys.length} month-files: ${(totalBytes/1024/1024).toFixed(2)} MB`);
-  console.log(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 }
 
-main().catch(err => { console.error('Failed:', err.message); process.exit(1); });
+// items: [{label, pct, segBreak:{seg:{rate,weight}}}, ...] — one entry per period.
+// Each segment's LABEL = its own independent rate. Each segment's SLICE HEIGHT
+// (within the stacked bar) = its share of the period's eligible volume.
+function paintMiniTrend(elId, items, segColors, accentGrad){
+  const el = $(elId); if (!el) return;
+  const maxH = 208; // px — matches .mtrend-cols height
+  el.innerHTML = '<div class="mtrend-cols">' + items.map((it, idx) => {
+    const totalPct = it.pct != null ? it.pct : 0;
+    const barH = Math.max(6, Math.round((totalPct/100)*maxH));
+    const isLast = idx === items.length - 1;
+    let segHtml = '';
+    SEG_STACK_ORDER.forEach(sk => {
+      const seg = (it.segBreak && it.segBreak[sk]) || null;
+      if (!seg || seg.weight <= 0.4) return;
+      const c = segColors[sk] || {bg:'#999',text:'#fff'};
+      const rateTxt = seg.rate != null ? Math.round(seg.rate)+'%' : '—';
+      segHtml += `<div style="height:${seg.weight}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;">`
+               + `<span style="font-size:9px;font-weight:700;color:${c.text};">${rateTxt}</span></div>`;
+    });
+    let arrow = '';
+    if (idx > 0 && items[idx-1].pct != null && it.pct != null){
+      arrow = it.pct >= items[idx-1].pct ? ' \u25B2' : ' \u25BC';
+    }
+    const totalTxt = it.pct != null ? it.pct.toFixed(1)+'%'+arrow : '—';
+    const valStyle = isLast
+      ? `color:#fff;font-weight:700;background:${accentGrad};padding:1px 8px;border-radius:20px;display:inline-block;`
+      : `color:var(--muted);font-weight:600;`;
+    const barShadow = isLast ? 'box-shadow:0 4px 14px rgba(0,0,0,.18);' : '';
+    return `<div class="mtrend-col">
+        <div class="mtrend-stack" style="height:${barH}px;${barShadow}">${segHtml}</div>
+        <div class="mtrend-val" style="${valStyle}">${totalTxt}</div>
+        <div class="mtrend-lbl">${it.label}</div>
+      </div>`;
+  }).join('') + '</div>';
+}
+
+function renderTrends(){
+  const periods = trendGran === 'week' ? getTrendPeriodsWeek() : getTrendPeriodsMonth();
+  const data = periods.map(p => ({ label: p.label, ...trendMetricsForPeriod(p.from, p.to) }));
+  const mapSeg = (segBreak, rateKey, weightKey) => {
+    const out = {};
+    for (const s of Object.keys(segBreak||{})) out[s] = { rate: segBreak[s][rateKey], weight: segBreak[s][weightKey] || 0 };
+    return out;
+  };
+  paintMiniTrend('slaTrend',   data.map(d => ({ label:d.label, pct:d.slaPct,      segBreak: mapSeg(d.segBreak,'slaPct','slaWeight') })),           SEG_COLORS.sla,      SEG_ACCENT_GRAD.sla);
+  paintMiniTrend('delivTrend', data.map(d => ({ label:d.label, pct:d.deliveryPct, segBreak: mapSeg(d.segBreak,'deliveryPct','deliveryWeight') })), SEG_COLORS.delivery, SEG_ACCENT_GRAD.delivery);
+  paintMiniTrend('accTrend',   data.map(d => ({ label:d.label, pct:d.accPct,      segBreak: mapSeg(d.segBreak,'accPct','accWeight') })),           SEG_COLORS.accuracy, SEG_ACCENT_GRAD.accuracy);
+}
+
+function setTrendGran(g){
+  trendGran = (g === 'week') ? 'week' : 'month';
+  document.querySelectorAll('[data-trendtoggle] .trend-tab').forEach(b => {
+    b.classList.toggle('sel', b.dataset.g === trendGran);
+  });
+  renderTrends(); renderActiveFiltersBar();
+}
+
+// SMB and Resellers are tracked as separate segment categories
+function normSeg(s){
+  if (!s) return 'Unknown';
+  const v = s.trim();
+  if (/^smb$/i.test(v)) return 'SMB';
+  if (/^resell/i.test(v)) return 'Resellers';
+  return v;  // Ent, Mid pass through as-is
+}
+
+function buildFilterScopes(){
+  // Build option lists from the full dataset so dropdowns don't shrink as filters apply.
+  const ent=new Set(),team=new Set(),cs=new Set(),ob=new Set(),ver=new Set(),seg=new Set();
+  for (const r of RAW){
+    if (r.ent) ent.add(r.ent);
+    if (r.tm) team.add(r.tm);
+    if (r.csCol) cs.add(r.csCol);
+    if (r.ob) ob.add(r.ob);
+    if (r.fs) ver.add(r.fs);
+    seg.add(normSeg(r.seg));
+  }
+  return {
+    enterpriseList: [...ent].sort(),
+    teamList:       [...team].sort(),
+    csList:         [...cs].sort(),
+    obList:         [...ob].sort(),
+    verifiedList:   [...ver].sort(),
+    segList:        [...seg].sort(),
+  };
+}
+
+function aggregate(rows){
+  // ── Step 1: Deduplicate matching Metabase SQL (spin_ranked) ──
+  // Priority of dedup key:
+  //   1. spin_sku_id  (matches SQL: partition by sku_id)
+  //   2. mediaId      (fallback when no SKU)
+  //   3. eid|tid|vin  (last resort)
+  // Keep LATEST row per key (matches SQL: order by created_on desc, rnk=1)
+  const dedupMap = {};
+  for (const r of rows){
+    const key = (r.sku  && r.sku.trim())
+              ? r.sku.trim()
+              : (r.vid  && r.vid.trim())
+              ? `mid:${r.vid.trim()}`
+              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.tm||'')}|${(r.vin||'')}`;
+
+    const existing = dedupMap[key];
+    if (!existing){
+      dedupMap[key] = r;
+    } else {
+      const tNew = r._created ? r._created.getTime() : 0;
+      const tOld = existing._created ? existing._created.getTime() : 0;
+      if (tNew > tOld) dedupMap[key] = r;
+    }
+  }
+  const deduped = Object.values(dedupMap);
+  console.log(`[dedup] raw=${rows.length} deduped=${deduped.length} underReview=${deduped.filter(r=>r.fs==='Under Review').length}`);
+
+  // ── Step 2: Avg TAT on ALL rows (no dedup) ────────────────────
+  // Only Delivered rows, qc_user not null, TAT > 0
+  let tatSum=0, tatCount=0;
+  for (const r of rows){
+    if (!isTatEligible(r)) continue;        // Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered
+    if (!r.qc) continue;                    // skip null qc_user_id
+    if (typeof r.tat === 'number' && isFinite(r.tat) && r.tat >= 0){
+      tatSum += r.tat;
+      tatCount++;
+    }
+  }
+
+  // ── Step 3: Unique set counts ─────────────────────────────────
+  const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
+  let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
+  let totalTechFailed=0, totalAiFailed=0, totalProcessing=0;
+  let withinSla=0, outOfSla=0, totalCompletedVins=0;
+  let autoDelivered=0, manualDelivered=0;
+  // New metrics
+  let e2eTatSum=0, e2eTatCount=0;
+  const e2eValues=[];   // for P95 (Delivered, E2E) — same population as E2E TAT avg
+  let slaDelivCount=0, within6h=0;
+  let dareCount=0, turboCount=0, ttOtherCount=0, ttBlankCount=0;
+  const entCount={}, teamCount={}, qcCount={};
+  const entBreak={}, teamBreak={}, qcBreak={};
+  const reasonsCount={}, reasonDisplay={};
+  const entPoc={}, teamPoc={};
+
+  function bump(map,key,kind){
+    if(!map[key]) map[key]={total:0,delivered:0,rejected:0,pending:0,withinSla:0,outOfSla:0};
+    map[key].total++; map[key][kind]++;
+  }
+
+  // ── Step 3: Count on deduped rows ─────────────────────────────
+  for (const r of deduped){
+    if (r.sku) skuSet.add(r.sku);
+    if (r.eid) entIdSet.add(r.eid); else if (r.ent) entIdSet.add(r.ent);
+    if (r.tid) teamIdSet.add(r.tid); else if (r.tm) teamIdSet.add(r.tm);
+
+    let kind = 'pending';
+    // E2E TAT / Within 6h — computed across ALL TAT-eligible statuses
+    // (Delivered + QC/Validation Failed + Tech/AI Failure + Undelivered), not just Delivered.
+    if (isTatEligible(r)){
+      if (typeof r.e2e === 'number' && isFinite(r.e2e) && r.e2e >= 0){
+        e2eTatSum += r.e2e; e2eTatCount++;
+        e2eValues.push(r.e2e);
+      }
+      if (typeof r.tat === 'number' && r.tat >= 0){
+        slaDelivCount++;
+        if (r.tat <= 6) within6h++;
+      }
+    }
+    if (isDelivered(r)){
+      totalDelivered++; kind='delivered';
+      // Accuracy: is_assisted_by_qc — false=AUTO, true=MANUALLY EDITED
+      if (r.aq == 1)  manualDelivered++;
+      else                               autoDelivered++;
+    } else if (isRejected(r)){
+      totalRejected++; kind='rejected';
+      if (isValidationFailed(r)) totalValidationFailed++;
+      if (isQcFailed(r))         totalQcFailed++;
+      const k = normReason(r.rej);
+      if (k){
+        reasonsCount[k] = (reasonsCount[k]||0)+1;
+        if (!reasonDisplay[k]) reasonDisplay[k] = r.rej.trim();
+      } else {
+        reasonsCount['(unspecified)'] = (reasonsCount['(unspecified)']||0)+1;
+        reasonDisplay['(unspecified)'] = '(no reason recorded)';
+      }
+    } else if ((r.fs||'').trim() === 'Tech Failure'){
+      totalTechFailed++; kind='techFailed';
+    } else if ((r.fs||'').trim() === 'AI Failed'){
+      totalAiFailed++;   kind='techFailed';
+    } else if ((r.fs||'').trim() === 'Processing'){
+      totalProcessing++;
+    } else if (isPending(r)){
+      totalPending++;
+    }
+
+    // SLA — all rows except Under Review
+    if (!isPending(r) && r.sla !== null){
+      if      (r.sla === 1) withinSla++;
+      else if (r.sla === 0) outOfSla++;
+    }
+
+    // Temp Type
+    const tt = (r.tt||'').trim();
+    if (!tt)                               ttBlankCount++;
+    else if (tt.toLowerCase()==='dare')    dareCount++;
+    else if (tt.toLowerCase()==='turbo')   turboCount++;
+    else                                   ttOtherCount++;
+
+    if (r.ent)  entCount[r.ent]  = (entCount[r.ent]||0)+1;
+    if (r.tm) teamCount[r.tm]= (teamCount[r.tm]||0)+1;
+    if (r.qc)   qcCount[r.qc]   = (qcCount[r.qc]||0)+1;
+    if (r.qc)   bump(qcBreak, r.qc, kind);
+
+    if (r.ent){
+      bump(entBreak, r.ent, kind);
+      if (r.sla===1) entBreak[r.ent].withinSla++;
+      else if (r.sla===0) entBreak[r.ent].outOfSla++;
+      if (!entPoc[r.ent]) entPoc[r.ent]={ob:r.poc_ob||'',cs:r.poc_cs||''};
+      else {
+        if (!entPoc[r.ent].ob && r.poc_ob) entPoc[r.ent].ob=r.poc_ob;
+        if (!entPoc[r.ent].cs && r.poc_cs) entPoc[r.ent].cs=r.poc_cs;
+      }
+    }
+    if (r.tm){
+      bump(teamBreak, r.tm, kind);
+      if (r.sla===1) teamBreak[r.tm].withinSla++;
+      else if (r.sla===0) teamBreak[r.tm].outOfSla++;
+      if (!teamPoc[r.tm]) teamPoc[r.tm]={ob:r.poc_ob||'',cs:r.poc_cs||'',ent:r.ent||''};
+      else {
+        if (!teamPoc[r.tm].ob  && r.poc_ob) teamPoc[r.tm].ob =r.poc_ob;
+        if (!teamPoc[r.tm].cs  && r.poc_cs) teamPoc[r.tm].cs =r.poc_cs;
+        if (!teamPoc[r.tm].ent && r.ent)    teamPoc[r.tm].ent=r.ent;
+      }
+    }
+  }
+
+  // ── Per-category reason maps ──────────────────────────────────
+  const qcReasons  = {};  // Blocker issues from issues_by_severity
+  const valReasons = {};  // failure_reason for Validation Failed
+  const techReasons= {};  // failure_reason for Tech Failure + AI Failed
+  let totalReviewed = 0;  // crm_status = qc_done — denominator for reason-card percentages
+
+  for (const r of deduped){
+    const fs = (r.fs||'').trim();
+    if ((r.cs||'').trim() === 'qc_done') totalReviewed++;
+
+    // QC Failed → extract Blocker items from issues_by_severity
+    if (fs === 'QC Failed' && r.isv){
+      // Format: "High - A, B || Blocker - C, D || Low - E"
+      const parts = String(r.isv).split('||');
+      for (const part of parts){
+        const t = part.trim();
+        if (/^blocker/i.test(t)){
+          // Extract items after "Blocker - "
+          const items = t.replace(/^blocker\s*-\s*/i,'').split(',');
+          for (const item of items){
+            const k = item.trim();
+            if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+          }
+        }
+      }
+      // fallback if no Blocker tag found — use full issues text
+      if (!/blocker/i.test(r.isv||'')){ const k = r.rej ? (r.rej||'').trim().slice(0,60) : '(no reason recorded)'; qcReasons[k] = (qcReasons[k]||0)+1; } if (false){
+        const k = (r.rej||'').trim().slice(0,60);
+        if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+      }
+    }
+
+    // Validation Failed → failure_reason
+    if (fs === 'Validation Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; valReasons[k] = (valReasons[k]||0)+1; } if (false && r.rej){
+      const k = (r.rej||'').trim().slice(0,80);
+      if (k) valReasons[k] = (valReasons[k]||0)+1;
+    }
+
+    // Tech Failure + AI Failed → failure_reason
+    if ((fs === 'Tech Failure' || fs === 'AI Failed')){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; techReasons[k] = (techReasons[k]||0)+1; } if (false && r.rej){
+      const k = (r.rej||'').trim().slice(0,80);
+      if (k) techReasons[k] = (techReasons[k]||0)+1;
+    }
+  }
+
+  const top = (map, n) => Object.fromEntries(Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,n));
+  const slice    = (obj,n)=> Object.fromEntries(Object.entries(obj).slice(0,n));
+
+  const reasonsDisplay={}, reasonsKeys={};
+  for (const [k,v] of Object.entries(reasonsCount).sort((a,b)=>b[1]-a[1])){
+    const disp  = reasonDisplay[k]||k;
+    const label = disp.length>60 ? disp.slice(0,57)+'…' : disp;
+    reasonsDisplay[label]=v; reasonsKeys[label]=k;
+  }
+  const topReasons    = slice(reasonsDisplay,10);
+  const topReasonsKeys= {};
+  Object.keys(topReasons).forEach(l=>{ topReasonsKeys[l]=reasonsKeys[l]; });
+
+  // P95 E2E TAT (Delivered) — nearest-rank percentile, same population as E2E TAT avg
+  let p99Tat = null;
+  if (e2eValues.length){
+    const sortedE2e = e2eValues.slice().sort((a,b)=>a-b);
+    const idx = Math.min(sortedE2e.length-1, Math.ceil(0.99*sortedE2e.length)-1);
+    p99Tat = +sortedE2e[idx].toFixed(2);
+  }
+
+  const totalReceived = deduped.length;
+  return {
+    totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
+    totalTechFailed, totalAiFailed, totalPending, totalProcessing,
+    withinSla, outOfSla,
+    slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
+    deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
+    rejectionRate: totalReceived  ? +((totalRejected /totalReceived)*100).toFixed(2) : null,
+    avgTat:  tatCount ? +(tatSum/tatCount).toFixed(2) : null,
+    tatRecordCount: tatCount,
+    p99Tat,
+    enterpriseCount: entIdSet.size,
+    teamCount:       teamIdSet.size,
+    topEnt:  slice(Object.fromEntries(Object.entries(entCount).sort((a,b)=>b[1]-a[1])), 12),
+    topTeam: slice(Object.fromEntries(Object.entries(teamCount).sort((a,b)=>b[1]-a[1])),12),
+    topQc:   slice(Object.fromEntries(Object.entries(qcCount).sort((a,b)=>b[1]-a[1])),  15),
+    topReasons, topReasonsKeys,
+    qcReasons:   top(qcReasons,   500),
+    valReasons:  top(valReasons,  500),
+    techReasons: top(techReasons, 500),
+    totalReviewed,
+    entBreak, teamBreak, qcBreak, entPoc, teamPoc,
+    autoDelivered, manualDelivered,
+    e2eAvgTat:   e2eTatCount ? +(e2eTatSum/e2eTatCount).toFixed(2) : null,
+    within6hPct: slaDelivCount ? +((within6h/slaDelivCount)*100).toFixed(1) : null,
+    techAiFailed: (totalTechFailed||0) + (totalAiFailed||0),
+  };
+}
+// ─────────────────────────────────────────────────────────────
+// TREND BUCKETING  (independent of date filter)
+// ─────────────────────────────────────────────────────────────
+function bucketTrend(rows, range){
+  const now = new Date();
+  const buckets = [];
+
+  if (range === '15days'){
+    // Last 15 days, ending today, one bucket per day
+    for (let i = 14; i >= 0; i--){
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const e = new Date(s); e.setDate(s.getDate()+1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{day:'numeric',month:'short'}) });
+    }
+  } else if (range === 'this_month'){
+    // Day-by-day from the 1st of the current month through today
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const cursor = new Date(start);
+    while (cursor <= now){
+      const s = new Date(cursor);
+      const e = new Date(s); e.setDate(s.getDate()+1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{day:'numeric',month:'short'}) });
+      cursor.setDate(cursor.getDate()+1);
+    }
+  } else if (range === '6weeks'){
+    // Last 6 weeks ending this week (weeks anchored Monday)
+    const dow = now.getDay() || 7;            // Sunday → 7, otherwise 1..6
+    const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + 1);
+    for (let i = -5; i <= 0; i++){
+      const s = new Date(thisMon); s.setDate(thisMon.getDate() + i*7); s.setHours(0,0,0,0);
+      const e = new Date(s);       e.setDate(s.getDate() + 7);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
+    }
+  } else if (range === 'months'){
+    // Since April (dynamic — grows month by month as new data arrives)
+    const startY = 2026, startM = 3; // April 2026
+    let y = startY, m = startM;
+    while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth())){
+      const s = new Date(y, m, 1);
+      const e = new Date(y, m+1, 1);
+      const sameYear = s.getFullYear() === now.getFullYear();
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US', sameYear?{month:'short'}:{month:'short',year:'2-digit'}) });
+      m++; if (m>11){ m=0; y++; }
+    }
+  } else if (range === 'year'){
+    // last 12 months including current
+    for (let i = -11; i <= 0; i++){
+      const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
+    }
+  }
+
+  const result = buckets.map(b => ({...b, received:0, delivered:0, rejected:0}));
+  for (const r of rows){
+    if (!r._created) continue;
+    const t = r._created.getTime();
+    for (const b of result){
+      if (t >= b.start.getTime() && t < b.end.getTime()){
+        b.received++;
+        if (isDelivered(r)) b.delivered++;
+        else if (isRejected(r)) b.rejected++;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────
+// KPI CARDS
+// ─────────────────────────────────────────────────────────────
+const KPIS = [
+  { id:'ent',       label:'Total Enterprises', sub:'unique enterprise IDs',  color:'',       kind:'breakdown', dim:'ent'  },
+  { id:'team',      label:'Total Teams',       sub:'unique team IDs',        color:'purple', kind:'breakdown', dim:'team' },
+  { id:'received',   label:'Total Received', sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
+  { id:'processing', label:'Processing',     sub:'final_status=Processing',color:'blue',   kind:'records',   view:'processing' },
+  { id:'delivered',  label:'Delivered',      sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
+  { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
+  { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
+  { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
+  { id:'w6h',       label:'Within 6h %',       sub:'delivered ≤ 6h',         color:'green',  kind:'records',   view:'within_6h'  },
+  { id:'tat',       label:'Avg TAT',           sub:'sku_created_on → first_qc_done', color:'blue', kind:'records',  view:'tat'        },
+  { id:'e2e-tat',   label:'E2E TAT',           sub:'processedAt → first_qc_done', color:'blue',   kind:'records',   view:'e2e_tat'    },
+  { id:'p99',       label:'P99 E2E TAT (Delivered)', sub:'99th percentile, processedAt → first_qc_done', color:'blue',  kind:'records',   view:'p99_tat'  },
+];
+
+function renderKpiCards(){
+  $('kpiGrid').innerHTML = KPIS.map(k => `
+    <div class="kpi${(k.id==='rejected'||k.id==='tech-ai') ? ' kpi-flip' : ''}" data-id="${k.id}" role="button" tabindex="0">
+      <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
+      ${k.id==='rejected' ? `
+        <div class="kpi-front">
+          <div class="kpi-label">${esc(k.label)}</div>
+          <div class="kpi-value red" id="kv-rejected">—</div>
+        </div>
+        <div class="kpi-back" id="kv-rejected-tooltip"></div>
+      ` : k.id==='tech-ai' ? `
+        <div class="kpi-front">
+          <div class="kpi-label">${esc(k.label)}</div>
+          <div class="kpi-value amber" id="kv-tech-ai">—</div>
+        </div>
+        <div class="kpi-back" id="kv-tech-ai-tooltip"></div>
+      ` : `
+        <div class="kpi-label">${esc(k.label)}</div>
+        <div class="kpi-value ${k.color}" id="kv-${k.id}">—</div>
+      `}
+    </div>
+  `).join('');
+  const TREND_POPUP_IDS = ['w6h','tat','e2e-tat','p99','delivered'];
+  $('kpiGrid').querySelectorAll('.kpi').forEach(el=>{
+    const id = el.dataset.id;
+    const open = ()=>{
+      if(editMode) return;
+      if (TREND_POPUP_IDS.includes(id)){ openTrendPopup(id); return; }
+      openDrill(KPIS.find(x=>x.id===id));
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();open();} });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHART HELPERS
+// ─────────────────────────────────────────────────────────────
+Chart.defaults.font.family="'Inter',sans-serif";
+function getPal(){
+  const s=getComputedStyle(document.documentElement);
+  return Object.fromEntries(['ink','muted','line','accent','green','amber','red','orange','purple','teal'].map(k=>[k,s.getPropertyValue('--'+k).trim()]));
+}
+function killChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
+
+// ── Hourly Throughput (Google Sheets) ────────────────────────────────────────
+function fmtCompact(v){
+  if (v == null || isNaN(v)) return v;
+  const n = Number(v);
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs < 1000) return sign + Math.round(abs).toLocaleString();
+  const k = abs / 1000;
+  const rounded = Math.round(k * 10) / 10; // one decimal place
+  const str = (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(1);
+  return sign + str + 'k';
+}
+const GS_HOURLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=778431494&single=true&output=csv';
+const GS_DAILY   = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=328351304&single=true&output=csv';
+const GS_WEEKLY  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1345066434&single=true&output=csv';
+const GS_MONTHLY = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=1153574725&single=true&output=csv';
+
+let _hourlyRange  = 'today';
+let _hourlyChart  = null;
+let _hourlyForecast = false;  // forecast mode toggle
+let _hlyView     = 'hour';    // 'hour' or 'day'
+let _hlyType     = 'line';    // 'line' (curve) or 'bar' - Received & QC Done
+let _hlyVisible  = { recv:true, qcdone:true, backlog:true, cap:false };
+let _gsCache      = {};  // url → { data, ts }
+const GS_TTL      = 5 * 60 * 1000;
+
+// Parse hour_ist → returns { date: Date, hour: number } in IST
+// Extracts hour directly from string to avoid UTC conversion errors
+function parseHourIST(val) {
+  if (!val) return null;
+  const s = String(val).trim().replace(/"/g, '');
+  let hour = null, dateStr = null;
+
+  // "13 Jun 2026 0:00" OR "13 Jun 2026 00:00" — \d{1,2} handles single-digit hour
+  const m1 = s.match(/^(\d{1,2})\s+(\w{3,})\s+(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if (m1) {
+    const mon = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+                 jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+    hour    = parseInt(m1[4], 10);
+    dateStr = `${m1[3]}-${mon[m1[2].toLowerCase().slice(0,3)]||'01'}-${m1[1].padStart(2,'0')}`;
+  }
+
+  // "2026-06-13 0:00" or "2026-06-13T00:00"
+  const m2 = !m1 && s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/);
+  if (m2) { hour = parseInt(m2[4], 10); dateStr = `${m2[1]}-${m2[2]}-${m2[3]}`; }
+
+  // "13/06/2026 0:00" DD/MM/YYYY
+  const m3 = !m1 && !m2 && s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if (m3) { hour = parseInt(m3[4], 10); dateStr = `${m3[3]}-${m3[2].padStart(2,'0')}-${m3[1].padStart(2,'0')}`; }
+
+  if (!dateStr || hour === null) { console.warn('[hourly] unparseable:', JSON.stringify(s)); return null; }
+  return { dateStr, hour };
+}
+
+// IST YYYY-MM-DD — robust manual construction
+function toISTDateStr(d) {
+  const ms = (d instanceof Date ? d.getTime() : Number(d)) + 19800000; // +5h30m IST
+  if (isNaN(ms)) return '';
+  const t  = new Date(ms);
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth()+1).padStart(2,'0')}-${String(t.getUTCDate()).padStart(2,'0')}`;
+}
+
+
+function getHourlyDateBounds(range) {
+  const now  = new Date();
+  const ms1d = 86400000;
+  // All dates as IST strings "YYYY-MM-DD"
+  const todStr  = toISTDateStr(now);
+  const yesStr  = toISTDateStr(new Date(now.getTime() - ms1d));
+  function daysAgo(n) { return toISTDateStr(new Date(now.getTime() - n * ms1d)); }
+  function addDay(str) {
+    const d = new Date(str + 'T00:00:00Z');
+    return toISTDateStr(new Date(d.getTime() + ms1d));
+  }
+  // Get Monday of this week (IST)
+  const dow = new Date(now.getTime() + 5.5*3600000).getUTCDay();
+  const monStr = daysAgo(dow === 0 ? 6 : dow - 1);
+  // First of this month (IST)
+  const istNow = new Date(now.getTime() + 5.5*3600000);
+  const monStart = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth()+1).padStart(2,'0')}-01`;
+
+  switch(range) {
+    case 'today':      return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+    case 'yesterday':  return { fromStr: yesStr,    toStr: todStr,          label:'Yesterday' };
+    case '15days':     return { fromStr: daysAgo(15), toStr: addDay(todStr), label:'Last 15 days' };
+    case '30days':     return { fromStr: daysAgo(30), toStr: addDay(todStr), label:'Last 30 days' };
+    case '45days':     return { fromStr: daysAgo(45), toStr: addDay(todStr), label:'Last 45 days' };
+    default:           return { fromStr: todStr,    toStr: addDay(todStr),  label:'Today' };
+  }
+}
+
+// Parse CSV text → array of objects
+function parseGSCSV(text) {
+  const lines = text.trim().split('\n');
+  if (!lines.length) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim().replace(/"/g,''));
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? ''; });
+    return obj;
+  }).filter(r => r[headers[0]]);
+}
+
+async function fetchGSRaw(url) {
+  // Returns raw 2D array (no header row treatment)
+  const cached = _gsCache[url + '_raw'];
+  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
+  const text = await res.text();
+  const data = text.trim().split('\n').map(line => {
+    const vals = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch==='"') { if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+      else if (ch===','&&!inQ) { vals.push(cur.trim()); cur=''; }
+      else cur+=ch;
+    }
+    vals.push(cur.trim());
+    return vals;
+  });
+  _gsCache[url + '_raw'] = { data, ts: Date.now() };
+  return data;
+}
+
+async function fetchGS(url) {
+  const cached = _gsCache[url];
+  if (cached && (Date.now() - cached.ts) < GS_TTL) return cached.data;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GS fetch failed: ${res.status}`);
+  const data = parseGSCSV(await res.text());
+  _gsCache[url] = { data, ts: Date.now() };
+  return data;
+}
+
+
+const GS_ROSTER  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdE2S3ItgzwxlVG1jCJ7wN9yuGHc2ZzyvBnppCI4ZeJIHG00xQV-uQC1fod4T2dCllQThx30tGNTeU/pub?gid=598602757&single=true&output=csv';
+
+// Parse shift time label → { start (h), end (h), hours }
+function parseShiftHours(label) {
+  const timeRe = /(\d{1,2}:\d{2}\s*(?:AM|PM)?)/gi;
+  const times   = (label || '').match(timeRe);
+  if (!times || times.length < 2) return { start:0, end:0, hours:9 }; // default 9h
+  const toH = t => {
+    const m = t.trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return 0;
+    let h = parseInt(m[1]); const ampm = m[3]?.toUpperCase();
+    if (ampm==='PM' && h!==12) h+=12;
+    if (ampm==='AM' && h===12) h=0;
+    return h + parseInt(m[2])/60;
+  };
+  const s = toH(times[0]), e = toH(times[1]);
+  const hours = e > s ? e-s : (e+24-s); // handle overnight
+  return { start:s, end:e, hours };
+}
+
+// Parse "11 July 2026" → "2026-07-11" safely (no timezone issues)
+function rosterDateToStr(s) {
+  const MON = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+               jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  const m = String(s||'').trim().match(/(\d{1,2})\s+(\w{3,})\s+(\d{2,4})/i);
+  if (!m) return null;
+  const day = m[1].padStart(2,'0');
+  const mon = MON[m[2].toLowerCase().slice(0,3)];
+  const yr  = m[3].length===2 ? '20'+m[3] : m[3];
+  return mon ? `${yr}-${mon}-${day}` : null;
+}
+
+// Parse the raw Roster CSV rows → array of periods
+function isRosterPeriodHeader(first){
+  return first && /\d.*to.*\d/i.test(first) && !/leave/i.test(first) && !/AM|PM/i.test(first);
+}
+function parseRosterPeriods(rawRows) {
+  const periods = [];
+  let i = 0;
+  while (i < rawRows.length) {
+    const vals = rawRows[i];
+    const first = (vals[0]||'').trim();
+    // Period date-range header row
+    if (isRosterPeriodHeader(first)) {
+      const period = { header:first, start:null, end:null, shifts:[], leaves:{}, target:30 };
+      // Parse period start/end
+      const dm = first.match(/(\d[\d\w\s]+?)\s+to\s+([\d\w\s]+?)(?:\s*$)/i);
+      if (dm) {
+        const startStr = rosterDateToStr(dm[1]) || dm[1].trim();
+        const endStr   = rosterDateToStr(dm[2]) || dm[2].trim();
+        // Parse as local date using ISO format to avoid timezone shift
+        period.start = new Date(startStr + 'T00:00:00');
+        period.end   = new Date(endStr   + 'T23:59:59');
+      }
+      i++;
+      // Skip blank
+      while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
+      if (i >= rawRows.length) break;
+
+      // Shift headers row
+      const shiftVals = rawRows[i];
+      const targetIdx = shiftVals.findIndex(v => /per user target/i.test(v||''));
+      const numShifts = targetIdx >= 0 ? targetIdx : 4;
+      for (let s=0; s<numShifts; s++) {
+        const lbl = (shiftVals[s]||'').trim();
+        if (lbl) period.shifts[s] = { label:lbl, users:[] };
+      }
+      i++;
+
+      // User rows (until blank, Leave row, or stray leftover period-header text)
+      while (i < rawRows.length) {
+        const uvals = rawRows[i];
+        if (!uvals.some(v=>v?.trim())) break;
+        if (/leave/i.test(uvals[0]||'')) break;
+        if (isRosterPeriodHeader((uvals[0]||'').trim())) break; // stale leftover text in the sheet, not a real user row
+        const tgt = parseFloat(uvals[targetIdx]);
+        if (!isNaN(tgt) && tgt>0) period.target = tgt;
+        for (let s=0; s<numShifts; s++) {
+          const u = (uvals[s]||'').trim();
+          if (u && !/per user/i.test(u) && !/^\d+$/.test(u)) {
+            if (!period.shifts[s]) period.shifts[s] = { label:'', users:[] };
+            period.shifts[s].users.push(u);
+          }
+        }
+        i++;
+      }
+
+      // Skip to Leave section — but stop early if the NEXT period's header
+      // shows up first (some periods have no distinct leave section at all;
+      // scanning past them used to silently swallow every period in between).
+      while (i < rawRows.length && !/leave/i.test(rawRows[i][0]||'') && !isRosterPeriodHeader((rawRows[i][0]||'').trim())) i++;
+      let foundLeaveMarker = i < rawRows.length && /leave/i.test(rawRows[i][0]||'');
+      // Quirk in the sheet: some periods' leave-marker row has stale leftover
+      // text instead of "Leave(...)" (looks exactly like a period-header).
+      // Distinguish by lookahead: if the very next non-blank row says "Name"
+      // (the leave-grid header), this row IS the leave marker despite its
+      // wording — otherwise it's genuinely the next period.
+      if (!foundLeaveMarker && i < rawRows.length && isRosterPeriodHeader((rawRows[i][0]||'').trim())) {
+        let j = i + 1;
+        while (j < rawRows.length && !rawRows[j].some(v=>v?.trim())) j++;
+        if (j < rawRows.length && /^name$/i.test((rawRows[j][0]||'').trim())) foundLeaveMarker = true;
+      }
+      if (foundLeaveMarker) {
+      i++; // skip "Leave(...)" row
+      while (i < rawRows.length && !rawRows[i].some(v=>v?.trim())) i++;
+
+      // Leave header: Name, date1, date2...
+      if (i < rawRows.length) {
+        const lhVals = rawRows[i];
+        const dateCols = lhVals.slice(1).map(d=>(d||'').trim());
+        i++;
+        // Leave data rows
+        while (i < rawRows.length) {
+          const lvals = rawRows[i];
+          const name = (lvals[0]||'').trim();
+          if (!name) break;
+          dateCols.forEach((dateStr, di) => {
+            if (!/leave|\bwo\b/i.test(lvals[di+1]||'')) return;
+            const key = rosterDateToStr(dateStr);
+            if (!key) return;
+            if (!period.leaves[key]) period.leaves[key] = [];
+            period.leaves[key].push(name);
+          });
+          i++;
+        }
+      }
+      } // end foundLeaveMarker guard
+      periods.push(period);
+    } else { i++; }
+  }
+  return periods;
+}
+
+// Get total capacity for a specific date (0 if Sunday or no roster)
+function getDayCapacity(date, periods) {
+  if (date.getDay() === 0) return 0; // Sunday
+  const dStr = new Date(date).toISOString().slice(0,10);
+  const d12  = new Date(date); d12.setHours(12,0,0,0);
+  const period = periods.find(p => {
+    if (!p.start || !p.end) return false;
+    const ps = new Date(p.start); ps.setHours(0,0,0,0);
+    const pe = new Date(p.end);   pe.setHours(23,59,0,0);
+    return d12 >= ps && d12 <= pe;
+  });
+  if (!period) return null; // no roster
+  const onLeave = period.leaves[dStr] || [];
+  let cap = 0;
+  (period.shifts||[]).forEach(shift => {
+    if (!shift) return;
+    const { hours } = parseShiftHours(shift.label);
+    const active = shift.users.filter(u => !onLeave.includes(u)).length;
+    cap += active * period.target * hours;
+  });
+  return Math.round(cap);
+}
+function setHlyView(mode, btn) {
+  _hlyView = mode;
+  document.querySelectorAll('#btnHlyHour,#btnHlyDay').forEach(b => b.classList.remove('sel'));
+  if (btn) btn.classList.add('sel');
+  if (_hourlyForecast) renderForecastChart();
+  else renderHourlyChart();
+}
+
+function toggleHlyDs(ds, btn) {
+  _hlyVisible[ds] = !_hlyVisible[ds];
+  if (btn) btn.classList.toggle('sel', _hlyVisible[ds]);
+  if (_hourlyChart) {
+    const map = { recv:'Received', qcdone:'QC Done', backlog:'Pendency', cap:'Capacity' };
+    const target = _hourlyChart.data.datasets.find(d => d.label === map[ds]);
+    if (target) { target.hidden = !_hlyVisible[ds]; _hourlyChart.update(); }
+  }
+}
+
+function setHlyType(t){
+  _hlyType = (t==='bar') ? 'bar' : 'line';
+  const wrap = $('hlyTypeTabs');
+  if (wrap) wrap.querySelectorAll('.trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.ht===_hlyType));
+  // Re-render whichever view is active — works in BOTH live and forecast modes
+  if (_hourlyForecast) renderForecastChart();
+  else renderHourlyChart();
+}
+
+function toggleHourlyForecast() {
+  _hourlyForecast = !_hourlyForecast;
+  const btn = $('btnHlyForecast');
+  if (btn) {
+    btn.style.background  = _hourlyForecast ? 'var(--accent)' : 'transparent';
+    btn.style.color       = _hourlyForecast ? '#fff'          : 'var(--accent)';
+  }
+  const tabs = $('hourlyTabs');
+  if (tabs) tabs.style.opacity = _hourlyForecast ? '0.4' : '1';
+  if (_hourlyForecast) {
+    renderForecastChart();
+  } else {
+    renderHourlyChart();
+  }
+}
+
+// -- Hour-wise forecast: project today's 24h curve from same-weekday hourly avg --
+async function renderHourWiseForecast(canvas, loader) {
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+  try {
+    const [rows, rosterRaw] = await Promise.all([fetchGS(GS_HOURLY), fetchGSRaw(GS_ROSTER)]);
+    const parsed = rows.map(r => ({ ...r, _p: parseHourIST(r.hour_ist) })).filter(r => r._p);
+
+    const today = new Date();
+    const dow = today.getDay();
+    const pad = n => String(n).padStart(2, '0');
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const cutoffStr = (() => { const d=new Date(today.getTime()-30*86400000); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })();
+
+    // Same-weekday hourly averages (fallback: overall hourly avg), excluding
+    // today and limited to the last 30 days of history.
+    const sameSum = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
+    const allSum  = Array.from({length:24}, () => ({ in:0, out:0, n:0 }));
+    const actIn = new Array(24).fill(0), actOut = new Array(24).fill(0);
+    let hasActual = false, histDays = new Set();
+    parsed.forEach(r => {
+      const h = r._p.hour, ds = r._p.dateStr;
+      const inV = parseFloat(r.total_in) || 0, outV = parseFloat(r.total_out) || 0;
+      if (ds === todayStr) { actIn[h] += inV; actOut[h] += outV; hasActual = true; return; }
+      if (ds < cutoffStr) return; // outside the 30-day window
+      histDays.add(ds);
+      allSum[h].in += inV; allSum[h].out += outV; allSum[h].n++;
+      const wd = new Date(ds + 'T12:00:00').getDay();
+      if (wd === dow) { sameSum[h].in += inV; sameSum[h].out += outV; sameSum[h].n++; }
+    });
+    const projIn = [], projOut = [];
+    for (let h = 0; h < 24; h++) {
+      const s = sameSum[h].n ? sameSum[h] : allSum[h];
+      projIn.push(s.n ? Math.round(s.in / s.n) : 0);
+      projOut.push(s.n ? Math.round(s.out / s.n) : 0);
+    }
+
+    // Capacity per hour from roster (same logic as live hourly view)
+    let capPerHour = new Array(24).fill(0);
+    try {
+      const periods  = parseRosterPeriods(rosterRaw);
+      const refDate  = new Date(); refDate.setHours(12,0,0,0);
+      const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
+      const refStr   = refDate.toISOString().slice(0,10);
+      const prevStr  = prevDate.toISOString().slice(0,10);
+      const findPer  = d => periods.find(pp => { if(!pp.start||!pp.end) return false; const pd=new Date(d); pd.setHours(12,0,0,0); return pd>=new Date(pp.start)&&pd<=new Date(pp.end); });
+      const period = findPer(refDate), prevPeriod = findPer(prevDate);
+      for (let h = 0; h < 24; h++) {
+        if (period) (period.shifts||[]).forEach(sh => {
+          if (!sh) return; const { start, end } = parseShiftHours(sh.label); const overnight = end < start;
+          if ((!overnight && h >= start && h < end) || (overnight && h >= start)) {
+            const leave = period.leaves[refStr] || [];
+            capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * period.target;
+          }
+        });
+        if (prevPeriod) (prevPeriod.shifts||[]).forEach(sh => {
+          if (!sh) return; const { start, end } = parseShiftHours(sh.label); const overnight = end < start;
+          if (overnight && h < end) {
+            const leave = prevPeriod.leaves[prevStr] || [];
+            capPerHour[h] += sh.users.filter(u=>!leave.includes(u)).length * prevPeriod.target;
+          }
+        });
+      }
+    } catch(e) { console.warn('[fcast-hr-cap]', e.message); }
+    const hasCap = capPerHour.some(v => v > 0);
+
+    const PAL = getPal();
+    const labels = Array.from({length:24}, (_,i) => pad(i) + ':00');
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.display = 'block'; canvas.style.opacity = '1';
+    if (loader) loader.style.display = 'none';
+
+    const datasets = [
+      { label:'Received (proj)', data:projIn, type:_hlyType, order:2, borderRadius:4,
+        borderColor:PAL.accent, backgroundColor:PAL.accent+'55', borderWidth:2, tension:0.35, fill:_hlyType!=='bar',
+        pointRadius:2.5, pointBackgroundColor:PAL.accent,
+        datalabels:{ display:false } },
+      { label:'QC Done (proj)', data:projOut, type:_hlyType, order:2, borderRadius:4,
+        borderColor:PAL.green, backgroundColor:(_hlyType==='bar'?PAL.green+'55':'transparent'), borderWidth:2, tension:0.35, fill:false,
+        pointRadius:2.5, pointBackgroundColor:PAL.green,
+        datalabels:{ display:false } },
+    ];
+    if (hasActual) datasets.push(
+      { label:'Received (today)', data:actIn, type:'line', order:0,
+        borderColor:PAL.accent, backgroundColor:'transparent', borderWidth:2.4, tension:0.35, fill:false,
+        pointRadius:2, pointBackgroundColor:PAL.accent, datalabels:{ display:false } }
+    );
+    if (hasCap) datasets.push(
+      { label:'Capacity', data:capPerHour, type:'line', order:1,
+        borderColor:'#E8820A', backgroundColor:'transparent', borderWidth:2.2, borderDash:[6,4], stepped:'after', fill:false,
+        pointRadius:3, pointBackgroundColor:'#E8820A',
+        datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v!=null&&v>0?fmtCompact(v):'' } }
+    );
+
+    _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400},
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:true, position:'top', labels:{ color:PAL.bodyText||PAL.ink, font:{size:11}, padding:14, usePointStyle:true } },
+          tooltip:{ mode:'index', intersect:false, callbacks:{ label:ctx=>`${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` } },
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{ color:PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:0, autoSkip:true, maxTicksLimit:12 } },
+          y:{ beginAtZero:true, grid:{ color:PAL.line||'#e8e6e3' }, ticks:{ color:PAL.bodyText||PAL.ink, font:{size:10} } },
+        },
+      },
+    });
+
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = `Hour-wise forecast \u00b7 same-weekday hourly avg over ${histDays.size} day(s)${hasActual?' \u00b7 today actual overlaid':''}${hasCap?' \u00b7 capacity from roster':''}`;
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">Projected = same-weekday average received/qc_done by hour of day \u00b7 dashed orange = roster capacity/hr</span>`;
+  } catch(e) {
+    console.warn('[fcast-hourwise]', e.message);
+    if (loader) loader.style.display = 'none';
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="color:var(--muted);font-size:12px">Hour-wise forecast unavailable: ${e.message}</span>`;
+  }
+}
+
+// ── Forecast chart — next 14 days using same-weekday average from GS_DAILY ───
+async function renderForecastChart() {
+  const loader = $('hourlyLoader');
+  const canvas = $('cHourly');
+  if (!canvas) return;
+  if (_hlyView === 'hour') { await renderHourWiseForecast(canvas, loader); return; }
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+
+  try {
+    const [daily, rosterRows] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
+    const periods = parseRosterPeriods(rosterRows);
+
+    // Parse daily history, limited to the last 30 days
+    const cutoff = new Date(Date.now() - 30*86400000);
+    const parsed = [];
+    daily.forEach(r => {
+      const dateVal = r.date_ist || r.date || r.Date || Object.values(r)[0];
+      const inVal   = parseFloat(r.total_in  || r['Total In']  || r.in  || 0);
+      const outVal  = parseFloat(r.total_out || r['Total Out'] || r.out || 0);
+      if (!dateVal) return;
+      const d = new Date(String(dateVal).trim());
+      if (isNaN(d) || d < cutoff) return;
+      parsed.push({ d, dow: d.getDay(), inV: inVal, outV: outVal });
+    });
+
+    // Same-weekday averages (last 30 days)
+    const dowSum = Array.from({length:7},()=>({in:0,out:0,n:0}));
+    parsed.forEach(p => { dowSum[p.dow].in+=p.inV; dowSum[p.dow].out+=p.outV; dowSum[p.dow].n++; });
+    const dowAvg = dowSum.map(s => ({ in: s.n?Math.round(s.in/s.n):0, out: s.n?Math.round(s.out/s.n):0 }));
+
+    // Next 14 days
+    const today = new Date(); today.setHours(0,0,0,0);
+    const labels=[], projIn=[], projOut=[], projCap=[];
+    const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let hasRoster = false;
+    for (let i=1; i<=14; i++) {
+      const d = new Date(today); d.setDate(today.getDate()+i);
+      const dow = d.getDay();
+      labels.push(`${DAY_NAMES[dow]} ${d.getDate()}/${d.getMonth()+1}`);
+      projIn.push(dow===0 ? 0 : dowAvg[dow].in);
+      projOut.push(dow===0 ? 0 : dowAvg[dow].out);
+      const cap = getDayCapacity(d, periods);
+      projCap.push(cap);
+      if (cap !== null) hasRoster = true;
+    }
+
+    const PAL = getPal();
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.display='block'; canvas.style.opacity='1';
+    if (loader) loader.style.display='none';
+
+    const datasets = [
+      {
+        label:'Projected Received', data:projIn, type:'bar',
+        backgroundColor:PAL.accent+'66', borderColor:PAL.accent, borderWidth:1.5, borderRadius:4,
+        datalabels:{ anchor:'end', align:'end', color:PAL.accent,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v>0?fmtCompact(v):''},
+      },
+      {
+        label:'Projected QC Done', data:projOut, type:'bar',
+        backgroundColor:PAL.green+'66', borderColor:PAL.green, borderWidth:1.5, borderRadius:4,
+        datalabels:{ anchor:'end', align:'start', color:PAL.green,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v>0?fmtCompact(v):''},
+      },
+    ];
+    if (hasRoster) {
+      datasets.push({
+        label:'Capacity (Roster)', data:projCap, type:'line',
+        borderColor:PAL.red, backgroundColor:'transparent',
+        borderWidth:2, borderDash:[5,4], tension:0.2,
+        pointRadius:4, pointBackgroundColor:PAL.red,
+        datalabels:{ anchor:'end', align:'top', color:PAL.red,
+          font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+          formatter:v=>v!=null&&v>0?fmtCompact(v):''},
+      });
+    }
+
+    _hourlyChart = new Chart(canvas, {
+      type:'bar', plugins:[ChartDataLabels],
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400},
+        plugins:{
+          legend:{ display:true, position:'top',
+            labels:{color:PAL.bodyText||PAL.ink, font:{size:11}, padding:16, usePointStyle:true}},
+          tooltip:{mode:'index', intersect:false},
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{color:PAL.bodyText||PAL.ink, font:{size:10}, maxRotation:45}},
+          y:{ beginAtZero:true, grid:{color:PAL.line||'#e8e6e3'}, ticks:{color:PAL.bodyText||PAL.ink, font:{size:10}}},
+        },
+      },
+    });
+
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = `14-day projection · same-weekday avg · ${hasRoster?'capacity from roster':'no roster found'}`;
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="font-size:11px;color:var(--muted)">
+      Projected = same weekday historical avg · Red line = roster capacity (users × target × shift hrs) · Sundays = 0</span>`;
+
+  } catch(err) {
+    console.error('[forecast]', err);
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = `<span style="color:var(--red);font-size:12px">Forecast failed: ${err.message}</span>`;
+    if (loader) loader.style.display = 'none';
+    canvas.style.opacity = '1';
+  }
+}
+
+// ── Day-wise chart: daily totals + capacity (8h × target per user) ───────────
+async function renderDayWiseChart(canvas, loader) {
+  try {
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = 'day-wise · total in/out per day · capacity = users × 8h × 30';
+
+    const [dailyRows, rosterRaw] = await Promise.all([fetchGS(GS_DAILY), fetchGSRaw(GS_ROSTER)]);
+    const periods = parseRosterPeriods(rosterRaw);
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    console.log(`[daywise] fetched ${dailyRows.length} rows. First:`, dailyRows[0]);
+    console.log(`[daywise] range=${_hourlyRange} fromStr=${fromStr} toStr=${toStr}`);
+
+    // Normalize whatever date-string the CSV export gives us (e.g.
+    // "2026-06-12", "6/12/2026", or an ISO datetime) into a clean
+    // YYYY-MM-DD string, so the range comparison actually matches —
+    // comparing raw un-normalized strings was the bug here.
+    function dailyDateStr(r){
+      const raw = r.date_ist || r.date || r.Date || Object.values(r)[0] || '';
+      const d = new Date(raw);
+      return isNaN(d) ? String(raw).trim() : toISTDateStr(d);
+    }
+    if (dailyRows[0]) console.log(`[daywise] sample dailyDateStr →`, dailyDateStr(dailyRows[0]));
+
+    // Filter daily rows to date range
+    const matched = dailyRows.filter(r => {
+      const ds = dailyDateStr(r);
+      return ds >= fromStr && ds < toStr;
+    }).sort((a,b) => dailyDateStr(a).localeCompare(dailyDateStr(b)));
+    console.log(`[daywise] matched=${matched.length}`);
+
+    if (!matched.length) {
+      if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No daily data for ${label}.</span>`;
+      if (loader) loader.style.display='none';
+      canvas.style.opacity='1'; canvas.style.display='none'; return;
+    }
+    canvas.style.display = 'block';
+
+    const labels=[], recv=[], qcDone=[], capLine=[], pend=[];
+    const DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    matched.forEach(r => {
+      const ds = dailyDateStr(r);
+      const d  = new Date(ds); d.setHours(12,0,0,0);
+      labels.push(`${DAY[d.getDay()]} ${d.getDate()}/${d.getMonth()+1}`);
+      recv.push(  parseFloat(r.total_in  || r['Total In']  || 0));
+      qcDone.push(parseFloat(r.total_out || r['Total Out'] || 0));
+      // Day-wise pendency = backlog at end of day (daily_summary.backlog_eod)
+      const bl = parseFloat(r.backlog_eod ?? r['Backlog EOD'] ?? r.backlog);
+      pend.push(isNaN(bl) ? null : bl);
+
+      // Day-wise capacity = Σ users_on_shift × 8h × target (minus leaves)
+      let cap = 0;
+      const period = periods.find(p => {
+        if (!p.start||!p.end) return false;
+        return d >= new Date(p.start) && d <= new Date(p.end);
+      });
+      if (period && d.getDay() !== 0) { // weekdays
+        const onLeave = period.leaves[ds]||[];
+        (period.shifts||[]).forEach(sh => {
+          if (!sh) return;
+          const active = sh.users.filter(u=>!onLeave.includes(u)).length;
+          cap += active * 8 * period.target; // 8 effective hours (9h - 1h break)
+        });
+      }
+      capLine.push(cap || null);
+    });
+
+    const PAL = getPal();
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+    canvas.style.opacity = '1';
+    if (loader) loader.style.display = 'none';
+
+    _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
+      data:{ labels, datasets:[
+        { label:'Received', data:recv, hidden:!_hlyVisible.recv,
+          borderColor:PAL.accent, backgroundColor:PAL.accent+'22', fill:true,
+          borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.accent,
+          datalabels:{ anchor:'end', align:'end', color:PAL.accent,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?fmtCompact(v):'' }},
+        { label:'QC Done', data:qcDone, hidden:!_hlyVisible.qcdone,
+          borderColor:PAL.green, backgroundColor:PAL.green+'22', fill:true,
+          borderWidth:2.2, tension:0.35, pointRadius:3, pointBackgroundColor:PAL.green,
+          datalabels:{ anchor:'end', align:'start', color:PAL.green,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v>0?fmtCompact(v):'' }},
+        { label:'Pendency', data:pend, hidden:!_hlyVisible.backlog, type:'line',
+          borderColor:PAL.red, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false, borderDash:[5,3],
+          pointRadius:3, pointBackgroundColor:PAL.red, spanGaps:true,
+          datalabels:{ anchor:'end', align:'top', color:PAL.red,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' }},
+        { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
+          borderColor:'#E8820A', backgroundColor:'transparent',
+          borderWidth:2.5, borderDash:[6,4], stepped:'after',
+          pointRadius:4, pointBackgroundColor:'#E8820A',
+          datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' }},
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{mode:'index', intersect:false,
+            callbacks:{ label:c=>`${c.dataset.label}: ${fmtCompact(c.parsed.y)}` }},
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{color:getPal().muted, font:{size:10}, maxRotation:45} },
+          y:{ beginAtZero:true, grid:{color:getPal().line},
+              ticks:{color:getPal().muted, font:{size:10}, callback:v=>fmtCompact(v)} },
+        },
+      },
+    });
+
+    const totalRecv  = recv.reduce((a,b)=>a+b,0);
+    const totalQc    = qcDone.reduce((a,b)=>a+b,0);
+    const pendVals   = pend.filter(v=>v!=null);
+    const leg = $('hourlyLegend');
+    if (leg) leg.innerHTML = [
+      {label:'Received', color:PAL.accent, val:fmtCompact(totalRecv)},
+      {label:'QC Done',  color:PAL.green,  val:fmtCompact(totalQc)},
+      {label:'Pendency (end of day)', color:PAL.red, val: pendVals.length ? `peak ${fmtCompact(Math.max(...pendVals))} · last ${fmtCompact(pendVals[pendVals.length-1])}` : '—'},
+      {label:'Capacity (8h/user)',color:'#E8820A', val:'from roster'},
+    ].map(({label,color,val})=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
+    ).join('');
+
+  } catch(e) {
+    console.error('[day-wise]', e);
+    if (loader) loader.style.display='none';
+    canvas.style.opacity='1';
+  }
+}
+
+async function renderHourlyChart() {
+  const loader = $('hourlyLoader');
+  const canvas = $('cHourly');
+  if (!canvas) return;
+  if (loader) loader.style.display = 'block';
+  canvas.style.opacity = '0.3';
+
+  // ── Day-wise view ──────────────────────────────────────────────────────────
+  if (_hlyView === 'day') {
+    await renderDayWiseChart(canvas, loader);
+    return;
+  }
+
+  try {
+    const sub = $('hourlySub');
+    if (sub) sub.textContent = 'summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover';
+    const rows = await fetchGS(GS_HOURLY);
+    console.log(`[hourly] fetched ${rows.length} rows. First:`, rows[0]);
+    const { fromStr, toStr, label } = getHourlyDateBounds(_hourlyRange);
+    console.log(`[hourly] range=${_hourlyRange} fromStr=${fromStr} toStr=${toStr}`);
+
+    const matchedRows = rows.map(r=>({...r,_p:parseHourIST(r.hour_ist)}))
+      .filter(r => r._p && r._p.dateStr >= fromStr && r._p.dateStr < toStr);
+    console.log(`[hourly] matchedRows=${matchedRows.length}`, matchedRows.map(r=>r.hour_ist+' → '+JSON.stringify(r._p)));
+
+    if (matchedRows.length === 0) {
+      $('hourlyLegend').innerHTML = `<span style="color:var(--muted);font-size:12px">No data for ${label} yet — Google Sheets updates hourly.</span>`;
+      if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+      canvas.style.display = 'none';
+      if (loader) loader.style.display = 'none';
+      return;
+    }
+    canvas.style.display = 'block';
+
+    const recv    = new Array(24).fill(0);
+    const qcDone  = new Array(24).fill(0);
+    const backlog = new Array(24).fill(0);
+    const bCount  = new Array(24).fill(0);
+
+    matchedRows.forEach(r => {
+      const h = r._p.hour;
+      recv[h]    += parseFloat(r.total_in)  || 0;
+      qcDone[h]  += parseFloat(r.total_out) || 0;
+      backlog[h] += parseFloat(r.backlog)   || 0;
+      bCount[h]++;
+    });
+
+    // Multi-day ranges (15/30/45 days) show the per-hour AVERAGE across the
+    // matched days, not the raw sum — today/yesterday are single-day, so
+    // averaging would just divide by 1 and change nothing, but skip it
+    // explicitly for clarity.
+    const isSingleDay = (_hourlyRange === 'today' || _hourlyRange === 'yesterday');
+    if (!isSingleDay) {
+      for (let h=0; h<24; h++){
+        if (bCount[h] > 1){ recv[h] = recv[h]/bCount[h]; qcDone[h] = qcDone[h]/bCount[h]; }
+      }
+    }
+
+    const backlogAvg = backlog.map((s,i) => bCount[i] ? Math.round(s/bCount[i]) : 0);
+    const labels     = Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00');
+    const totalRecv   = isSingleDay ? recv.reduce((a,b)=>a+b,0) : +recv.reduce((a,b)=>a+b,0).toFixed(1);
+    const totalQc     = isSingleDay ? qcDone.reduce((a,b)=>a+b,0) : +qcDone.reduce((a,b)=>a+b,0).toFixed(1);
+    const peakBacklog = Math.max(...backlogAvg);
+    const endBacklog  = backlogAvg[23];
+
+    const PAL = getPal();
+    const isDarkMode = document.documentElement.dataset.theme === 'dark';
+    const pointBorder = isDarkMode ? PAL.ink : '#ffffff';
+    const labelColor  = PAL.bodyText || PAL.ink;
+
+    // Gradient under Received — same as mkTrend
+    const ctx2 = canvas.getContext('2d');
+    function hexToRgba(hex, a){
+      const h = String(hex||'').trim().replace('#','');
+      if (h.length!==6) return `rgba(31,63,114,${a})`;
+      const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    const grad = ctx2.createLinearGradient(0,0,0,canvas.height||320);
+    grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
+    grad.addColorStop(1, hexToRgba(PAL.accent, 0));
+
+    // ── Compute capacity per hour from roster ─────────────────────────────────
+    // Hour-wise: actual users on shift at that hour × target
+    // Overnight shifts carry over: hours 0-N on date D use prev day (D-1) leaves
+    // For multi-day ranges (15/30/45 days), this is computed per-day and then
+    // AVERAGED across the days — a single reference day isn't representative
+    // when there could be multiple roster periods (and different rosters)
+    // spanning the whole range.
+    let capPerHour = new Array(24).fill(0);
+    try {
+      const rosterRaw  = await fetchGSRaw(GS_ROSTER);
+      const periods    = parseRosterPeriods(rosterRaw);
+      const { fromStr, toStr: capToStr } = getHourlyDateBounds(_hourlyRange);
+
+      const findPer = d => periods.find(p => {
+        if (!p.start||!p.end) return false;
+        const pd = new Date(d); pd.setHours(12,0,0,0);
+        return pd >= new Date(p.start) && pd <= new Date(p.end);
+      });
+
+      function capPerHourForDay(refDate, debugLog){
+        const out = new Array(24).fill(0);
+        const prevDate = new Date(refDate); prevDate.setDate(prevDate.getDate()-1);
+        const refStr   = refDate.toISOString().slice(0,10);
+        const prevStr  = prevDate.toISOString().slice(0,10);
+        const period     = findPer(refDate);
+        const prevPeriod = findPer(prevDate);
+        if (debugLog) {
+          console.log('[cap-debug] refDate=', refStr, 'period=', period&&period.header, 'target=', period&&period.target,
+            'prevDate=', prevStr, 'prevPeriod=', prevPeriod&&prevPeriod.header, 'prevTarget=', prevPeriod&&prevPeriod.target,
+            'samePeriodObject=', period===prevPeriod);
+          if (period) console.log('[cap-debug] period.shifts:', period.shifts.map(s=>s&&({label:s.label, users:s.users})));
+          if (prevPeriod && prevPeriod!==period) console.log('[cap-debug] prevPeriod.shifts:', prevPeriod.shifts.map(s=>s&&({label:s.label, users:s.users})));
+        }
+        for (let h = 0; h < 24; h++) {
+          let hourDetail = [];
+          if (period) {
+            (period.shifts||[]).forEach(sh => {
+              if (!sh) return;
+              const { start, end } = parseShiftHours(sh.label);
+              const overnight = end < start;
+              const active = overnight ? (h >= start) : (h >= start && h < end);
+              if (active) {
+                const leave = period.leaves[refStr]||[];
+                const activeUsers = sh.users.filter(u=>!leave.includes(u));
+                out[h] += activeUsers.length * period.target;
+                if (debugLog) hourDetail.push(`TODAY:${sh.label}→${activeUsers.join(',')}`);
+              }
+            });
+          }
+          if (prevPeriod) {
+            (prevPeriod.shifts||[]).forEach(sh => {
+              if (!sh) return;
+              const { start, end } = parseShiftHours(sh.label);
+              const overnight = end < start;
+              if (overnight && h < end) {
+                const leave = prevPeriod.leaves[prevStr]||[];
+                const activeUsers = sh.users.filter(u=>!leave.includes(u));
+                out[h] += activeUsers.length * prevPeriod.target;
+                if (debugLog) hourDetail.push(`CARRYOVER:${sh.label}→${activeUsers.join(',')}`);
+              }
+            });
+          }
+          if (debugLog && hourDetail.length) console.log(`[cap-debug] hour=${h} total=${out[h]} from:`, hourDetail);
+        }
+        return out;
+      }
+
+      const isSingleDayCap = (_hourlyRange === 'today' || _hourlyRange === 'yesterday');
+      if (isSingleDayCap) {
+        const refDate = new Date(fromStr); refDate.setHours(12,0,0,0);
+        capPerHour = capPerHourForDay(refDate, true);
+      } else {
+        // Loop every day in [fromStr, capToStr), sum per hour, then average.
+        let dayCount = 0;
+        const cursor = new Date(fromStr); cursor.setHours(12,0,0,0);
+        const end = new Date(capToStr); end.setHours(12,0,0,0);
+        while (cursor < end) {
+          const dayCap = capPerHourForDay(cursor);
+          for (let h=0; h<24; h++) capPerHour[h] += dayCap[h];
+          dayCount++;
+          cursor.setDate(cursor.getDate()+1);
+        }
+        if (dayCount > 0) for (let h=0; h<24; h++) capPerHour[h] = Math.round(capPerHour[h]/dayCount);
+      }
+    } catch(e) { console.warn('[cap]', e.message); }
+
+    if (_hourlyChart) { _hourlyChart.destroy(); _hourlyChart = null; }
+
+    _hourlyChart = new Chart(canvas, {
+      type:'line', plugins:[ChartDataLabels],
+      data:{ labels, datasets:[
+        { label:'Received', data:recv, type:_hlyType, order:2, borderRadius:4,
+          borderColor:PAL.accent, backgroundColor:grad,
+          borderWidth:2.2, tension:0.35, fill:true,
+          pointRadius:3, pointHoverRadius:6,
+          pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', clamp:true, color:labelColor,
+            font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
+            formatter:v=>v>0?fmtCompact(v):'', padding:{top:2,bottom:2},
+          },
+        },
+        { label:'QC Done', data:qcDone, type:_hlyType, order:2, borderRadius:4,
+          borderColor:PAL.green, backgroundColor:(_hlyType==='bar'?PAL.green+'55':'transparent'),
+          borderWidth:2, tension:0.35, fill:false,
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.green, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'bottom', anchor:'end', color:PAL.green,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?fmtCompact(v):'', padding:{top:1,bottom:1},
+          },
+        },
+        { label:'Pendency', data:backlogAvg, type:'line', order:1,
+          borderColor:PAL.red, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false,
+          borderDash:[5,3],
+          pointRadius:2.5, pointHoverRadius:5.5,
+          pointBackgroundColor:PAL.red, pointBorderColor:pointBorder, pointBorderWidth:0,
+          pointHoverBackgroundColor:PAL.red, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+          datalabels:{
+            align:'top', anchor:'end', color:PAL.red,
+            font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+            formatter:v=>v>0?fmtCompact(v):'',
+            display: ctx => ctx.dataset.data[ctx.dataIndex]>0,
+          },
+        },
+        // Capacity from roster (dashed orange line)
+        { label:'Capacity', data:capPerHour, type:'line', order:1, hidden:!_hlyVisible.cap,
+          borderColor:'#E8820A', backgroundColor:'transparent',
+          borderWidth:2.2, borderDash:[6,4], stepped:'after', fill:false,
+          pointRadius:3, pointHoverRadius:5,
+          pointBackgroundColor:'#E8820A', pointBorderColor:'#E8820A',
+          datalabels:{ anchor:'end', align:'top', color:'#E8820A',
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' },
+        },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        layout:{ padding:{ top:18 } },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            backgroundColor:PAL.ink,
+            titleColor:isDarkMode?'#0b0b0c':'#fff',
+            bodyColor:isDarkMode?'#0b0b0c':'#fff',
+            padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+            callbacks:{ label:ctx=>`${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` },
+          },
+        },
+        scales:{
+          x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted,autoSkip:true,maxRotation:0} },
+          y:{ grid:{color:PAL.line,drawBorder:false}, beginAtZero:true,
+              ticks:{font:{size:11},color:PAL.muted,precision:0,callback:v=>fmtCompact(v)} },
+        },
+      },
+    });
+
+    $('hourlySub').textContent = `${label.toUpperCase()} · ${isSingleDay?'BY HOUR OF DAY':'AVERAGED BY HOUR OF DAY ACROSS '+bCount.filter(c=>c>0).length+' DAY-GROUPS'} · RECEIVED BY CREATED_ON · QC_DONE BY UPDATED_ON · PENDENCY = FRESH + PRIOR HOUR LEFTOVER`;
+    const cols = { Received:PAL.accent, 'QC Done':PAL.green, 'Pendency':PAL.red, Capacity:PAL.orange||'#E8820A' };
+    const totalCap = capPerHour.reduce((a,b)=>a+b,0);
+    const peakCap  = Math.max(...capPerHour);
+    $('hourlyLegend').innerHTML = [
+      ['Received',  fmtCompact(totalRecv)],
+      ['QC Done',   fmtCompact(totalQc)],
+      ['Pendency',  `peak ${fmtCompact(peakBacklog)} · end ${fmtCompact(endBacklog)}`],
+      ['Capacity',  `peak ${fmtCompact(peakCap)} · total ${fmtCompact(totalCap)}`],
+    ].map(([k,v])=>
+      `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v}</span></div>`
+    ).join('');
+
+  } catch(err) {
+    console.error('[hourly]', err);
+    if ($('hourlyLegend')) $('hourlyLegend').innerHTML = `<span style="color:var(--red);font-size:12px">Failed to load: ${err.message}</span>`;
+  } finally {
+    if (loader) loader.style.display = 'none';
+    canvas.style.opacity = '1';
+  }
+}
+
+
+function mkTrend(canvas, buckets){
+  killChart('trend');
+  if (!buckets || !buckets.length) return;
+  const PAL = getPal();
+  const labels = buckets.map(b=>b.label);
+  const recv  = buckets.map(b=>b.received);
+  const dlvd  = buckets.map(b=>b.delivered);
+  const rejd  = buckets.map(b=>b.rejected);
+
+  // Theme-aware gradient under the Received line. The fill must use the CURRENT
+  // accent color (light=navy, dark=blue) so the chart re-renders correctly on toggle.
+  // Convert "#rrggbb" to "rgba(r,g,b,a)" so we can apply opacity stops.
+  function hexToRgba(hex, a){
+    const h = String(hex||'').trim().replace('#','');
+    if (h.length !== 6) return `rgba(31,63,114,${a})`;
+    const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height || 320);
+  grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
+  grad.addColorStop(1, hexToRgba(PAL.accent, 0));
+
+  // Theme-aware point hover border: light bg for light theme, dark bg for dark theme.
+  const pointBorder = isDark ? PAL.ink : '#ffffff';
+
+  // Labels above each Received point, in the body text color (so they adapt to theme).
+  // Hide labels on points with value 0 to avoid clutter.
+  const labelColor = PAL.ink;
+
+  charts.trend = new Chart(canvas, {
+    type:'line', plugins:[ChartDataLabels],
+    data:{ labels, datasets:[
+      { label:'Received',  data:recv, borderColor:PAL.accent, backgroundColor:grad,
+        borderWidth:2.2, tension:0.35, pointRadius:3, pointHoverRadius:6,
+        pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:true,
+        datalabels:{
+          align:'top', anchor:'end', clamp:true,
+          color:labelColor,
+          font:{family:"'JetBrains Mono',monospace", size:10, weight:'600'},
+          formatter:v=> v>0 ? fmtCompact(v) : '',
+          padding:{top:2, bottom:2},
+        },
+      },
+      { label:'Delivered', data:dlvd, borderColor:PAL.green,  backgroundColor:'transparent',
+        borderWidth:2, tension:0.35, pointRadius:2.5, pointHoverRadius:5.5,
+        pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.green, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:false,
+        datalabels:{
+          align:'bottom', anchor:'end',
+          color:PAL.green,
+          font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? fmtCompact(v) : '',
+          padding:{top:1, bottom:1},
+        },
+      },
+      { label:'Rejected',  data:rejd, borderColor:PAL.red,    backgroundColor:'transparent',
+        borderWidth:2, tension:0.35, pointRadius:2.5, pointHoverRadius:5.5,
+        pointBackgroundColor:PAL.red, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.red, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:false,
+        datalabels:{
+          align:'top', anchor:'end', clamp:true,
+          color:PAL.red,
+          font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? fmtCompact(v) : '',
+          padding:{top:2, bottom:2},
+        },
+      },
+    ] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      layout:{ padding:{ top:18 } },
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:PAL.ink, titleColor:isDark?'#0b0b0c':'#fff',
+          bodyColor:isDark?'#0b0b0c':'#fff',
+          padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+          callbacks:{ label:(ctx)=> `${ctx.dataset.label}: ${fmtCompact(ctx.parsed.y)}` },
+        },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{font:{size:11},color:PAL.muted, autoSkip:true, maxRotation:0} },
+        y:{ grid:{color:PAL.line, drawBorder:false}, beginAtZero:true,
+            ticks:{font:{size:11},color:PAL.muted, precision:0, callback:(v)=>fmtCompact(v)} },
+      },
+    },
+  });
+
+  const totals = {
+    Received:  recv.reduce((a,b)=>a+b,0),
+    Delivered: dlvd.reduce((a,b)=>a+b,0),
+    Rejected:  rejd.reduce((a,b)=>a+b,0),
+  };
+  const cols = { Received:PAL.accent, Delivered:PAL.green, Rejected:PAL.red };
+  $('trendLegend').innerHTML = Object.entries(totals).map(([k,v])=>
+    `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${fmtCompact(v)}</span></div>`
+  ).join('');
+}
+
+// ── Segmented bar (Delivered + Rejected in one bar) ──────────────────────────
+function showSegTip(e, text){
+  const t = $('segTooltip');
+  t.innerHTML = text.split('\n').map(l=>`<div>${l}</div>`).join('');
+  t.style.display = 'block';
+  t.style.left = (e.clientX + 14)+'px';
+  t.style.top  = (e.clientY - 52)+'px';
+}
+function hideSegTip(){
+  $('segTooltip').style.display = 'none';
+}
+
+let entSortBy = 'total', teamSortBy = 'total'; let lastEntBreak = null, lastTeamBreak = null; function pickEnt(label){ F.ent = new Set([label]); F.team = null; refreshMsTriggers(); setTimeout(()=>refresh(),0); } function pickTeam(label){ F.team = new Set([label]); refreshMsTriggers(); setTimeout(()=>refresh(),0); } function setEntSort(mode){ entSortBy = mode; document.querySelectorAll('[data-sorttoggle="ent"] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.sort===mode)); if (lastEntBreak) mkSegBar('ent', $('cEnt'), lastEntBreak, { sortBy: entSortBy, limit: 30, onPick: pickEnt }); } function setTeamSort(mode){ teamSortBy = mode; document.querySelectorAll('[data-sorttoggle="team"] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.sort===mode)); if (lastTeamBreak) mkSegBar('team', $('cTeam'), lastTeamBreak, { sortBy: teamSortBy, limit: 30, onPick: pickTeam }); } function mkSegBar(id, container, breakMap, opts={}){
+  if (!container) return;
+  container.innerHTML = '';
+  if (!breakMap || !Object.keys(breakMap).length){
+    container.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>';
+    return;
+  }
+
+  // Sort by total desc, take top 10
+  const entries = Object.entries(breakMap)
+    .map(([label, b]) => ({ label, total:b.total||0, delivered:b.delivered||0, rejected:b.rejected||0 }))
+    .sort((a,b) => b[(opts.sortBy==='rejected'?'rejected':'total')] - a[(opts.sortBy==='rejected'?'rejected':'total')])
+    .slice(0, opts.limit || 10);
+
+  const maxTotal = entries[0]?.total || 1;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:0';
+
+  // Legend row
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:14px;margin-bottom:10px;font-size:10px;color:var(--muted);letter-spacing:.04em';
+  legend.innerHTML =
+    `<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#1D9E75;display:inline-block"></span>DELIVERED</span>` +
+    `<span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#E24B4A;display:inline-block"></span>REJECTED</span>`;
+  wrap.appendChild(legend);
+
+  entries.forEach(({ label, total, delivered, rejected }) => {
+    const dPct = total ? (delivered / maxTotal) * 100 : 0;
+    const rPct = total ? (rejected  / maxTotal) * 100 : 0;
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);cursor:pointer';
+    row.setAttribute('role','button');
+    row.setAttribute('tabindex','0');
+    if (opts.onPick){
+      row.addEventListener('click', ()=> opts.onPick(label));
+      row.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); opts.onPick(label); }});
+    }
+
+    // Name
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'font-size:11px;color:var(--ink-2);width:150px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    nameEl.textContent = label;
+    nameEl.title = label;
+
+    // Bar
+    const barWrap = document.createElement('div');
+    barWrap.style.cssText = 'flex:1;display:flex;height:26px;border-radius:4px;overflow:hidden;background:var(--line);min-width:0';
+
+    if (dPct > 0){
+      const dSeg = document.createElement('div');
+      dSeg.style.cssText = `width:${dPct}%;background:#1D9E75;overflow:hidden`;
+      barWrap.appendChild(dSeg);
+    }
+    if (rPct > 0){
+      const rSeg = document.createElement('div');
+      rSeg.style.cssText = `width:${rPct}%;background:#E24B4A;overflow:hidden`;
+      barWrap.appendChild(rSeg);
+    }
+
+    // Hover on entire bar shows both delivered + rejected
+    const bothTip = `✅ Delivered: ${delivered.toLocaleString()} (${((delivered/total)*100).toFixed(1)}%)\n❌ Rejected: ${rejected.toLocaleString()} (${((rejected/total)*100).toFixed(1)}%)`;
+    barWrap.addEventListener('mousemove', e=>showSegTip(e, bothTip));
+    barWrap.addEventListener('mouseleave', hideSegTip);
+
+    // Total
+    const totalEl = document.createElement('span');
+    totalEl.style.cssText = 'font-size:11px;font-weight:700;color:var(--ink);width:46px;flex-shrink:0;text-align:right;font-family:"JetBrains Mono",monospace';
+    totalEl.textContent = total.toLocaleString();
+
+    row.appendChild(nameEl);
+    row.appendChild(barWrap);
+    row.appendChild(totalEl);
+    wrap.appendChild(row);
+  });
+
+  container.appendChild(wrap);
+}
+// ── Reason breakdown card (top N with scroll) ────────────────────────────────
+function mkReasonCard(containerId, countMap, color, drillView, totalReviewed, pctHeaderId, clickable){
+  clickable = clickable !== false;
+  const el = $(containerId);
+  if (!el) return;
+  const entries = Object.entries(countMap).sort((a,b)=>b[1]-a[1]);
+  const cardTotal = entries.reduce((s,[,c])=>s+c, 0);
+  if (pctHeaderId && $(pctHeaderId)){
+    const headerEl = $(pctHeaderId);
+    if (totalReviewed){
+      const pct = (cardTotal/totalReviewed)*100;
+      headerEl.innerHTML = `<div style="font-size:15px;font-weight:600;color:${color};">${pct.toFixed(1)}%</div><div style="font-size:10px;color:var(--muted);margin-top:1px;">of reviewed · ${num(cardTotal)}</div>`;
+    } else {
+      headerEl.innerHTML = '';
+    }
+  }
+  if (!entries.length){ el.innerHTML='<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>'; return; }
+  const max = entries[0][1];
+  el.innerHTML = entries.map(([label, count]) => {
+    const pct    = (count/max)*100;
+    const ofReviewed = totalReviewed ? (count/totalReviewed)*100 : null;
+    const active = clickable && F.rejReason && F.rejReason.label === label;
+    return `
+      <div class="reason-row" data-reason="${esc(label)}" data-view="${drillView||''}"
+           style="margin-bottom:10px;cursor:pointer;border-radius:6px;padding:4px;
+                  background:${active?'var(--surface-2)':'transparent'};
+                  outline:${active?'1px solid '+color:'none'};transition:background .15s"
+           onmouseenter="this.style.background='var(--surface-2)'"
+           onmouseleave="this.style.background='${active?'var(--surface-2)':'transparent'}'"
+           title="${active?'Click to clear filter':'Click to filter by this reason'}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:8px">
+          <span style="font-size:11px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%"
+                title="${esc(label)}">${esc(label)}</span>
+          <span style="font-size:11px;font-weight:600;color:var(--ink);font-family:'JetBrains Mono',monospace;flex-shrink:0">${num(count)}${ofReviewed!=null?` · <span style="color:${color}">${ofReviewed.toFixed(2)}%</span>`:''}</span>
+        </div>
+        <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .3s"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Wire up click → filter dashboard by reason
+  el.querySelectorAll('.reason-row').forEach(row => {
+    if (!clickable){ row.style.cursor = 'default'; row.title=''; return; }
+    row.addEventListener('click', () => {
+      const reason = row.dataset.reason;
+      const type   = row.dataset.view;   // 'qc', 'val', 'tech'
+      // Toggle: if already filtering by this reason, clear it
+      if (F.rejReason && F.rejReason.label === reason) {
+        F.rejReason = null;
+      } else {
+        F.rejReason = { label: reason, type };
+      }
+      refreshMsTriggers();
+      setTimeout(()=>refresh(), 0);
+    });
+  });
+}
+
+function mkBar(id, canvas, map, opts={}){
+  killChart(id);
+  if (!map || !Object.keys(map).length){
+    // Show empty state by clearing the canvas
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    return;
+  }
+  const PAL = getPal();
+  const labels = Object.keys(map);
+  const values = Object.values(map);
+  charts[id] = new Chart(canvas, {
+    type:'bar', plugins:[ChartDataLabels],
+    data:{ labels, datasets:[{
+      data:values, backgroundColor: opts.color || PAL.accent,
+      borderRadius:4, maxBarThickness:22,
+      datalabels:{ anchor:'end', align:opts.h?'end':'top', color:PAL.muted,
+        font:{family:"'JetBrains Mono',monospace",size:10}, formatter:v=>v.toLocaleString() },
+    }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      indexAxis: opts.h ? 'y' : 'x',
+      plugins:{ legend:{display:false}, tooltip:{displayColors:false}, datalabels:{display:true} },
+      onClick:(_, items)=>{ if (!items.length || !opts.onPick) return; opts.onPick(labels[items[0].index]); },
+      scales:{
+        x:{ grid:{color:PAL.line, display:!opts.h}, ticks:{font:{size:11},color:PAL.muted}, beginAtZero:opts.h },
+        // y reversed so the FIRST (largest, desc-sorted) bar appears at the TOP
+        // Data is passed in DESC order, so default category-axis rendering
+        // (first label at top) puts the largest bar on top. Do NOT reverse.
+        y:{ grid:{color:PAL.line, display:opts.h}, ticks:{font:{size:11},color:PAL.muted, autoSkip:false},
+            beginAtZero:!opts.h },
+      },
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// RECORDS TABLE — SORTING
+// ─────────────────────────────────────────────────────────────
+function getRowSortVal(r, col){
+  if (col === '_created') return r._created?.getTime() ?? 0;
+  if (col === '_updated') return r._updated?.getTime() ?? 0;
+  if (col === '_status')  return isDelivered(r) ? 2 : isRejected(r) ? 1 : 0;
+  if (col === 'sla')      return (r.sla === 1) ? 1 : (r.sla === 0) ? 0 : -1;
+  if (col === 'tat')      return (typeof r.tat === 'number') ? r.tat : -1;
+  return String(r[col] ?? '').toLowerCase();
+}
+
+function updateSortIndicators(){
+  document.querySelectorAll('#tHead th.sortable').forEach(th=>{
+    const col = th.dataset.sort;
+    const ind = th.querySelector('.sort-ind');
+    if (sortState.col === col){
+      th.classList.add('sorted');
+      ind.textContent = sortState.dir === 'asc' ? '↑' : '↓';
+    } else {
+      th.classList.remove('sorted');
+      ind.textContent = '↕';
+    }
+  });
+  $('resetSortBtn').classList.toggle('show', !!sortState.col);
+}
+
+function handleSortClick(col){
+  // Cycle: nothing → asc → desc → nothing
+  if (sortState.col !== col){
+    sortState.col = col; sortState.dir = 'asc';
+  } else if (sortState.dir === 'asc'){
+    sortState.dir = 'desc';
+  } else {
+    sortState.col = null; sortState.dir = null;
+  }
+  refresh();
+}
+
+function resetSort(){
+  sortState.col = null; sortState.dir = null;
+  refresh();
+}
+
+// ─────────────────────────────────────────────────────────────
+// SLA + KPI PAINT
+// ─────────────────────────────────────────────────────────────
+function paintSla(k){
+  const within = k.withinSla||0, out = k.outOfSla||0, total = within + out;
+  const pctIn  = total ? (within/total)*100 : 0;
+  const pctOut = total ? (out/total)*100    : 0;
+  $('slaNumIn').textContent  = num(within);
+  $('slaNumOut').textContent = num(out);
+  $('slaPctIn').textContent  = total ? pctIn.toFixed(1)+'%' : '—%';
+  $('slaPctOut').textContent = total ? pctOut.toFixed(1)+'%' : '—%';
+  $('slaBarIn').style.width  = pctIn+'%';
+  $('slaBarOut').style.width = pctOut+'%';
+  $('slaDeliveryRate').textContent = k.deliveryRate!=null ? k.deliveryRate.toFixed(1)+'%' : '—';
+  $('slaMeta').textContent = total
+    ? `${num(total)} delivered records`
+    : 'No delivered records in view';
+}
+
+function paintAccuracy(k){
+  const auto   = k.autoDelivered   || 0;
+  const manual = k.manualDelivered || 0;
+  const total  = auto + manual || 1;
+  const pctAuto   = (auto   / total) * 100;
+  const pctManual = (manual / total) * 100;
+
+  $('accNumAuto').textContent   = num(auto);
+  $('accNumManual').textContent = num(manual);
+  $('accPctAuto').textContent   = pctAuto.toFixed(1)+'%';
+  $('accPctManual').textContent = pctManual.toFixed(1)+'%';
+  $('accBarAuto').style.width   = pctAuto+'%';
+  $('accBarManual').style.width = pctManual+'%';
+  $('accMeta').textContent  = `Auto accuracy: ${pctAuto.toFixed(1)}%`;
+  $('accTotal').textContent = `${num(total)} delivered SKUs`;
+}
+
+function paintDelivery(k){
+  const deliv      = k.totalDelivered  || 0;
+  const qcFailed   = k.totalQcFailed   || 0;
+  const valFailed  = k.totalValidationFailed || 0;
+  const techFailed = k.totalTechFailed || 0;
+  const aiFailed   = k.totalAiFailed   || 0;
+  const pending    = k.totalPending    || 0;
+  const total      = k.totalReceived   || 0;
+
+  // Not Delivered = all failed statuses (NO pending/Under Review)
+  const notDeliv = qcFailed + valFailed + techFailed + aiFailed;
+
+  // Denominator = Total Received - Under Review
+  const denom   = Math.max(total - pending, 1);
+  const pctDone = (deliv    / denom) * 100;
+  const pctNot  = Math.max(0, 100 - pctDone);
+
+  $('delvNumDone').textContent = num(deliv);
+  $('delvNumRej').textContent  = num(notDeliv);   // NO pending added
+  $('delvPctDone').textContent = pctDone.toFixed(1)+'%';
+  $('delvPctRej').textContent  = pctNot.toFixed(1)+'%';
+  $('delvBarDone').style.width = pctDone+'%';
+  $('delvBarRej').style.width  = pctNot+'%';
+  $('delvRejCount').textContent  = num(qcFailed + valFailed);  // Rejected label: QC+Val
+  $('delvPendCount').textContent = num(pending);
+  $('delvMeta').textContent = total ? `${num(total)} received in view` : 'No records in view';
+}
+
+function paint(){
+  if (!RAW.length) return;
+  const t0 = performance.now();
+  const filtered = RAW.filter(passesFilters);
+  const k = aggregate(filtered);
+
+  // KPI values
+  $('kv-ent').textContent       = num(k.enterpriseCount);
+  $('kv-team').textContent      = num(k.teamCount);
+  $('kv-received').textContent  = num(k.totalReceived);
+  $('kv-delivered').textContent = num(k.totalDelivered);
+  $('kv-rejected').textContent  = num(k.totalRejected||0);  // QC Failed + Validation Failed only
+  const rejTip = $('kv-rejected-tooltip');
+  if (rejTip) rejTip.innerHTML =
+    `<div class="rb-row"><span class="rb-lbl">QC FAILED</span><span class="rb-num" style="color:var(--red)">${num(k.totalQcFailed)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">VALIDATION</span><span class="rb-num" style="color:var(--red)">${num(k.totalValidationFailed)}</span></div>`;
+  $('kv-processing') && ($('kv-processing').textContent = num(k.totalProcessing||0));
+  $('kv-tech-ai')    && ($('kv-tech-ai').textContent    = num((k.totalTechFailed||0)+(k.totalAiFailed||0)));
+  const techTip = $('kv-tech-ai-tooltip');
+  if (techTip) techTip.innerHTML =
+    `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
+    `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
+  $('kv-pending').textContent   = num(k.totalPending);
+  $('kv-tat').textContent       = fmtTatHrs(k.avgTat);
+  $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
+  $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
+  $('kv-p99')     && ($('kv-p99').textContent     = fmtTatHrs(k.p99Tat));
+
+  // hero banner sync (mirrors computed KPI values)
+  { const hr=$('hkv-received'); if(hr){ hr.textContent=num(k.totalReceived);
+    $('hkv-delivered').textContent=num(k.totalDelivered);
+    $('hkv-sla').textContent=k.slaCompliance!=null?k.slaCompliance.toFixed(1)+'%':'—';
+    $('hkv-pending').textContent=num(k.totalPending);
+    $('hkv-tat').textContent=fmtTatHrs(k.avgTat); } }
+
+  // SLA + Delivery panels
+  paintSla(k);
+  paintDelivery(k);
+  paintAccuracy(k);
+  renderTrends(); renderActiveFiltersBar();
+
+  // Top-X segmented bars (Delivered + Rejected in one bar)
+  const PAL = getPal();
+  lastEntBreak = k.entBreak; mkSegBar('ent',  $('cEnt'),  k.entBreak,  {
+    sortBy: entSortBy, limit: 30, onPick: pickEnt
+  });
+  lastTeamBreak = k.teamBreak; mkSegBar('team', $('cTeam'), k.teamBreak, {
+    sortBy: teamSortBy, limit: 30, onPick: pickTeam
+  });
+
+  // Reason breakdown cards
+  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc',   k.totalReviewed, 'qcReasonsPct');
+  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val',  k.totalReviewed, 'valReasonsPct');
+  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech', k.totalReviewed, 'techReasonsPct');
+  // Trend chart — uses the same filters as the main view BUT ignores date filter
+  // and ignores the rejection-reason filter (so the timeline shows full context).
+  const trendRows = RAW.filter(r => {
+    if (F.ent      && !F.ent.has(r.ent))           return false;
+    if (F.team     && !F.team.has(r.tm))         return false;
+    if (F.cs       && !F.cs.has(r.csCol))           return false;
+    if (F.ob       && !F.ob.has(r.ob))              return false;
+    if (F.verified && !F.verified.has(r.fs||'')) return false;
+    if (F.sla){
+      if (F.sla.size === 0) return false;
+      const isW = r.sla === 1, isO = r.sla === 0;
+      let ok = false;
+      if (F.sla.has('Within SLA') && isW) ok = true;
+      if (F.sla.has('Out of SLA') && isO) ok = true;
+      if (!ok) return false;
+    }
+    if (F.seg && !F.seg.has(normSeg(r.seg))) return false;
+    return true;
+  });
+  const buckets = bucketTrend(trendRows, trendRange);
+  mkTrend($('cTrend'), buckets);
+  $('trendSub').textContent =
+    `${{'15days':'last 15 days, by day','this_month':'this month, by day','6weeks':'last 6 weeks','months':'since April','year':'last 12 months'}[trendRange]} · independent of date filter`;
+
+
+  // Recent records — apply sort state if any, else default sort by created desc
+  const allFiltered = filtered.slice();
+  let sortedRows;
+  if (sortState.col){
+    sortedRows = allFiltered.sort((a,b)=>{
+      const av = getRowSortVal(a, sortState.col);
+      const bv = getRowSortVal(b, sortState.col);
+      let cmp;
+      if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+      else cmp = String(av).localeCompare(String(bv), undefined, {numeric:true, sensitivity:'base'});
+      return sortState.dir === 'asc' ? cmp : -cmp;
+    });
+  } else {
+    sortedRows = allFiltered.sort((a,b)=>(b._created?.getTime()||0)-(a._created?.getTime()||0));
+  }
+  const recent = sortedRows.slice(0, 500);
+  $('tCount').textContent = `${num(recent.length)} of ${num(filtered.length)} filtered (${num(RAW.length)} total)`;
+  updateSortIndicators();
+  $('tBody').innerHTML = !recent.length
+    ? `<tr><td colspan="14" class="empty">No records match these filters.</td></tr>`
+    : recent.map(r=>{
+        const isD=isDelivered(r), isR=isRejected(r);
+        const statusLabel = r.fs || '—';
+        const pill = isD ? `<span class="pill delivered">${esc(statusLabel)}</span>`
+                   : isR ? `<span class="pill rejected">${esc(statusLabel)}</span>`
+                         : `<span class="pill pending">${esc(statusLabel)}</span>`;
+        const slaPill = r.sla===1?'<span class="pill sla-in">In</span>'
+                       :r.sla===0?'<span class="pill sla-out">Out</span>'
+                                 :'<span class="pill">—</span>';
+        return `<tr>
+          <td class="mono">${esc(r.vin||'—')}</td>
+          <td class="mono">${esc(r.sku||'—')}</td>
+          <td class="mono">${esc(r.sid||'—')}</td>
+          <td>${esc(r.ent||'—')}</td>
+          <td>${esc(r.tm||'—')}</td>
+          <td>${esc(r.qc||'—')}</td>
+          <td>${pill}</td>
+          <td>${slaPill}</td>
+          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
+          <td title="${esc(r.rej||'')}" style="max-width:180px;white-space:normal">${esc(r.rej||'—')}</td>
+          <td class="mono">${esc(r.tt||'—')}</td>
+          <td class="mono">${esc(r.vm||'—')}</td>
+          <td class="mono">${esc(fmtDate(r.c))}</td>
+          <td class="mono">${esc(fmtDate(r.u))}</td>
+        </tr>`;
+      }).join('');
+
+  console.log(`[paint] ${filtered.length} rows in ${(performance.now()-t0).toFixed(1)}ms`);
+}
+
+function refresh(){
+  if (currentView === 'performance') renderPerformance();
+  else if (currentView === 'accuracy') renderAccuracy();
+  else paint();
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYNC / FETCH
+// ─────────────────────────────────────────────────────────────
+async function syncFromServer({silent=false, force=false}={}){
+  const btn = $('syncBtn');
+  if (!silent){ btn.disabled = true; btn.textContent = 'Syncing…'; setLoading(true, 'Connecting to Metabase…'); setLoadProgress(5); }
+  $('errBox').innerHTML='';
+  try {
+    setLoadProgress(10, 'Fetching data…');
+
+    // Simulate progress while waiting for large response
+    let pct = 10;
+    const progressInterval = setInterval(()=>{
+      if (pct < 80){ pct += Math.random() * 8; setLoadProgress(Math.min(Math.round(pct), 80), pct < 30 ? 'Downloading data…' : pct < 60 ? 'Parsing records…' : 'Almost ready…'); }
+    }, 800);
+
+    // Data is split into one file per month (public/data/<YYYY-MM>.json) plus
+    // an index (public/data/index.json) listing which months exist.
+    // Progressive load: fetch the most recent 4 months first (the dashboard's
+    // default view needs only these) and render as soon as they're ready;
+    // older months keep loading silently in the background afterward, so
+    // switching to a wider Date Range later doesn't need a fresh fetch.
+    const idxRes = await fetch('/data/index.json?t=' + Date.now());
+    const idxData = await idxRes.json();
+    if (!idxRes.ok) throw new Error(idxData.error || 'Failed to load data index');
+
+    const monthsDesc = [...(idxData.months || [])].sort().reverse();
+    const recentMonths = monthsDesc.slice(0, 4);
+    const olderMonths  = monthsDesc.slice(4);
+    const cacheBust = Date.now();
+
+    const recentResults = await Promise.all(
+      recentMonths.map(mk => fetch(`/data/${mk}.json?t=${cacheBust}`).then(r => r.json()))
+    );
+    const mergedRows = [];
+    for (const mr of recentResults){ if (mr && mr.rows) mergedRows.push(...mr.rows); }
+    const data = { rows: mergedRows, lastSynced: idxData.lastSynced, meta: idxData.meta };
+    const res = { ok: true };
+
+    // Kick off the older months in the background — not awaited, so the
+    // dashboard renders with recent data first. When they land, push their
+    // rows into RAW silently (no re-render), so a later Date Range change
+    // finds the fuller dataset already there without a fresh network wait.
+    if (olderMonths.length){
+      Promise.all(olderMonths.map(mk => fetch(`/data/${mk}.json?t=${cacheBust}`).then(r => r.json())))
+        .then(olderResults => {
+          for (const mr of olderResults){
+            if (!mr || !mr.rows) continue;
+            for (const r of mr.rows){
+              r._created = parseTs(r.c);
+              r._updated = parseTs(r.u);
+              RAW.push(r);
+            }
+          }
+          console.log(`[background] loaded ${olderMonths.length} older month(s), RAW now ${RAW.length} rows`);
+          $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+          // Refresh the current view now that the fuller dataset has landed —
+          // needed so "since April"-style charts (Throughput trend, Accuracy
+          // trend) fill in immediately instead of staying stuck showing only
+          // the initially-loaded recent months.
+          refresh();
+        })
+        .catch(err => console.warn('[background] older-months load failed:', err));
+    }
+
+    clearInterval(progressInterval);
+    setLoadProgress(85, 'Processing rows…');
+
+    setLoadProgress(92, 'Applying filters…');
+
+    // Parse dates once on receipt — filters then become fast.
+    // IMPORTANT: the CSV timestamps come as "2026-05-11T08:54:58Z" but the
+    // values are already in the DB's session timezone (effectively naive).
+    // Using new Date() would convert UTC→local and shift records across
+    // month boundaries (e.g. 306 records from Apr 30 would land in May in IST).
+    // Parse the calendar parts directly so months match the source CSV exactly.
+    RAW.length = 0;
+    for (const r of (data.rows||[])){
+      r._created = parseTs(r.c);
+      r._updated = parseTs(r.u);
+      RAW.push(r);
+    }
+    // Diagnostic — open browser console to debug date filter
+    const nullDates = RAW.filter(r=>!r._created).length;
+    const filtered  = RAW.filter(passesFilters).length;
+    const urRaw     = RAW.filter(r=>r.fs==='Under Review').length;
+    const urFiltered= RAW.filter(r=>passesFilters(r)&&r.fs==='Under Review').length;
+    console.log('[debug] RAW='+RAW.length+' nullDates='+nullDates+' filtered='+filtered);
+    console.log('[debug] Under Review in RAW='+urRaw+' | after date filter='+urFiltered);
+    console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
+    if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
+    lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
+    $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+
+    // Diagnostic: log monthly counts so you can compare against the source CSV.
+    // Open the browser console to see it.
+    (function logMonthly(){
+      const buckets = {};
+      for (const r of RAW){
+        if (!r._created) continue;
+        const k = r._created.getFullYear() + '-' + String(r._created.getMonth()+1).padStart(2,'0');
+        if (!buckets[k]) buckets[k] = {recv:0,deliv:0,rej:0,pend:0,inSla:0,outSla:0};
+        buckets[k].recv++;
+        if (isDelivered(r)) { buckets[k].deliv++; if (r.sla===1) buckets[k].inSla++; else if (r.sla===0) buckets[k].outSla++; }
+        else if (isRejected(r)) buckets[k].rej++;
+        else if (isPending(r)) buckets[k].pend++;
+      }
+      console.log('[monthly counts — should match CSV]');
+      console.table(buckets);
+    })();
+
+    // Populate filter dropdowns from the FULL dataset (won't shrink as user filters)
+    setLoadProgress(96, 'Building filters…');
+    const sc = buildFilterScopes();
+    msEnt.setOptions(sc.enterpriseList);
+    msTeam.setOptions(sc.teamList);
+    msPocCs.setOptions(sc.csList);
+    msPocOb.setOptions(sc.obList);
+    msInputType.setOptions(['Images','Video']);
+    msVerified.setOptions(sc.verifiedList);
+    msSla.setOptions(['Within SLA','Out of SLA']);
+    msSeg.setOptions(sc.segList);
+    accMsEnt.setOptions(sc.enterpriseList);
+    accMsTeam.setOptions(sc.teamList);
+    accMsCs.setOptions(sc.csList);
+    accMsOb.setOptions(sc.obList);
+    accMsInputType.setOptions(['Images','Video']);
+    accMsVerified.setOptions(sc.verifiedList);
+    accMsSla.setOptions(['Within SLA','Out of SLA']);
+    accMsSeg.setOptions(sc.segList);
+
+    setLoadProgress(100, 'Done!');
+    await new Promise(r => setTimeout(r, 300)); // brief pause to show 100%
+    refresh();
+    renderHourlyChart();  // load Google Sheets data independently
+  } catch (err) {
+    $('errBox').innerHTML = `<div class="err">Failed to load: ${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sync';
+    setLoading(false);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// MULTI-SELECT COMPONENT
+// ─────────────────────────────────────────────────────────────
+// Each instance manages one filter Set on F. The Set is null when "all selected"
+// (no filter applied), or a Set of values when only specific items are included.
+function createMultiSelect({
+  field,                      // state key (e.g. 'ent' or 'team')
+  triggerId, panelId, textId, // DOM ids
+  searchId, listId,           // searchId can be null for option-less panels
+  singularLabel,              // 'enterprise' / 'team'
+  pluralLabel,                // 'enterprises' / 'teams'
+  onChange,                   // fn called after every change
+  state,                      // filter-state object this instance reads/writes (defaults to the global F)
+}){
+  state = state || F;
+  let options = [];           // string[] (sorted)
+  let search = '';
+
+  const trigger = $(triggerId), panel = $(panelId);
+  const text = $(textId), searchEl = searchId ? $(searchId) : null, list = $(listId);
+
+  function setOptions(items){
+    options = items.slice();
+    renderList();
+    refreshTrigger();
+  }
+  function close(){ panel.classList.remove('open'); trigger.classList.remove('open'); }
+  function open(){
+    const r = trigger.getBoundingClientRect();
+    panel.style.position = 'fixed';
+    panel.style.top  = (r.bottom + 6) + 'px';
+    panel.style.left = r.left + 'px';
+    panel.classList.add('open');
+    trigger.classList.add('open');
+    if (searchEl){ searchEl.value = ''; search = ''; }
+    renderList();
+    if (searchEl) setTimeout(()=>searchEl.focus(), 30);
+  }
+  function isOpen(){ return panel.classList.contains('open'); }
+
+  function refreshTrigger(){
+    const sel = state[field]; // Set | null
+    if (!sel) { text.textContent = `All ${pluralLabel}`; return; }
+    if (sel.size === 0) { text.textContent = `No ${pluralLabel} selected`; return; }
+    if (sel.size === 1) { text.textContent = [...sel][0] || `(blank)`; return; }
+    if (sel.size === options.length) { text.textContent = `All ${pluralLabel}`; return; }
+    text.innerHTML = `${sel.size} ${pluralLabel} <span class="ms-pill">${options.length - sel.size} hidden</span>`;
+  }
+
+  function renderList(){
+    const sel = state[field];
+    const q = search.toLowerCase();
+    let filtered = q ? options.filter(o => o.toLowerCase().includes(q)) : options.slice();
+    if (sel){
+      // Partial selection active — pin selected items to the top (stable sort
+      // preserves the existing alphabetical order within each group).
+      filtered = filtered.slice().sort((a,b)=>{
+        const aSel = sel.has(a), bSel = sel.has(b);
+        if (aSel !== bSel) return aSel ? -1 : 1;
+        return 0;
+      });
+    }
+    if (!filtered.length) { list.innerHTML = `<div class="ms-empty">No matches</div>`; return; }
+    list.innerHTML = filtered.map(v => {
+      const checked = !sel || sel.has(v);
+      const display = v || '(blank)';
+      return `<label class="ms-item">
+        <input type="checkbox" data-val="${esc(v)}" ${checked?'checked':''}>
+        <span class="ms-item-label" title="${esc(display)}">${esc(display)}</span>
+      </label>`;
+    }).join('');
+    list.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+      cb.addEventListener('change', e=>{
+        e.stopPropagation();
+        toggle(cb.dataset.val, cb.checked);
+      });
+    });
+  }
+
+  function toggle(value, on){
+    let sel = state[field];
+    if (!sel) sel = new Set(options);
+    else      sel = new Set(sel);
+    if (on) sel.add(value); else sel.delete(value);
+    if (sel.size === options.length) state[field] = null;
+    else state[field] = sel;
+    refreshTrigger();
+    onChange && onChange();
+  }
+
+  function selectAll(){ state[field] = null;       refreshTrigger(); renderList(); onChange && onChange(); }
+  function clearAll(){  state[field] = new Set();  refreshTrigger(); renderList(); onChange && onChange(); }
+
+  trigger.addEventListener('click', e=>{ e.stopPropagation(); if (isOpen()) close(); else open(); });
+  trigger.addEventListener('keydown', e=>{
+    if (e.key==='Enter' || e.key===' ') { e.preventDefault(); if (isOpen()) close(); else open(); }
+  });
+  panel.addEventListener('click', e=>e.stopPropagation());
+  panel.addEventListener('mousedown', e=>e.stopPropagation());
+  if (searchEl) searchEl.addEventListener('input', ()=>{ search = searchEl.value; renderList(); });
+  panel.querySelectorAll('.ms-action').forEach(b=>{
+    b.addEventListener('click', e=>{
+      e.stopPropagation();
+      if (b.dataset.act==='all')  selectAll();
+      if (b.dataset.act==='none') clearAll();
+    });
+  });
+
+  return { setOptions, close, refreshTrigger };
+}
+
+// Teams that belong to the currently-selected enterprise(s).
+// F.ent === null means "all enterprises" → returns the full team list.
+function teamsForCurrentEntFilter(){
+  const entSel = F.ent;
+  const team = new Set();
+  for (const r of RAW){
+    if (entSel && !entSel.has(r.ent)) continue;
+    if (r.tm) team.add(r.tm);
+  }
+  return [...team].sort();
+}
+
+const msEnt  = createMultiSelect({
+  field:'ent',  triggerId:'msEntTrigger',  panelId:'msEntPanel',
+  textId:'msEntText', searchId:'msEntSearch', listId:'msEntList',
+  singularLabel:'enterprise', pluralLabel:'enterprises',
+  onChange: ()=> { msTeam.setOptions(teamsForCurrentEntFilter()); setTimeout(()=>refresh(), 0); },
+});
+const msTeam = createMultiSelect({
+  field:'team', triggerId:'msTeamTrigger', panelId:'msTeamPanel',
+  textId:'msTeamText', searchId:'msTeamSearch', listId:'msTeamList',
+  singularLabel:'team', pluralLabel:'teams',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msPocCs = createMultiSelect({
+  field:'cs', triggerId:'msPocCsTrigger', panelId:'msPocCsPanel',
+  textId:'msPocCsText', searchId:'msPocCsSearch', listId:'msPocCsList',
+  singularLabel:'CS', pluralLabel:'CS',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msPocOb = createMultiSelect({
+  field:'ob', triggerId:'msPocObTrigger', panelId:'msPocObPanel',
+  textId:'msPocObText', searchId:'msPocObSearch', listId:'msPocObList',
+  singularLabel:'OB', pluralLabel:'OB',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msInputType = createMultiSelect({
+  field:'tt', triggerId:'msInputTypeTrigger', panelId:'msInputTypePanel',
+  textId:'msInputTypeText', searchId:null, listId:'msInputTypeList',
+  singularLabel:'type', pluralLabel:'types',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msVerified = createMultiSelect({
+  field:'verified', triggerId:'msVerifiedTrigger', panelId:'msVerifiedPanel',
+  textId:'msVerifiedText', searchId:null, listId:'msVerifiedList',
+  singularLabel:'status', pluralLabel:'statuses',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+const msSla = createMultiSelect({
+  field:'sla', triggerId:'msSlaTrigger', panelId:'msSlaPanel',
+  textId:'msSlaText', searchId:null, listId:'msSlaList',
+  singularLabel:'SLA', pluralLabel:'SLA',
+  onChange: ()=> setTimeout(()=>refresh(), 0),
+});
+
+const msSeg = createMultiSelect({
+  field:'seg', triggerId:'msSegTrigger', panelId:'msSegPanel',
+  textId:'msSegText', searchId:null, listId:'msSegList',
+  singularLabel:'segment', pluralLabel:'segments',
+  onChange: ()=> setTimeout(()=>refresh(),0),
+});
+
+const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msInputType, msVerified, msSla, msSeg];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msInputTypeWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
+
+// Close any open multi-select on outside click
+document.addEventListener('mousedown', e=>{
+  MS_WRAPS.forEach((id, idx)=>{
+    if (!$(id).contains(e.target)) MS_INSTANCES[idx].close();
+  });
+});
+
+function refreshMsTriggers(){ MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
+
+// ── Accuracy tab's own, independent filter dropdowns (bound to F_ACC) ──
+const accMsEnt = createMultiSelect({
+  field:'ent', triggerId:'accMsEntTrigger', panelId:'accMsEntPanel',
+  textId:'accMsEntText', searchId:'accMsEntSearch', listId:'accMsEntList',
+  singularLabel:'enterprise', pluralLabel:'enterprises', state:F_ACC,
+  onChange: ()=> { accMsTeam.setOptions(accTeamsForCurrentEntFilter()); setTimeout(()=>renderAccuracy(),0); },
+});
+const accMsTeam = createMultiSelect({
+  field:'team', triggerId:'accMsTeamTrigger', panelId:'accMsTeamPanel',
+  textId:'accMsTeamText', searchId:'accMsTeamSearch', listId:'accMsTeamList',
+  singularLabel:'team', pluralLabel:'teams', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsCs = createMultiSelect({
+  field:'cs', triggerId:'accMsCsTrigger', panelId:'accMsCsPanel',
+  textId:'accMsCsText', searchId:'accMsCsSearch', listId:'accMsCsList',
+  singularLabel:'CS', pluralLabel:'CS', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsOb = createMultiSelect({
+  field:'ob', triggerId:'accMsObTrigger', panelId:'accMsObPanel',
+  textId:'accMsObText', searchId:'accMsObSearch', listId:'accMsObList',
+  singularLabel:'OB', pluralLabel:'OB', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsVerified = createMultiSelect({
+  field:'verified', triggerId:'accMsVerifiedTrigger', panelId:'accMsVerifiedPanel',
+  textId:'accMsVerifiedText', searchId:null, listId:'accMsVerifiedList',
+  singularLabel:'status', pluralLabel:'statuses', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsInputType = createMultiSelect({
+  field:'tt', triggerId:'accMsInputTypeTrigger', panelId:'accMsInputTypePanel',
+  textId:'accMsInputTypeText', searchId:null, listId:'accMsInputTypeList',
+  singularLabel:'type', pluralLabel:'types', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsSla = createMultiSelect({
+  field:'sla', triggerId:'accMsSlaTrigger', panelId:'accMsSlaPanel',
+  textId:'accMsSlaText', searchId:null, listId:'accMsSlaList',
+  singularLabel:'SLA', pluralLabel:'SLA', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const accMsSeg = createMultiSelect({
+  field:'seg', triggerId:'accMsSegTrigger', panelId:'accMsSegPanel',
+  textId:'accMsSegText', searchId:null, listId:'accMsSegList',
+  singularLabel:'segment', pluralLabel:'segments', state:F_ACC,
+  onChange: ()=> setTimeout(()=>renderAccuracy(),0),
+});
+const ACC_MS_INSTANCES = [accMsEnt, accMsTeam, accMsCs, accMsOb, accMsInputType, accMsVerified, accMsSla, accMsSeg];
+const ACC_MS_WRAPS = ['accMsEntWrap','accMsTeamWrap','accMsCsWrap','accMsObWrap','accMsInputTypeWrap','accMsVerifiedWrap','accMsSlaWrap','accMsSegWrap'];
+document.addEventListener('mousedown', e=>{
+  ACC_MS_WRAPS.forEach((id, idx)=>{
+    if (!$(id).contains(e.target)) ACC_MS_INSTANCES[idx].close();
+  });
+});
+function refreshAccMsTriggers(){ ACC_MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
+$('accResetBtn').addEventListener('click', ()=>{
+  const r0 = presetRange('this_month');
+  Object.assign(F_ACC, { preset:'this_month', from:r0.from, to:r0.to, ent:null, team:null, cs:null, ob:null, verified:null, sla:null, seg:null });
+  accMsTeam.setOptions(accTeamsForCurrentEntFilter());
+  refreshAccMsTriggers();
+  accSyncDateUI();
+  renderAccuracy();
+});
+
+// ─────────────────────────────────────────────────────────────
+// RESET FILTER
+// ─────────────────────────────────────────────────────────────
+// ── Find VIN / spin_sku_id / spin_id / mediaID / dealerVinId ──
+$('vinSearchToggle').addEventListener('click', ()=>{
+  const box = $('vinSearchBox');
+  const opening = !box.classList.contains('show');
+  box.classList.toggle('show');
+  $('vinSearchBackdrop').classList.toggle('show', opening);
+  if (opening) $('vinSearchInput').focus();
+});
+function closeVinSearch(){
+  $('vinSearchBox').classList.remove('show');
+  $('vinSearchBackdrop').classList.remove('show');
+}
+$('vinSearchClose').addEventListener('click', closeVinSearch);
+$('vinSearchBackdrop').addEventListener('click', closeVinSearch);
+$('vinSearchSubmit').addEventListener('click', ()=> doVinSearch($('vinSearchInput').value));
+$('vinSearchInput').addEventListener('keydown', e=>{
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doVinSearch($('vinSearchInput').value); }
+  if (e.key === 'Escape'){ closeVinSearch(); }
+});
+
+// Accepts one value or several (comma / new-line separated). Matches on
+// VIN, spin_sku_id, spin_id, mediaID, or dealerVinId — exact match first,
+// falling back to a partial/substring match.
+function doVinSearch(raw){
+  const queries = String(raw||'').split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
+  if (!queries.length) return;
+  closeVinSearch();
+  const results = [], seen = new Set(), notFound = [];
+  for (const query of queries){
+    const q = query.toLowerCase();
+    const exactField = r => (r.vin && r.vin.toLowerCase()===q) || (r.sku && r.sku.toLowerCase()===q) ||
+                             (r.sid && r.sid.toLowerCase()===q) || (r.vid && r.vid.toLowerCase()===q) ||
+                             (r.dvid && r.dvid.toLowerCase()===q);
+    let match = RAW.find(exactField);
+    if (!match){
+      const partialField = r => (r.vin && r.vin.toLowerCase().includes(q)) || (r.sku && r.sku.toLowerCase().includes(q)) ||
+                                 (r.sid && r.sid.toLowerCase().includes(q)) || (r.vid && r.vid.toLowerCase().includes(q)) ||
+                                 (r.dvid && r.dvid.toLowerCase().includes(q));
+      match = RAW.find(partialField);
+    }
+    if (match && !seen.has(match)){ seen.add(match); results.push(match); }
+    else if (!match) notFound.push(query);
+  }
+  if (!results.length){ openVinNotFound(queries.join(', ')); return; }
+  openVinResultsTable(results, notFound);
+}
+
+// All known fields in data.json, in display order, with human-readable labels
+// and a formatter. Columns are shown even if blank for most rows (so the
+// table stays consistent record-to-record); truly absent fields show "—".
+const VIN_ALL_COLUMNS = [
+  ['vid',  'mediaId',            v => v],
+  ['c',    'createdAt',          v => v ? fmtDate(v) : null],
+  ['sc',   'sku_created_on',     v => v ? fmtDate(v) : null],
+  ['ent',  'enterprise_name',    v => v],
+  ['seg',  'customer_segment',   v => v],
+  ['tm',   'team_name',          v => v],
+  ['csCol','CS',                 v => v],
+  ['ob',   'OB',                 v => v],
+  ['vin',  'vinName',            v => v],
+  ['dvid', 'dealerVinId',        v => v],
+  ['sku',  'spin_sku_id',        v => v],
+  ['vm',   'fd.platform',        v => v],
+  ['tt',   'input_type',         v => v],
+  ['rej',  'failure_reason',     v => v],
+  ['fs',   'final_status',       v => v],
+  ['isv',  'issues_by_severity', v => v],
+  ['u',    'final_time',         v => v ? fmtDate(v) : null],
+  ['fq',   'first_qc_done',      v => v ? fmtDate(v) : null],
+  ['sid',  'ss.spin_id',         v => v],
+  ['cs',   'crm_status',         v => v],
+  ['me',   'manual_editing',     v => v===1 ? '1' : null],
+  ['mc',   'manual_correction',  v => v],
+  ['sla',  'SLA',                v => v===1 ? 'Within' : (v===0 ? 'Out' : null)],
+  ['qc',   'QC User',            v => v],
+];
+
+function openVinResultsTable(records, notFound){
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modalChips').innerHTML = '';
+  $('modalStats').innerHTML = '';
+  _modalCtx = null;
+  $('modalTitle').textContent = records.length===1 ? (records[0].vin || records[0].sku || '—') : `${records.length} records found`;
+  $('modalSub').textContent   = notFound.length ? `No match for: ${notFound.join(', ')}` : (records.length===1 ? ((records[0].ent||'—')+' · SKU '+(records[0].sku||'—')) : 'Search results');
+  $('modalCount').textContent = `${records.length} record${records.length===1?'':'s'}`;
+
+  const cell = v => v ? esc(v) : '<span style="color:var(--ink-2);">—</span>';
+
+  const headerHtml = VIN_ALL_COLUMNS.map(([key,label]) => `<th>${esc(label)}</th>`).join('');
+  const rowsHtml = records.map(r => {
+    const cellsHtml = VIN_ALL_COLUMNS.map(([key,label,fmt]) => {
+      const raw = r[key];
+      const val = fmt ? fmt(raw) : raw;
+      return `<td>${cell(val)}</td>`;
+    }).join('');
+    const isDelivered = (r.fs||'').trim() === 'Delivered';
+    return `<tr${isDelivered ? ' style="background:color-mix(in srgb, var(--green) 15%, transparent);"' : ''}>${cellsHtml}</tr>`;
+  }).join('');
+
+  $('modalBody').innerHTML = `
+    <div style="padding:8px 28px 28px;">
+      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;padding-bottom:10px;">
+        <table class="vin-table">
+          <thead><tr>${headerHtml}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  $('modal').classList.add('show');
+}
+
+function openVinNotFound(query){
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modalChips').innerHTML = '';
+  $('modalStats').innerHTML = '';
+  $('modalCount').textContent = '';
+  _modalCtx = null;
+  $('modalTitle').textContent = 'No record found';
+  $('modalSub').textContent   = 'Try VIN, SKU, Spin ID, or Media ID';
+  $('modalBody').innerHTML = `<div style="padding:40px 28px;text-align:center;color:var(--ink-2);">No record found for <strong style="color:var(--ink);">${esc(query)}</strong>.</div>`;
+  $('modal').classList.add('show');
+}
+
+$('resetBtn').addEventListener('click', ()=>{
+  const r = presetRange('this_month');
+  Object.assign(F, {
+    preset:'this_month', from:r.from, to:r.to,
+    ent:null, team:null,
+    user:null,
+    verified:null, sla:null, seg:null, rejReason:null,
+    rejReason: null,
+  });
+  refreshMsTriggers();
+  syncDateUI();
+  resetSort();   // also clears any column sort
+});
+
+// ─────────────────────────────────────────────────────────────
+// SORTABLE TABLE HEADERS
+// ─────────────────────────────────────────────────────────────
+$('tHead').addEventListener('click', e=>{
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  handleSortClick(th.dataset.sort);
+});
+$('resetSortBtn').addEventListener('click', resetSort);
+
+// ─────────────────────────────────────────────────────────────
+// DATE PICKER
+// ─────────────────────────────────────────────────────────────
+function syncDateUI(){
+  const {preset, from, to} = F;
+  $('dtLabel').textContent = preset!=='custom' ? PLABELS[preset]||'All time' :
+    (from && to) ? fmtShort(from)+' → '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Custom';
+  document.querySelectorAll('.dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p===preset));
+  $('dpPreviewText').textContent = (from && to) ? fmtShort(from)+'  →  '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Pick a date to begin';
+}
+
+const dtTrigger=$('dateTrigger'), dtPanel=$('datePanel');
+dtTrigger.addEventListener('click', e=>{
+  e.stopPropagation();
+  const opening = !dtPanel.classList.contains('open');
+  if (opening){
+    const r = dtTrigger.getBoundingClientRect();
+    dtPanel.style.position = 'fixed';
+    dtPanel.style.top  = (r.bottom + 6) + 'px';
+    dtPanel.style.left = r.left + 'px';
+  }
+  dtPanel.classList.toggle('open', opening);
+  dtTrigger.classList.toggle('open', opening);
+  if (opening){
+    cal.rangeStart = F.from ? midnight(F.from) : null;
+    cal.rangeEnd   = F.to   ? midnight(F.to)   : null;
+    const ref = cal.rangeStart || new Date();
+    cal.view = new Date(ref.getFullYear(), ref.getMonth(), 1);
+    calRender();
+  }
+});
+
+// IMPORTANT: prevent clicks INSIDE the date panel from bubbling to the document
+// close-on-outside-click handler. This was causing the panel to close after the
+// first date click because the calendar re-renders and the old target leaves DOM.
+$('datePanel').addEventListener('click', e=>e.stopPropagation());
+$('datePanel').addEventListener('mousedown', e=>e.stopPropagation());
+
+document.addEventListener('mousedown', e=>{
+  if (!$('dateWrap').contains(e.target)){
+    dtPanel.classList.remove('open'); dtTrigger.classList.remove('open');
+  }
+});
+
+document.querySelectorAll('.dp-preset').forEach(btn=>{
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const p = btn.dataset.p;
+    if (p === 'custom'){
+      document.querySelectorAll('.dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+      return;
+    }
+    const r = presetRange(p);
+    F.preset = p; F.from = r.from; F.to = r.to;
+    syncDateUI();
+    dtPanel.classList.remove('open'); dtTrigger.classList.remove('open');
+    // Defer heavy computation so browser paints button state first → fixes INP
+    setTimeout(()=>refresh(), 0);
+  });
+});
+
+$('dpClear').addEventListener('click', e=>{
+  e.stopPropagation();
+  cal.rangeStart = null; cal.rangeEnd = null;
+  calRender(); $('dpPreviewText').textContent = 'Pick a date to begin';
+});
+
+// ── Calendar ──
+const cal = { view: new Date(), rangeStart: null, rangeEnd: null, _cells: [] };
+function midnight(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+function calRender(){
+  const view = cal.view;
+  $('calLabel').textContent = view.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const firstWeekday = view.getDay();
+  const lastDay  = new Date(view.getFullYear(), view.getMonth()+1, 0).getDate();
+  const prevLast = new Date(view.getFullYear(), view.getMonth(), 0).getDate();
+  const cells = [];
+  for (let i=firstWeekday-1; i>=0; i--){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth()-1,prevLast-i), muted:true });
+  }
+  for (let d=1; d<=lastDay; d++){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth(),d), muted:false });
+  }
+  while (cells.length < 42){
+    const last = cells[cells.length-1].date;
+    cells.push({ date:new Date(last.getFullYear(),last.getMonth(),last.getDate()+1), muted:true });
+  }
+  const today = midnight(new Date());
+  const F0 = cal.rangeStart, T0 = cal.rangeEnd;
+
+  $('calDays').innerHTML = cells.map((c,i)=>{
+    const d=c.date, ts=d.getTime();
+    const isStart = F0 && ts === F0.getTime();
+    const isEnd   = T0 && ts === T0.getTime();
+    const inRange = F0 && T0 && ts > F0.getTime() && ts < T0.getTime();
+    const isToday = ts === today.getTime();
+    const cls=['cal-day'];
+    if (c.muted) cls.push('muted');
+    if (isToday) cls.push('today');
+    if (isStart) cls.push('start');
+    if (isEnd)   cls.push('end');
+    if (inRange) cls.push('in-range');
+    return `<button type="button" class="${cls.join(' ')}" data-i="${i}">${d.getDate()}</button>`;
+  }).join('');
+  cal._cells = cells;
+}
+
+function onCalDayClick(e){
+  e.stopPropagation();
+  const btn = e.target.closest('.cal-day');
+  if (!btn) return;
+  const i = parseInt(btn.dataset.i);
+  const d = cal._cells?.[i]?.date;
+  if (!d) return;
+  const day = midnight(d);
+
+  if (!cal.rangeStart || cal.rangeEnd){
+    // Fresh selection (either no start yet, or a complete range exists — start over)
+    cal.rangeStart = day;
+    cal.rangeEnd   = null;
+    // Move view if user clicked muted day from adjacent month
+    if (d.getMonth() !== cal.view.getMonth() || d.getFullYear() !== cal.view.getFullYear()){
+      cal.view = new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+    calRender();
+    $('dpPreviewText').textContent = 'From '+fmtShort(cal.rangeStart);
+  } else {
+    // Second click → set end, auto-apply, close panel
+    if (day.getTime() < cal.rangeStart.getTime()){
+      cal.rangeEnd = cal.rangeStart; cal.rangeStart = day;
+    } else {
+      cal.rangeEnd = day;
+    }
+    calRender();
+    // Apply
+    F.preset = 'custom'; F.from = new Date(cal.rangeStart); F.to = new Date(cal.rangeEnd);
+    syncDateUI();
+    dtPanel.classList.remove('open'); dtTrigger.classList.remove('open');
+    refresh();
+  }
+  document.querySelectorAll('.dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+}
+
+$('calDays').addEventListener('click', onCalDayClick);
+$('calPrev').addEventListener('click', e=>{ e.stopPropagation();
+  cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth()-1, 1); calRender(); });
+$('calNext').addEventListener('click', e=>{ e.stopPropagation();
+  cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth()+1, 1); calRender(); });
+
+// ── Accuracy tab's own date-range picker — fully independent of the
+// Operations one above (separate DOM ids, separate F_ACC state), but reuses
+// the shared pure helpers (presetRange, PLABELS, fmtShort, midnight).
+function accSyncDateUI(){
+  const {preset, from, to} = F_ACC;
+  $('accDtLabel').textContent = preset!=='custom' ? PLABELS[preset]||'All time' :
+    (from && to) ? fmtShort(from)+' → '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Custom';
+  document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p===preset));
+  $('accDpPreviewText').textContent = (from && to) ? fmtShort(from)+'  →  '+fmtShort(to) :
+    from ? 'From '+fmtShort(from) : 'Pick a date to begin';
+}
+
+const accDtTrigger=$('accDateTrigger'), accDtPanel=$('accDatePanel');
+accDtTrigger.addEventListener('click', e=>{
+  e.stopPropagation();
+  const opening = !accDtPanel.classList.contains('open');
+  if (opening){
+    const r = accDtTrigger.getBoundingClientRect();
+    accDtPanel.style.position = 'fixed';
+    accDtPanel.style.top  = (r.bottom + 6) + 'px';
+    accDtPanel.style.left = r.left + 'px';
+  }
+  accDtPanel.classList.toggle('open', opening);
+  accDtTrigger.classList.toggle('open', opening);
+  if (opening){
+    accCal.rangeStart = F_ACC.from ? midnight(F_ACC.from) : null;
+    accCal.rangeEnd   = F_ACC.to   ? midnight(F_ACC.to)   : null;
+    const ref = accCal.rangeStart || new Date();
+    accCal.view = new Date(ref.getFullYear(), ref.getMonth(), 1);
+    accCalRender();
+  }
+});
+$('accDatePanel').addEventListener('click', e=>e.stopPropagation());
+$('accDatePanel').addEventListener('mousedown', e=>e.stopPropagation());
+document.addEventListener('mousedown', e=>{
+  if (!$('accDateWrap').contains(e.target)){
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+  }
+});
+document.querySelectorAll('.acc-dp-preset').forEach(btn=>{
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const p = btn.dataset.p;
+    if (p === 'custom'){
+      document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+      return;
+    }
+    const r = presetRange(p);
+    F_ACC.preset = p; F_ACC.from = r.from; F_ACC.to = r.to;
+    accSyncDateUI();
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+    setTimeout(()=>renderAccuracy(), 0);
+  });
+});
+$('accDpClear').addEventListener('click', e=>{
+  e.stopPropagation();
+  accCal.rangeStart = null; accCal.rangeEnd = null;
+  accCalRender(); $('accDpPreviewText').textContent = 'Pick a date to begin';
+});
+
+const accCal = { view: new Date(), rangeStart: null, rangeEnd: null, _cells: [] };
+function accCalRender(){
+  const view = accCal.view;
+  $('accCalLabel').textContent = view.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const firstWeekday = view.getDay();
+  const lastDay  = new Date(view.getFullYear(), view.getMonth()+1, 0).getDate();
+  const prevLast = new Date(view.getFullYear(), view.getMonth(), 0).getDate();
+  const cells = [];
+  for (let i=firstWeekday-1; i>=0; i--){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth()-1,prevLast-i), muted:true });
+  }
+  for (let d=1; d<=lastDay; d++){
+    cells.push({ date:new Date(view.getFullYear(),view.getMonth(),d), muted:false });
+  }
+  while (cells.length < 42){
+    const last = cells[cells.length-1].date;
+    cells.push({ date:new Date(last.getFullYear(),last.getMonth(),last.getDate()+1), muted:true });
+  }
+  const today = midnight(new Date());
+  const F0 = accCal.rangeStart, T0 = accCal.rangeEnd;
+  $('accCalDays').innerHTML = cells.map((c,i)=>{
+    const d=c.date, ts=d.getTime();
+    const isStart = F0 && ts === F0.getTime();
+    const isEnd   = T0 && ts === T0.getTime();
+    const inRange = F0 && T0 && ts > F0.getTime() && ts < T0.getTime();
+    const isToday = ts === today.getTime();
+    const cls=['cal-day'];
+    if (c.muted) cls.push('muted');
+    if (isToday) cls.push('today');
+    if (isStart) cls.push('start');
+    if (isEnd)   cls.push('end');
+    if (inRange) cls.push('in-range');
+    return `<button type="button" class="${cls.join(' ')}" data-i="${i}">${d.getDate()}</button>`;
+  }).join('');
+  accCal._cells = cells;
+}
+function accOnCalDayClick(e){
+  e.stopPropagation();
+  const btn = e.target.closest('.cal-day');
+  if (!btn) return;
+  const i = parseInt(btn.dataset.i);
+  const d = accCal._cells?.[i]?.date;
+  if (!d) return;
+  const day = midnight(d);
+  if (!accCal.rangeStart || accCal.rangeEnd){
+    accCal.rangeStart = day;
+    accCal.rangeEnd   = null;
+    if (d.getMonth() !== accCal.view.getMonth() || d.getFullYear() !== accCal.view.getFullYear()){
+      accCal.view = new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+    accCalRender();
+    $('accDpPreviewText').textContent = 'From '+fmtShort(accCal.rangeStart);
+  } else {
+    if (day.getTime() < accCal.rangeStart.getTime()){
+      accCal.rangeEnd = accCal.rangeStart; accCal.rangeStart = day;
+    } else {
+      accCal.rangeEnd = day;
+    }
+    accCalRender();
+    F_ACC.preset = 'custom'; F_ACC.from = new Date(accCal.rangeStart); F_ACC.to = new Date(accCal.rangeEnd);
+    accSyncDateUI();
+    accDtPanel.classList.remove('open'); accDtTrigger.classList.remove('open');
+    renderAccuracy();
+  }
+  document.querySelectorAll('.acc-dp-preset').forEach(b=>b.classList.toggle('sel', b.dataset.p==='custom'));
+}
+$('accCalDays').addEventListener('click', accOnCalDayClick);
+$('accCalPrev').addEventListener('click', e=>{ e.stopPropagation();
+  accCal.view = new Date(accCal.view.getFullYear(), accCal.view.getMonth()-1, 1); accCalRender(); });
+$('accCalNext').addEventListener('click', e=>{ e.stopPropagation();
+  accCal.view = new Date(accCal.view.getFullYear(), accCal.view.getMonth()+1, 1); accCalRender(); });
+
+// ─────────────────────────────────────────────────────────────
+// TREND TABS
+// ─────────────────────────────────────────────────────────────
+document.querySelectorAll('#trendTabs .trend-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    trendRange = btn.dataset.r;
+    document.querySelectorAll('#trendTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    setTimeout(()=>refresh(), 0);
+  });
+});
+
+document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    _hourlyRange = btn.dataset.hr;
+    document.querySelectorAll('#hourlyTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    renderHourlyChart();
+  });
+});// ─────────────────────────────────────────────────────────────
+// SLA PANEL → DRILL-DOWN
+// ─────────────────────────────────────────────────────────────
+function bindSlaCells(){
+  const openIn  = ()=>openDrill({label:'Within SLA', sub:'delivered within SLA', view:'within_sla', kind:'records'});
+  const openOut = ()=>openDrill({label:'Out of SLA', sub:'delivered breaching SLA', view:'out_of_sla', kind:'records'});
+  $('slaCellIn').addEventListener('click', openIn);
+  $('slaCellOut').addEventListener('click', openOut);
+  $('slaCellIn').addEventListener('keydown',  e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openIn();}});
+  $('slaCellOut').addEventListener('keydown', e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openOut();}});
+
+  // Delivery rate cells
+  const openDelv = ()=>openDrill({label:'Delivered', sub:'qc_done & verified', view:'delivered', kind:'records'});
+  const openNot  = ()=>openDrill({label:'Not delivered', sub:'rejected + pending', view:'not_delivered', kind:'records'});
+  $('delvCellDone').addEventListener('click', openDelv);
+  $('delvCellRej').addEventListener('click', openNot);
+  $('delvCellDone').addEventListener('keydown', e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDelv();}});
+  $('delvCellRej').addEventListener('keydown',  e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openNot();}});
+}
+
+// ─────────────────────────────────────────────────────────────
+// DRILL-DOWN MODAL
+// ─────────────────────────────────────────────────────────────
+function renderActiveFiltersBar(){ const bar = $('activeFiltersBar'); if (!bar) return; const chips = []; const setChip = (label, sel) => { if (!sel) return; if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`); else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`); else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`); }; setChip('Enterprise', F.ent); setChip('Team', F.team); setChip('CS', F.cs); setChip('OB', F.ob); setChip('Input Type', F.tt); setChip('Status', F.verified); setChip('SLA', F.sla); setChip('Segment', F.seg); if (F.rejReason) chips.push(`<span class="chip">Reason <strong>${esc(F.rejReason.label)}</strong></span>`); if (!chips.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; } bar.style.display = 'flex'; bar.innerHTML = '<span class="afb-label">⚠ Extra filters active — KPIs below are narrowed:</span>' + chips.join('') + '<button class="afb-reset" onclick="$(\'resetBtn\').click()">Clear all</button>'; } function activeFilterChips(){
+  const chips=[];
+  const setChip = (label, sel) => {
+    if (!sel) return;
+    if (sel.size === 0) chips.push(`<span class="chip">${label} <strong>none</strong></span>`);
+    else if (sel.size === 1) chips.push(`<span class="chip">${label} <strong>${esc([...sel][0]||'(blank)')}</strong></span>`);
+    else chips.push(`<span class="chip">${label} <strong>${sel.size} selected</strong></span>`);
+  };
+  if(F.from||F.to)        chips.push(`<span class="chip">Date <strong>${esc(F.preset==='custom'?(F.from?fmtShort(F.from):'')+(F.from&&F.to?' → ':'')+(F.to?fmtShort(F.to):''):PLABELS[F.preset]||'')}</strong></span>`);
+  setChip('Enterprise', F.ent);
+  setChip('Team',       F.team);
+  setChip('CS',         F.cs);
+  setChip('OB',          F.ob);
+  setChip('Input Type', F.tt);
+  setChip('Status',     F.verified);
+  setChip('SLA',        F.sla);
+  setChip('Segment',    F.seg);
+  setChip('Reason', F.rejReason ? new Set([F.rejReason.label]) : null);
+  if (F.rejReason) chips.push(`<span class="chip">Reason <strong>filtered</strong></span>`);
+  return chips.length?chips.join(''):'<span class="chip">No filters</span>';
+}
+
+function drillSubset(rows, view){
+  switch(view){
+    case 'delivered':     return rows.filter(isDelivered);
+    case 'rejected':      return rows.filter(isRejected);
+    case 'pending':       return rows.filter(isPending);
+    case 'not_delivered': return rows.filter(r => !isDelivered(r));
+    case 'within_sla':    return rows.filter(r => isCompleted(r) && r.sla===1);
+    case 'out_of_sla':    return rows.filter(r => isCompleted(r) && r.sla===0);
+    case 'processing':    return rows.filter(r => (r.fs||'').trim()==='Processing');
+    case 'tech_ai':       return rows.filter(r => r.fs==='Tech Failure'||r.fs==='AI Failed');
+    case 'e2e_tat':       return rows.filter(r => isTatEligible(r) && r.e2e >= 0);
+    case 'within_6h':     return rows.filter(r => isTatEligible(r) && r.e2e <= 6);
+    case 'tat':           return rows.filter(r => typeof r.tat==='number').sort((a,b)=>(b.tat||0)-(a.tat||0));
+    case 'p99_tat':       return rows.filter(r => isTatEligible(r) && typeof r.e2e==='number' && r.e2e>=0).sort((a,b)=>(b.e2e||0)-(a.e2e||0));
+    default:              return rows;
+  }
+}
+
+// Holds the current drill-down context so we can re-render on sort changes
+let _modalCtx = null;
+
+// ── Monthly trend popup for Within 6h / Avg TAT / E2E TAT / P99 KPI cards ──
+// Shows April onward; automatically includes each new month as data arrives —
+// no hardcoded month count, so it grows on its own (Aug = 5 months, Sep = 6, etc).
+function getDedupedForTrend(rows){
+  const dedupMap = {};
+  for (const r of rows){
+    const key = (r.sku && r.sku.trim()) ? r.sku.trim()
+              : (r.vid && r.vid.trim()) ? `mid:${r.vid.trim()}`
+              : `vtk:${(r.eid||r.ent||'')}|${(r.tid||r.tm||'')}|${(r.vin||'')}`;
+    const existing = dedupMap[key];
+    if (!existing) dedupMap[key] = r;
+    else {
+      const tNew = r._created ? r._created.getTime() : 0;
+      const tOld = existing._created ? existing._created.getTime() : 0;
+      if (tNew > tOld) dedupMap[key] = r;
+    }
+  }
+  return Object.values(dedupMap);
+}
+
+function getMonthsFromApril(deduped){
+  let maxDate = new Date(2026,3,1);
+  for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const months = [];
+  let y = 2026, m = 3; // April 2026 (0-based month index 3)
+  while (y < maxDate.getFullYear() || (y === maxDate.getFullYear() && m <= maxDate.getMonth())){
+    months.push({ from: new Date(y,m,1), to: new Date(y,m+1,1), label: new Date(y,m,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
+    m++; if (m>11){ m=0; y++; }
+  }
+  return months;
+}
+
+// Last N weeks (Monday–Sunday), most recent week last — current week + (n-1) prior weeks.
+function getLastNWeeks(deduped, n){
+  let maxDate = new Date(2026,3,1);
+  for (const r of deduped){ if (r._created && r._created > maxDate) maxDate = r._created; }
+  const day = maxDate.getDay(); // 0=Sun..6=Sat
+  const diffToMonday = (day === 0) ? 6 : day - 1;
+  const thisMonday = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate() - diffToMonday);
+  const weeks = [];
+  for (let i = n-1; i >= 0; i--){
+    const from = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7*i);
+    const to   = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 7);
+    const toIncl = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
+    weeks.push({ from, to, label: from.toLocaleDateString('en-US',{day:'2-digit',month:'short'}) + '–' + toIncl.toLocaleDateString('en-US',{day:'2-digit',month:'short'}) });
+  }
+  return weeks;
+}
+
+function computeMonthlyMetric(deduped, from, to, metricId){
+  const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+  const pop = deduped.filter(r => r._created && r._created >= from && r._created < to && TAT_ELIGIBLE.has((r.fs||'').trim()));
+  if (metricId === 'w6h'){
+    const vals = pop.map(r=>r.tat).filter(t=>typeof t==='number' && t>=0);
+    if (!vals.length) return null;
+    return +(100*vals.filter(t=>t<=6).length/vals.length).toFixed(2);
+  }
+  if (metricId === 'tat'){
+    const vals = pop.filter(r=>r.qc).map(r=>r.tat).filter(t=>typeof t==='number' && t>=0);
+    if (!vals.length) return null;
+    return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+  }
+  if (metricId === 'e2e-tat'){
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>=0);
+    if (!vals.length) return null;
+    return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2);
+  }
+  if (metricId === 'p99'){
+    const vals = pop.map(r=>r.e2e).filter(e=>typeof e==='number' && e>=0).sort((a,b)=>a-b);
+    if (!vals.length) return null;
+    const idx = Math.min(vals.length-1, Math.ceil(0.99*vals.length)-1);
+    return +vals[idx].toFixed(2);
+  }
+  if (metricId === 'delivered'){
+    // Same formula as the "Delivery rate" section: Delivered / (Total Received - Pending) * 100
+    const periodRows = deduped.filter(r => r._created && r._created >= from && r._created < to);
+    if (!periodRows.length) return null;
+    const deliv   = periodRows.filter(r => (r.fs||'').trim() === 'Delivered').length;
+    const pending = periodRows.filter(isPending).length;
+    const denom   = Math.max(periodRows.length - pending, 1);
+    return +((deliv/denom)*100).toFixed(2);
+  }
+  return null;
+}
+
+const TREND_POPUP_META = {
+  'w6h':      { label:'Within 6h %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
+  'tat':      { label:'Avg TAT',                    fmt: v => fmtTatHrs(v) },
+  'e2e-tat':  { label:'E2E TAT',                    fmt: v => fmtTatHrs(v) },
+  'p99':      { label:'P99 E2E TAT (Delivered)',    fmt: v => fmtTatHrs(v) },
+  'delivered':{ label:'Delivered %',                fmt: v => v==null?'—':v.toFixed(1)+'%' },
+};
+
+let _trendPopupId = null, _trendPopupGran = 'month';
+
+function setTrendPopupGran(g){
+  _trendPopupGran = g;
+  document.querySelectorAll('[data-trendpopuptoggle] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderTrendPopupChart();
+}
+
+// ── Accuracy tab ──────────────────────────────────────────────────────────
+// Extracts individual manual-correction categories from the dedicated
+// manual_correction field (compact key "mc"). Values are a plain comma-
+// separated list, e.g. "Placement, Sequence" — a single VIN can carry more
+// than one correction type, comma-separated.
+function extractIssues(mc){
+  if (!mc) return [];
+  return String(mc).split(',').map(s=>s.trim()).filter(Boolean);
+}
+
+let accGran = 'month';
+let accTrendChartType = 'bar';
+let accTrendGran = 'month';
+let accMiniChartType  = 'line';
+let _accDeduped = null, _accDedupedNoDate = null, _accTopIssues = null;
+
+// Distinct color per issue category (matches the multi-hue style used
+// elsewhere in the dashboard, e.g. the segment-wise stacked bars).
+const ACC_ISSUE_COLOR_ORDER = ['purple','teal','orange','red','green','amber'];
+function accIssueColor(PAL, idx){ return PAL[ACC_ISSUE_COLOR_ORDER[idx % ACC_ISSUE_COLOR_ORDER.length]]; }
+
+function setAccTrendChartType(t){
+  accTrendChartType = t;
+  document.querySelectorAll('[data-acctrendtype] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.t===t));
+  renderAccuracyTrendChart();
+}
+function setAccTrendGran(g){
+  accTrendGran = g;
+  document.querySelectorAll('[data-acctrendgran] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderAccuracyTrendChart();
+}
+function setAccMiniChartType(t){
+  accMiniChartType = t;
+  document.querySelectorAll('[data-accminitype] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.t===t));
+  renderAccuracyMiniCharts();
+}
+
+function setAccGran(g){
+  accGran = g;
+  document.querySelectorAll('[data-accgran] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderAccuracyMiniCharts();
+}
+
+// Binary-search date-range slice — avoids a full O(n) scan per period.
+// `sortedRows` must already be sorted ascending by r._created.
+function sliceByDateRange(sortedRows, from, to){
+  let lo = 0, hi = sortedRows.length;
+  while (lo < hi){ const mid = (lo+hi)>>1; if (sortedRows[mid]._created < from) lo = mid+1; else hi = mid; }
+  const start = lo;
+  hi = sortedRows.length;
+  while (lo < hi){ const mid = (lo+hi)>>1; if (sortedRows[mid]._created < to) lo = mid+1; else hi = mid; }
+  return sortedRows.slice(start, lo);
+}
+
+let _accDedupedSorted = []; // _accDeduped sorted once by _created — feeds sliceByDateRange
+
+// ============================================================
+// REPORTS TAB — live from Google Sheets (360_spin/360_rt/360_region),
+// computed directly from the dashboard's own already-loaded data (RAW) —
+// no Google Sheet involved. sync-sheets.js still runs separately to feed
+// a different, shared cross-product reporting tool; this tab no longer
+// depends on it.
+// ============================================================
+const RPT_LANES = [
+  { id:'spin',   label:'Spin',    color:'#2a78d6', blurb:'Every spin delivered' },
+  { id:'rt',     label:'Rooftop', color:'#eb6834', blurb:'Rolled up per dealership' },
+  { id:'region', label:'Region',  color:'#1baf7a', blurb:'Split by delivery region', dim:'region' },
+];
+const RPT_METRICS = [
+  { id:'sla_pct',         label:'SLA met',    kind:'pct', better:'high' },
+  { id:'p99_tat_hrs',     label:'TAT (P99)',  kind:'hrs', better:'low'  },
+  { id:'p95_tat_hrs',     label:'TAT (P95)',  kind:'hrs', better:'low'  },
+  { id:'delivery_pct',    label:'Fulfilment', kind:'pct', better:'high' },
+];
+const RPT_SEGMENTS = [
+  { id:'all', label:'All segments', prefix:'' },
+  { id:'ent', label:'Enterprise', prefix:'ent_' },
+  { id:'mid', label:'Mid-market', prefix:'mid_' },
+  { id:'resellers', label:'Resellers', prefix:'resellers_' },
+  { id:'smb', label:'SMB', prefix:'smb_' },
+];
+const RPT_SERIES_COLORS = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'];
+const RPT_SLA_H = 6;
+
+const RPT = {
+  granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
+  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false,
+  matrixMetric:'sla_pct', matrixLane:'spin',
+  drillRegion:null, recordsLane:'spin', recordsQuery:'', hidden:new Set(),
+  sortCol:null, sortDir:-1,
+  data:{}, loading:false, error:null, synced:null,
+};
+function rptRaw(laneId){ return RPT.data[laneId] || []; }
+function rptRegSet(){ return RPT.regions; }
+
+function rptPeriodRank(p){
+  const t = String(p==null?'':p).trim();
+  const m = /^([MW])-(\d+)$/i.exec(t);
+  if (m) return -parseInt(m[2],10);
+  if (/^(MTD|WTD)$/i.test(t)) return 0;
+  return null;
+}
+function rptComparePeriods(a,b){
+  const ra=rptPeriodRank(a.period), rb=rptPeriodRank(b.period);
+  if (ra!=null && rb!=null && ra!==rb) return ra-rb;
+  if (a.date && b.date) return a.date-b.date;
+  return 0;
+}
+
+// ── Direct computation from RAW (same logic sync-sheets.js used to run
+// server-side — ported here so the Reports tab needs no external source) ──
+function rptSegKey(seg){
+  const n = normSeg(seg);
+  if (n === 'Ent') return 'ent';
+  if (n === 'Mid') return 'mid';
+  if (n === 'SMB') return 'smb';
+  if (n === 'Resellers') return 'resellers';
+  return null;
+}
+function rptRowPeriodDate(r){
+  if (r._rptPeriod !== undefined) return r._rptPeriod;
+  let sc = r.sc ? new Date(r.sc) : null;
+  if (sc && !isNaN(sc) && sc.getTime() < 86400000) sc = null; // epoch-placeholder = no real value
+  const d = (sc && !isNaN(sc)) ? sc : (r.c ? new Date(r.c) : null);
+  r._rptPeriod = (d && !isNaN(d)) ? d : null;
+  return r._rptPeriod;
+}
+// Extra TAT lines that can be overlaid on the E2E cards. Each one is computed exactly like
+// E2E (same eligible rows, same 6h SLA, same percentile method) but from its own row field.
+const RPT_OVERLAYS = [
+  { id:'tech', label:'Tech',       field:'techTat', color:'#eb6834', dash:'4 3',     mode:'techMode', toggle:'toggleRptTechMode' },
+];
+const RPT_OVERLAY_BASES = ['sla_pct','p99_tat_hrs','p95_tat_hrs'];
+const RPT_OVERLAY_FIELDS = RPT_OVERLAYS.flatMap(o => RPT_OVERLAY_BASES.map(b => o.id+'_'+b));
+function rptTatStats(vals){
+  if (!vals.length) return { sla:null, p99:null, p95:null };
+  const sorted = [...vals].sort((a,b)=>a-b);
+  const pct = p => +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2);
+  return { sla: +((vals.filter(v=>v<=RPT_SLA_H).length/vals.length)*100).toFixed(2), p99:pct(0.99), p95:pct(0.95) };
+}
+function rptComputeMetrics(rows){
+  const out = { total_vin:0, total_delivered:0, sla_pct:null, p99_tat_hrs:null, p95_tat_hrs:null, delivery_pct:null };
+  RPT_OVERLAY_FIELDS.forEach(f=>out[f]=null);
+  if (!rows.length) return out;
+  const TAT_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+  const eligible = rows.filter(r => TAT_ELIGIBLE.has((r.fs||'').trim()));
+  const valsOf = f => eligible.map(r => (typeof r[f]==='number' && r[f]>=0) ? r[f] : null).filter(v=>v!=null);
+  const main = rptTatStats(valsOf('e2e'));
+  out.sla_pct = main.sla; out.p99_tat_hrs = main.p99; out.p95_tat_hrs = main.p95;
+  RPT_OVERLAYS.forEach(o => { const st = rptTatStats(valsOf(o.field));
+    out[o.id+'_sla_pct'] = st.sla; out[o.id+'_p99_tat_hrs'] = st.p99; out[o.id+'_p95_tat_hrs'] = st.p95; });
+  const received = rows.length;
+  const pending = rows.filter(isPending).length;
+  const delivered = rows.filter(isDelivered).length;
+  out.total_vin = received; out.total_delivered = delivered;
+  out.delivery_pct = +((delivered/Math.max(received-pending,1))*100).toFixed(2);
+  return out;
+}
+function rptAverageMetrics(list){
+  const avg = key => { const vals=list.map(m=>m[key]).filter(v=>v!=null); return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null; };
+  const out = { sla_pct:avg('sla_pct'), p99_tat_hrs:avg('p99_tat_hrs'), p95_tat_hrs:avg('p95_tat_hrs'), delivery_pct:avg('delivery_pct') };
+  RPT_OVERLAY_FIELDS.forEach(f=>out[f]=avg(f));
+  return out;
+}
+function rptGetPeriods(allRows){
+  let maxDate = new Date(2026,3,1);
+  for (const r of allRows){ const d=rptRowPeriodDate(r); if (d && d>maxDate) maxDate=d; }
+  const periods = [];
+  const dow = maxDate.getDay()||7;
+  const thisMon = new Date(maxDate.getFullYear(),maxDate.getMonth(),maxDate.getDate()-dow+1);
+  for (let i=1;i<=4;i++){
+    const s=new Date(thisMon); s.setDate(thisMon.getDate()-i*7);
+    const e=new Date(s); e.setDate(s.getDate()+7);
+    periods.push({group:0,date:s,granularity:'week',period:'W-'+i,from:s,to:e});
+  }
+  for (let i=0;i<=4;i++){
+    const s=new Date(maxDate.getFullYear(),maxDate.getMonth()-i,1);
+    const e=new Date(maxDate.getFullYear(),maxDate.getMonth()-i+1,1);
+    periods.push({group:1,date:s,granularity:'month',period:i===0?'MTD':'M-'+i,from:s,to:e});
+  }
+  return periods;
+}
+function rptInPeriod(r,p){ const d=rptRowPeriodDate(r); return d && d>=p.from && d<p.to; }
+function rptLaneMetrics(laneId, rows){
+  if (laneId!=='rt') return rptComputeMetrics(rows);
+  const byTeam = new Map();
+  for (const r of rows){ if(!r.tm) continue; if(!byTeam.has(r.tm)) byTeam.set(r.tm,[]); byTeam.get(r.tm).push(r); }
+  return rptAverageMetrics([...byTeam.values()].map(rptComputeMetrics));
+}
+function rptBuildSpinOrRt(allRows, laneId){
+  const periods = rptGetPeriods(allRows);
+  const now = new Date().toISOString().slice(0,19).replace('T',' ');
+  return periods.map(p=>{
+    const pop = allRows.filter(r=>rptInPeriod(r,p));
+    const overall = rptLaneMetrics(laneId, pop);
+    const overallTotals = rptComputeMetrics(pop);
+    const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, v:{
+      total_vin:overallTotals.total_vin, total_delivered:overallTotals.total_delivered,
+      sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs, delivery_pct:overall.delivery_pct,
+    }};
+    RPT_OVERLAY_FIELDS.forEach(f=>row.v[f]=overall[f]);
+    for (const seg of RPT_SEGMENTS){
+      if (!seg.prefix) continue;
+      const segRows = pop.filter(r=>rptSegKey(r.seg)===seg.id);
+      const m = rptLaneMetrics(laneId, segRows), mTotals = rptComputeMetrics(segRows);
+      row.v[seg.prefix+'total_vin']=mTotals.total_vin; row.v[seg.prefix+'total_delivered']=mTotals.total_delivered;
+      row.v[seg.prefix+'sla_pct']=m.sla_pct; row.v[seg.prefix+'p99_tat_hrs']=m.p99_tat_hrs;
+      row.v[seg.prefix+'p95_tat_hrs']=m.p95_tat_hrs; row.v[seg.prefix+'delivery_pct']=m.delivery_pct;
+      RPT_OVERLAY_FIELDS.forEach(f=>row.v[seg.prefix+f]=m[f]);
+    }
+    return row;
+  });
+}
+function rptBuildRegion(allRows){
+  const periods = rptGetPeriods(allRows);
+  const regions = [...new Set(allRows.map(r=>r.region).filter(Boolean))].sort();
+  const rows = [];
+  for (const p of periods){
+    const pop = allRows.filter(r=>rptInPeriod(r,p));
+    for (const region of [...regions, null]){
+      const regionPop = pop.filter(r=>(r.region||null)===region);
+      if (!regionPop.length) continue;
+      const overall = rptComputeMetrics(regionPop);
+      const row = { group:p.group, date:p.date, granularity:p.granularity, period:p.period, region:region||'Unknown', v:{
+        total_vin:overall.total_vin, total_delivered:overall.total_delivered,
+        sla_pct:overall.sla_pct, p99_tat_hrs:overall.p99_tat_hrs, p95_tat_hrs:overall.p95_tat_hrs,
+      }};
+      RPT_OVERLAY_FIELDS.forEach(f=>row.v[f]=overall[f]);
+      const segMetrics = {};
+      for (const seg of RPT_SEGMENTS){
+        if (!seg.prefix) continue;
+        segMetrics[seg.id] = rptComputeMetrics(regionPop.filter(r=>rptSegKey(r.seg)===seg.id));
+        row.v[seg.prefix+'total_vin']=segMetrics[seg.id].total_vin; row.v[seg.prefix+'total_delivered']=segMetrics[seg.id].total_delivered;
+        row.v[seg.prefix+'sla_pct']=segMetrics[seg.id].sla_pct; row.v[seg.prefix+'p99_tat_hrs']=segMetrics[seg.id].p99_tat_hrs; row.v[seg.prefix+'p95_tat_hrs']=segMetrics[seg.id].p95_tat_hrs;
+        RPT_OVERLAY_FIELDS.forEach(f=>row.v[seg.prefix+f]=segMetrics[seg.id][f]);
+      }
+      row.v.delivery_pct = overall.delivery_pct;
+      for (const seg of RPT_SEGMENTS){ if (seg.prefix) row.v[seg.prefix+'delivery_pct'] = segMetrics[seg.id].delivery_pct; }
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+function rptComputeAll(){
+  RPT.loading = true; RPT.error = null; renderReports();
+  try{
+    const allRows = RAW; // the dashboard's own already-loaded data — no fetch needed
+    RPT.data.spin = rptBuildSpinOrRt(allRows, 'spin');
+    RPT.data.rt = rptBuildSpinOrRt(allRows, 'rt');
+    RPT.data.region = rptBuildRegion(allRows);
+    if (!RPT.regionsInit){ rptAllRegions().forEach(r=>rptRegSet().add(r)); RPT.regionsInit = true; }
+    RPT.synced = new Date();
+  }catch(err){ RPT.error = err.message || String(err); }
+  RPT.loading = false; renderReports();
+}
+
+// ── Selectors ────────────────────────────────────────────────
+function rptLaneById(id){ return RPT_LANES.find(l=>l.id===id); }
+function rptRowsFor(laneId){
+  return rptRaw(laneId).filter(r=>r.granularity===RPT.granularity).sort(rptComparePeriods);
+}
+function rptAllRegions(){
+  const s = new Set();
+  rptRaw('region').forEach(r=>{ if (r.region) s.add(r.region); });
+  return [...s].sort();
+}
+function rptActiveRegions(){
+  const all = rptAllRegions();
+  const sel = all.filter(r=>rptRegSet().has(r));
+  return sel.length ? sel : all;
+}
+function rptCol(metricId){ return (RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).prefix + metricId; }
+// Maps a card's column (e.g. "ent_sla_pct") to the same column for an overlay ("ent_tech_sla_pct").
+function rptOverlayCol(colName, ovId){
+  const baseId = RPT_OVERLAY_BASES.find(k => colName===k || colName.endsWith('_'+k));
+  if (!baseId) return null;
+  const prefix = colName===baseId ? '' : colName.slice(0, colName.length-baseId.length);
+  return prefix + ovId + '_' + baseId;
+}
+function rptPeriodsOf(){
+  const a = rptRowsFor('spin'), b = rptRowsFor('rt');
+  const src = a.length ? a : b;
+  const out = [], seen = new Set();
+  src.forEach(r=>{ if(!seen.has(r.period)){ seen.add(r.period); out.push(r.period); } });
+  if (out.length) return out;
+  const set = new Set(); rptRowsFor('region').forEach(r=>set.add(r.period));
+  return [...set];
+}
+function rptRegionSeries(colName, regionFilter){
+  const rows = rptRowsFor('region'), keep = regionFilter || rptActiveRegions();
+  const byPeriod = new Map();
+  rows.forEach(r=>{
+    if (!keep.includes(r.region)) return;
+    const val = r.v[colName];
+    if (val==null || isNaN(val)) return;
+    if (!byPeriod.has(r.period)) byPeriod.set(r.period, []);
+    byPeriod.get(r.period).push(val);
+  });
+  return rptPeriodsOf().map(p=>{
+    const a = byPeriod.get(p);
+    return a && a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+  });
+}
+function rptLaneSeries(laneId, colName){
+  if (laneId === 'region') return rptRegionSeries(colName);
+  const map = new Map(rptRowsFor(laneId).map(r=>[r.period, r.v[colName]]));
+  return rptPeriodsOf().map(p=>{ const v = map.get(p); return (v==null||isNaN(v)) ? null : v; });
+}
+function rptLastTwo(series){
+  const idx = []; series.forEach((v,i)=>{ if (v!=null) idx.push(i); });
+  const n = idx.length;
+  return { cur: n?series[idx[n-1]]:null, prev: n>1?series[idx[n-2]]:null, curIdx: n?idx[n-1]:null, prevIdx: n>1?idx[n-2]:null };
+}
+
+// ── Formatting ───────────────────────────────────────────────
+function rptFmt(metric, v){
+  if (v==null || isNaN(v)) return '—';
+  if (metric.kind==='pct') return v.toFixed(1)+'%';
+  return v>=100 ? Math.round(v).toLocaleString()+'h' : v.toFixed(1)+'h';
+}
+function rptFmtDelta(metric, cur, prev){
+  if (cur==null || prev==null) return null;
+  const d = cur-prev;
+  const txt = metric.kind==='pct' ? (d>=0?'+':'−')+Math.abs(d).toFixed(1)+'pp' : (d>=0?'+':'−')+(Math.abs(d)>=100?Math.round(Math.abs(d)):Math.abs(d).toFixed(1))+'h';
+  const good = metric.better==='high' ? d>0 : d<0;
+  const tone = Math.abs(d)<0.05 ? 'flat' : (good?'up':'down');
+  return { txt, tone };
+}
+function rptPeriodName(p){
+  const map = { MTD:'Month to date', 'M-1':'Last month', 'M-2':'2 months back', 'M-3':'3 months back', 'M-4':'4 months back',
+    WTD:'This week', 'W-1':'Last week', 'W-2':'2 weeks back', 'W-3':'3 weeks back', 'W-4':'4 weeks back' };
+  return map[p] || p;
+}
+function rptToneColor(t){ return t==='up' ? 'var(--green)' : t==='down' ? 'var(--red)' : 'var(--muted)'; }
+function rptStepTone(metric, prev, cur){
+  if (prev==null || cur==null || isNaN(prev) || isNaN(cur)) return 'flat';
+  const d = cur-prev;
+  if (Math.abs(d)<0.0005) return 'flat';
+  return (metric.better==='high' ? d>0 : d<0) ? 'up' : 'down';
+}
+
+// ── Sparkline (movement-coloured, matches the reference exactly) ──
+function rptSparkline(series, metric, labels, overlays){
+  const ovs = (overlays||[]).filter(o=>o && o.values);
+  const idx = []; series.forEach((v,i)=>{ if (v!=null || ovs.some(o=>o.values[i]!=null)) idx.push(i); });
+  if (idx.length<2) return '<div style="height:100px"></div>';
+  const W=240,H=110,padT=18,padB=18,padX=22;
+  const vals = idx.flatMap(i=>[series[i], ...ovs.map(o=>o.values[i])]).filter(v=>v!=null);
+  const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
+  const n=series.length, base=H-padB;
+  const x = i => n>1 ? padX+i*(W-padX*2)/(n-1) : W/2;
+  const y = v => padT+(base-padT)*(1-(v-min)/span);
+  // Label placement per period, across every visible line: the highest value labels above
+  // its point, lower ones below (or above when too close to the axis); then labels are
+  // spread so none sit within 11px of another, without crossing the x-axis labels.
+  const labCache = {};
+  const labYs = i => {
+    if (labCache[i]) return labCache[i];
+    const items = [{k:'e2e', v:series[i]}, ...ovs.map(o=>({k:o.id, v:o.values[i]}))].filter(t=>t.v!=null);
+    const res = {};
+    if (items.length<=1){ items.forEach(t=>res[t.k]=Math.max(11, y(t.v)-8)); return labCache[i]=res; }
+    items.sort((a,b)=>b.v-a.v);
+    items.forEach((t,j)=>{ const py=y(t.v); t.ly = (j===0 || py+13 > base-2) ? py-8 : py+13; });
+    items.sort((a,b)=>a.ly-b.ly);
+    const MAXY = base+4;
+    if (items[items.length-1].ly > MAXY) items[items.length-1].ly = MAXY;
+    for (let j=items.length-2;j>=0;j--) if (items[j].ly > items[j+1].ly-11) items[j].ly = items[j+1].ly-11;
+    if (items[0].ly < 11){ items[0].ly = 11; for (let j=1;j<items.length;j++) if (items[j].ly < items[j-1].ly+11) items[j].ly = items[j-1].ly+11; }
+    items.forEach(t=>res[t.k]=t.ly);
+    return labCache[i]=res;
+  };
+  const pts = []; series.forEach((v,i)=>{ if (v!=null) pts.push([x(i), y(v), i]); });
+  const tones = pts.map((p,k)=> k===0 ? null : rptStepTone(metric, series[pts[k-1][2]], series[p[2]]));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(metric.label)} trend">`;
+  svg += `<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)" stroke-width="1"/>`;
+  for (let k=1;k<pts.length;k++){
+    const a=pts[k-1], b=pts[k], c=rptToneColor(tones[k]);
+    svg += `<path d="M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)} L${b[0].toFixed(1)} ${base} L${a[0].toFixed(1)} ${base} Z" fill="${c}" opacity=".09"/>`;
+    svg += `<path d="M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`;
+  }
+  pts.forEach((p,k)=>{
+    const isLast = k===pts.length-1;
+    const c = rptToneColor(k===0?tones[1]:tones[k]);
+    svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?c:'var(--surface)'}" stroke="${c}" stroke-width="1.7"/>`;
+    const ly = ovs.length ? labYs(p[2]).e2e : Math.max(11,p[1]-8);
+    svg += `<text x="${p[0].toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${k===0?'var(--ink-2)':c}">${rptFmt(metric, series[p[2]])}</text>`;
+  });
+  ovs.forEach(o=>{
+    const tp = []; o.values.forEach((v,i)=>{ if (v!=null) tp.push([x(i), y(v), i]); });
+    for (let k=1;k<tp.length;k++){
+      svg += `<path d="M${tp[k-1][0].toFixed(1)} ${tp[k-1][1].toFixed(1)} L${tp[k][0].toFixed(1)} ${tp[k][1].toFixed(1)}" fill="none" stroke="${o.color}" stroke-width="2" stroke-dasharray="${o.dash}" stroke-linecap="round"/>`;
+    }
+    tp.forEach((p,k)=>{
+      const isLast = k===tp.length-1;
+      svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${isLast?3.4:2.2}" fill="${isLast?o.color:'var(--surface)'}" stroke="${o.color}" stroke-width="1.7"/>`;
+      svg += `<text x="${p[0].toFixed(1)}" y="${labYs(p[2])[o.id].toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${isLast?'700':'600'}" fill="${o.color}">${rptFmt(metric, o.values[p[2]])}</text>`;
+    });
+  });
+  (labels||[]).forEach((lab,i)=>{
+    svg += `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${esc(lab)}</text>`;
+  });
+  return svg+'</svg>';
+}
+// Compact legend that sits inside the card's header row (adds no height).
+function rptOverlayLegend(ovs){
+  const sw = (html)=>`<svg width="16" height="8" viewBox="0 0 16 8" style="display:inline-block;vertical-align:middle;">${html}</svg>`;
+  const item = (icon, label)=>`<span style="display:inline-flex;gap:4px;align-items:center;">${icon}${label}</span>`;
+  const e2e = sw('<path d="M1 6 L8 2" stroke="var(--green,#1b7a46)" stroke-width="2" stroke-linecap="round"/><path d="M8 2 L15 5" stroke="var(--red,#b3261e)" stroke-width="2" stroke-linecap="round"/>');
+  return `<span style="display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:10.5px;color:var(--muted);margin-left:10px;font-weight:400;">`
+    + item(e2e,'E2E')
+    + ovs.map(o => item(sw(`<path d="M1 4 L15 4" stroke="${o.color}" stroke-width="2" stroke-dasharray="${o.dash}" stroke-linecap="round"/>`),
+        esc(o.label) + (o.values.filter(v=>v!=null).length<2 ? ' <i>(no data)</i>' : ''))).join('')
+    + `</span>`;
+}
+
+// ── Full trend line chart (Chart.js) ──────────────────────────
+function rptTrendSeriesList(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  const c = rptCol(m.id);
+  if (RPT.trendSplit==='lane') return RPT_LANES.map(l=>({ name:l.label+(l.id==='region'?' (avg)':''), values: rptLaneSeries(l.id,c) }));
+  if (RPT.trendSplit==='segment') return RPT_SEGMENTS.filter(s=>s.id!=='all').map(s=>({ name:s.label, values: rptLaneSeries(RPT.matrixLane, s.prefix+m.id) }));
+  return rptActiveRegions().map(r=>({ name:r, values: rptRegionSeries(c,[r]) }));
+}
+function rptRenderTrend(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.trendMetric);
+  const labels = rptPeriodsOf();
+  const all = rptTrendSeriesList().map((sr,i)=>Object.assign({}, sr, { color: RPT_SERIES_COLORS[i%RPT_SERIES_COLORS.length] }));
+  const shown = all.filter(sr=>!RPT.hidden.has(sr.name));
+  const colorMode = RPT.colorMode==='auto' ? (shown.length===1?'movement':'series') : RPT.colorMode;
+
+  document.querySelectorAll('#rptColourTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.cmode===RPT.colorMode));
+  const splitNote = RPT.trendSplit==='segment' ? `Segment split reads from the ${esc((rptLaneById(RPT.matrixLane)||{}).label||'')} sheet.`
+    : (RPT.trendSplit==='region' ? 'One line per selected region.' : 'Spin and rooftop as reported; region is the mean of the selected regions.');
+  $('rptTrendSub').textContent = splitNote + ' Click a name to hide its line.';
+
+  $('rptTrendLegend').innerHTML = all.map(sr =>
+    `<span class="mtrend-legend-item" style="opacity:${RPT.hidden.has(sr.name)?0.4:1};" onclick="toggleRptSeries('${esc(sr.name)}')"><span class="mtrend-legend-dot" style="background:${sr.color}"></span>${esc(sr.name)}</span>`
+  ).join('');
+
+  const chartEl = $('rptTrendChart');
+  if (!shown.length){
+    chartEl.innerHTML = '<p style="text-align:center;color:var(--muted);padding:40px 0;">Every line is hidden — click a name below to bring it back.</p>';
+  } else {
+    chartEl.innerHTML = '<canvas id="rptTrendCanvas"></canvas>';
+    const canvas = $('rptTrendCanvas');
+    if (window._rptTrendChart) window._rptTrendChart.destroy();
+    const byMove = colorMode === 'movement';
+    const datasets = shown.map(sr => {
+      if (!byMove) return { label: sr.name, data: sr.values, borderColor: sr.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 4, tension: 0.25, fill: false };
+      // Movement mode: colour each point by whether that step improved or worsened — build per-segment paths.
+      const segDatasets = [];
+      for (let k=1;k<sr.values.length;k++){
+        const tone = rptStepTone(m, sr.values[k-1], sr.values[k]);
+        const color = rptToneColor(tone);
+        const seg = new Array(sr.values.length).fill(null);
+        seg[k-1] = sr.values[k-1]; seg[k] = sr.values[k];
+        segDatasets.push({ label: sr.name, data: seg, borderColor: color, backgroundColor: 'transparent', borderWidth: 2.6, pointRadius: 4, pointBackgroundColor: color, spanGaps: false, tension: 0 });
+      }
+      return segDatasets;
+    });
+    const flatDatasets = [].concat(...datasets);
+    window._rptTrendChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets: flatDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${rptFmt(m,c.raw)}` } } },
+        scales: { x:{ grid:{display:false} }, y:{ beginAtZero: m.kind==='pct', ticks:{ callback: v => m.kind==='pct'?v+'%':v+'h' } } },
+      },
+    });
+  }
+
+  const summary = all.map(sr => {
+    const vals = sr.values.map((v,i)=>[v,i]).filter(p=>p[0]!=null);
+    const t = rptLastTwo(sr.values), d = rptFmtDelta(m, t.cur, t.prev);
+    let best=null, worst=null;
+    vals.forEach(p=>{
+      if (best===null || (m.better==='high' ? p[0]>best[0] : p[0]<best[0])) best=p;
+      if (worst===null || (m.better==='high' ? p[0]<worst[0] : p[0]>worst[0])) worst=p;
+    });
+    return `<tr style="${RPT.hidden.has(sr.name)?'opacity:.4':''}">
+      <td><span class="mtrend-legend-dot" style="background:${sr.color};display:inline-block;margin-right:6px;"></span>${esc(sr.name)}</td>
+      <td style="font-weight:600;">${rptFmt(m,t.cur)}</td><td>${rptFmt(m,t.prev)}</td>
+      <td>${d?`<span style="color:${rptToneColor(d.tone)};font-weight:600;">${d.txt}</span>`:'—'}</td>
+      <td>${best?rptFmt(m,best[0])+' <span style="color:var(--muted);">'+esc(labels[best[1]]||'')+'</span>':'—'}</td>
+      <td>${worst?rptFmt(m,worst[0])+' <span style="color:var(--muted);">'+esc(labels[worst[1]]||'')+'</span>':'—'}</td>
+    </tr>`;
+  }).join('');
+  $('rptTrendSummary').innerHTML = `<tr><th>Series</th><th>Latest</th><th>Previous</th><th>Change</th><th>Best period</th><th>Worst period</th></tr><tbody>${summary}</tbody>`;
+}
+function toggleRptSeries(name){ if (RPT.hidden.has(name)) RPT.hidden.delete(name); else RPT.hidden.add(name); rptRenderTrend(); }
+function setRptColourMode(mode){ RPT.colorMode = mode; rptRenderTrend(); }
+
+// ── Glance cards ───────────────────────────────────────────────
+function rptRenderGlance(){
+  const periods = rptPeriodsOf();
+  const latest = periods.length ? periods[periods.length-1] : '';
+  $('rptGlanceSub').textContent = `${rptPeriodName(latest)} · ${(RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).label.toLowerCase()} · change vs period before it`;
+  $('rptCardToggles').innerHTML = RPT_METRICS.map(x =>
+    `<span class="rpt-chip${!RPT.hiddenCards.has(x.id)?' sel':''}" onclick="toggleRptCard('${x.id}')">${esc(x.label)}</span>`).join('')
+    + RPT_OVERLAYS.map((o,k)=>`<span class="rpt-chip${RPT[o.mode]?' sel':''}" onclick="${o.toggle}()"${k===0?' style="margin-left:6px;border-left:1px solid var(--line);padding-left:12px;"':''}>${esc(o.label)}</span>`).join('');
+
+  $('rptGlanceGrid').innerHTML = RPT_LANES.map(lane => {
+    const cards = RPT_METRICS.filter(m=>!RPT.hiddenCards.has(m.id)).map(m => {
+      const colName = rptCol(m.id);
+      const series = rptLaneSeries(lane.id, colName);
+      const t = rptLastTwo(series), d = rptFmtDelta(m, t.cur, t.prev);
+      const pillBg = !d ? 'var(--surface-2)' : `color-mix(in srgb, ${rptToneColor(d.tone)} 15%, transparent)`;
+      const overlays = RPT_OVERLAYS.filter(o=>RPT[o.mode]).map(o=>{
+        const oc = rptOverlayCol(colName, o.id);
+        return oc ? Object.assign({}, o, { values: rptLaneSeries(lane.id, oc) }) : null;
+      }).filter(Boolean);
+      const graph = rptSparkline(series, m, periods, overlays);
+      const legend = overlays.length ? rptOverlayLegend(overlays) : '';
+      return `<div class="rpt-glance-card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-size:13px;font-weight:500;display:inline-flex;align-items:center;flex-wrap:wrap;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:4px;">avg</span>':''}${legend}</span>
+          ${d?`<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:${pillBg};color:${rptToneColor(d.tone)};">${d.txt}</span>`:''}
+        </div>
+        <div style="font-size:26px;font-weight:700;margin-top:4px;">${rptFmt(m,t.cur)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${t.prev!=null?'was '+rptFmt(m,t.prev):'no prior period'}</div>
+        ${graph}
+      </div>`;
+    }).join('');
+    return `<div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="width:9px;height:9px;border-radius:2px;background:${lane.color};display:inline-block;"></span>
+        <span style="font-size:14px;font-weight:600;">${esc(lane.label)}</span>
+        <span style="font-size:11px;color:var(--muted);">${esc(lane.blurb)}${lane.id==='region'?' · '+rptActiveRegions().length+' selected':''}</span>
+      </div>
+      ${cards}
+    </div>`;
+  }).join('');
+}
+function toggleRptCard(id){ if (RPT.hiddenCards.has(id)) RPT.hiddenCards.delete(id); else RPT.hiddenCards.add(id); renderReports(); }
+function toggleRptTechMode(){ RPT.techMode = !RPT.techMode; renderReports(); }
+
+// ── Drill-down matrix ────────────────────────────────────────
+function rptHeatStyle(metric, v, min, max){
+  if (v==null || isNaN(v) || max===min) return 'background:var(--surface-2);color:var(--muted)';
+  let t = (v-min)/(max-min);
+  if (metric.better==='low') t = 1-t;
+  const bad=[179,38,30], good=[27,122,70];
+  const r=Math.round(bad[0]+(good[0]-bad[0])*t), g=Math.round(bad[1]+(good[1]-bad[1])*t), b=Math.round(bad[2]+(good[2]-bad[2])*t);
+  return `background:rgba(${r},${g},${b},0.16);color:rgb(${Math.round(r*0.7)},${Math.round(g*0.7)},${Math.round(b*0.7)})`;
+}
+function rptRenderMatrix(){
+  const m = RPT_METRICS.find(x=>x.id===RPT.matrixMetric);
+  const periods = rptPeriodsOf();
+  const regs = rptActiveRegions();
+
+  document.querySelectorAll('#rptMatrixMetricTabs').forEach(el => {
+    el.innerHTML = RPT_METRICS.map(x => `<button class="trend-tab${x.id===RPT.matrixMetric?' sel':''}" onclick="setRptMatrixMetric('${x.id}')">${esc(x.label)}</button>`).join('');
+  });
+  $('rptMatrixLaneTabs').innerHTML = RPT_LANES.map(l => `<button class="trend-tab${l.id===RPT.matrixLane?' sel':''}" onclick="setRptMatrixLane('${l.id}')">${esc(l.label)}</button>`).join('');
+
+  const head = first => `<tr><th>${esc(first)}</th>${periods.map(p=>`<th>${esc(p)}</th>`).join('')}</tr>`;
+
+  const rVals=[]; const rRows = regs.map(r => { const vals = rptRegionSeries(rptCol(m.id),[r]); vals.forEach(v=>{if(v!=null)rVals.push(v);}); return {name:r, vals}; });
+  const rMin = rVals.length?Math.min(...rVals):0, rMax = rVals.length?Math.max(...rVals):1;
+  $('rptRegionMatrix').innerHTML = head('Region') + '<tbody>' + (rRows.length ? rRows.map(row =>
+    `<tr class="acc-name-link" onclick="rptDrillRegion('${esc(row.name)}')" style="cursor:pointer;"><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,rMin,rMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`
+  ).join('') : `<tr><td colspan="${periods.length+1}" style="text-align:center;color:var(--muted);padding:24px;">No regions selected</td></tr>`) + '</tbody>';
+
+  const sVals=[]; const sRows = RPT_SEGMENTS.map(s => { const vals = rptLaneSeries(RPT.matrixLane, s.prefix+m.id); vals.forEach(v=>{if(v!=null)sVals.push(v);}); return {name:s.label, vals}; });
+  const sMin = sVals.length?Math.min(...sVals):0, sMax = sVals.length?Math.max(...sVals):1;
+  $('rptSegmentMatrix').innerHTML = head('Segment') + '<tbody>' + sRows.map(row =>
+    `<tr><td>${esc(row.name)}</td>${row.vals.map(v=>`<td><span class="rpt-heat" style="${rptHeatStyle(m,v,sMin,sMax)}">${rptFmt(m,v)}</span></td>`).join('')}</tr>`
+  ).join('') + '</tbody>';
+
+  rptRenderDrillPanel();
+}
+function setRptMatrixMetric(id){ RPT.matrixMetric = id; renderReports(); }
+function setRptMatrixLane(id){ RPT.matrixLane = id; renderReports(); }
+function rptDrillRegion(name){ RPT.drillRegion = RPT.drillRegion===name ? null : name; rptRenderDrillPanel(); }
+function rptRenderDrillPanel(){
+  const panel = $('rptDrillPanel');
+  if (!RPT.drillRegion){ panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  const periods = rptPeriodsOf();
+  const rows = rptRowsFor('region').filter(r=>r.region===RPT.drillRegion);
+  const byPeriod = new Map(rows.map(r=>[r.period, r]));
+  let html = `<div style="border-top:1px solid var(--line);padding-top:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h4 style="font-size:13px;font-weight:600;margin:0;">${esc(RPT.drillRegion)} — every metric, every segment</h4>
+      <span style="cursor:pointer;color:var(--accent);font-size:12px;" onclick="rptDrillRegion('${esc(RPT.drillRegion)}')">Close</span>
+    </div>
+    <div class="acc-table-wrap"><table class="acc-table"><tr><th>Segment</th><th>Metric</th>${periods.map(p=>`<th>${esc(p)}</th>`).join('')}</tr><tbody>`;
+  RPT_SEGMENTS.forEach((s,si) => {
+    RPT_METRICS.forEach((m,mi) => {
+      html += `<tr>${mi===0?`<td rowspan="${RPT_METRICS.length}" style="font-weight:600;vertical-align:top;">${esc(s.label)}</td>`:''}<td>${esc(m.label)}</td>${periods.map(p=>{ const r=byPeriod.get(p), v=r?r.v[s.prefix+m.id]:null; return `<td>${rptFmt(m,v)}</td>`; }).join('')}</tr>`;
+    });
+  });
+  panel.innerHTML = html + '</tbody></table></div></div>';
+}
+
+// ── Records table + CSV ────────────────────────────────────────
+function rptRecordFields(laneId){
+  const keys = new Set();
+  rptRaw(laneId).forEach(r=>Object.keys(r.v).forEach(k=>keys.add(k)));
+  return [...keys];
+}
+function rptRecordRows(){
+  const laneId = RPT.recordsLane;
+  const dim = (rptLaneById(laneId)||{}).dim;
+  let rows = rptRaw(laneId).filter(r=>r.granularity===RPT.granularity);
+  if (dim==='region') rows = rows.filter(r=>rptActiveRegions().includes(r.region));
+  const q = RPT.recordsQuery.trim().toLowerCase();
+  if (q) rows = rows.filter(r=>(r.period+' '+(r.region||'')).toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    if (RPT.sortCol){ const av=a.v[RPT.sortCol], bv=b.v[RPT.sortCol]; if(av==null)return 1; if(bv==null)return -1; return (av-bv)*RPT.sortDir; }
+    return -rptComparePeriods(a,b);
+  });
+  return rows;
+}
+function rptRenderRecords(){
+  const laneId = RPT.recordsLane;
+  const dim = (rptLaneById(laneId)||{}).dim;
+  const fields = rptRecordFields(laneId);
+  const rows = rptRecordRows();
+  $('rptRecordsSub').textContent = `${rows.length} row${rows.length===1?'':'s'} from ${(rptLaneById(laneId)||{}).sheet||''} · sorted newest first unless you pick a column`;
+  $('rptRecordsLaneTabs').innerHTML = RPT_LANES.map(l => `<button class="trend-tab${l.id===RPT.recordsLane?' sel':''}" onclick="setRptRecordsLane('${l.id}')">${esc(l.label)}</button>`).join('');
+  const head = `<tr><th>Period</th><th>Date</th>${dim?'<th>Region</th>':''}${fields.map(f=>`<th style="cursor:pointer;" onclick="setRptSort('${esc(f)}')">${esc(f)}${RPT.sortCol===f?(RPT.sortDir<0?' ↓':' ↑'):''}</th>`).join('')}</tr>`;
+  const body = rows.map(r => `<tr><td style="font-weight:500;">${esc(r.period)}</td><td style="color:var(--muted);">${r.date?r.date.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'2-digit'}):'—'}</td>${dim?`<td>${esc(r.region||'')}</td>`:''}${fields.map(f=>{ const v=r.v[f]; return `<td>${v==null||isNaN(v)?'—':(Math.abs(v)>=100?Math.round(v).toLocaleString():v.toFixed(2))}</td>`; }).join('')}</tr>`).join('');
+  $('rptRecordsTable').innerHTML = head + '<tbody>' + (rows.length ? body : `<tr><td colspan="${fields.length+3}" style="text-align:center;color:var(--muted);padding:28px;">Nothing matches that filter</td></tr>`) + '</tbody>';
+}
+function setRptRecordsLane(id){ RPT.recordsLane = id; RPT.sortCol = null; renderReports(); }
+function setRptSort(f){ if (RPT.sortCol===f) RPT.sortDir *= -1; else { RPT.sortCol=f; RPT.sortDir=-1; } rptRenderRecords(); }
+function rptDownloadCSV(){
+  const laneId = RPT.recordsLane, dim = (rptLaneById(laneId)||{}).dim;
+  const fields = rptRecordFields(laneId), rows = rptRecordRows();
+  const head = ['period','date'].concat(dim?['region']:[]).concat(fields);
+  const lines = [head.join(',')].concat(rows.map(r=>{
+    const base = [r.period, r.date?r.date.toISOString().slice(0,10):''].concat(dim?[r.region||'']:[]);
+    return base.concat(fields.map(f=>r.v[f]==null?'':r.v[f])).map(c=>{ const s=String(c); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(',');
+  }));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = laneId+'_'+RPT.granularity+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ── Filters ────────────────────────────────────────────────────
+function rptRenderFilters(){
+  document.querySelectorAll('#rptGranTabs .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===RPT.granularity));
+  $('rptSegChips').innerHTML = RPT_SEGMENTS.map(s => `<span class="rpt-chip${RPT.segment===s.id?' sel':''}" onclick="setRptSegment('${s.id}')">${esc(s.label)}</span>`).join('');
+  const regs = rptAllRegions();
+  $('rptRegionChips').innerHTML = regs.map(r => `<span class="rpt-chip${rptRegSet().has(r)?' sel':''}" onclick="toggleRptRegion('${esc(r)}')">${esc(r)}</span>`).join('')
+    + (regs.length ? `<span class="rpt-chip" onclick="toggleAllRptRegions()">${rptRegSet().size===regs.length?'Clear all':'Select all'}</span>` : '');
+  document.querySelectorAll('#rptMetricTabs').forEach(el => { el.innerHTML = RPT_METRICS.map(x => `<button class="trend-tab${x.id===RPT.trendMetric?' sel':''}" onclick="setRptTrendMetric('${x.id}')">${esc(x.label)}</button>`).join(''); });
+}
+function setRptGran(g){ RPT.granularity = g; renderReports(); }
+function setRptSegment(id){ RPT.segment = id; renderReports(); }
+function toggleRptRegion(r){ if (rptRegSet().has(r)) rptRegSet().delete(r); else rptRegSet().add(r); if (RPT.drillRegion && !rptRegSet().has(RPT.drillRegion)) RPT.drillRegion=null; renderReports(); }
+function toggleAllRptRegions(){ const all=rptAllRegions(); if (rptRegSet().size===all.length) rptRegSet().clear(); else all.forEach(r=>rptRegSet().add(r)); renderReports(); }
+function setRptTrendMetric(id){ RPT.trendMetric = id; renderReports(); }
+function setRptTrendSplit(s){ RPT.trendSplit = s; RPT.hidden.clear(); renderReports(); }
+
+// ── Main render ──────────────────────────────────────────────
+function renderReports(){
+  rptRenderFilters();
+  const syncTxt = $('rptSyncTxt'), refreshBtn = $('rptRefreshBtn');
+  if (refreshBtn) refreshBtn.disabled = RPT.loading;
+  if (refreshBtn) refreshBtn.textContent = RPT.loading ? 'Refreshing…' : 'Refresh data';
+  if (syncTxt){
+    if (RPT.error) syncTxt.textContent = 'Sheet unreachable';
+    else if (RPT.loading) syncTxt.textContent = 'Computing…';
+    else if (RPT.synced) syncTxt.textContent = 'Synced ' + RPT.synced.toLocaleTimeString();
+    else syncTxt.textContent = '';
+  }
+  const status = $('rptStatus');
+  const panels = ['rptGlancePanel','rptTrendPanel','rptMatrixPanel','rptRecordsPanel'];
+  const haveData = rptRaw('spin').length > 0;
+
+  if (RPT.loading && !haveData){
+    panels.forEach(id => $(id).style.display = 'none');
+    status.innerHTML = '<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Computing the report</h3><p style="margin:0;">Crunching the numbers for Spin, Rooftop and Region.</p></div>';
+    return;
+  }
+  if (RPT.error){
+    panels.forEach(id => $(id).style.display = 'none');
+    status.innerHTML = `<div class="state" style="margin-top:16px;padding:32px;text-align:center;color:var(--muted);"><h3 style="color:var(--ink);margin:0 0 6px;">Couldn't compute the report</h3><p style="margin:0 0 12px;">${esc(RPT.error)}</p><button class="btn-reset" onclick="rptComputeAll()">Try again</button></div>`;
+    return;
+  }
+  status.innerHTML = '';
+  panels.forEach(id => $(id).style.display = 'block');
+
+  if (!RPT_METRICS.some(m=>m.id===RPT.trendMetric)) RPT.trendMetric = RPT_METRICS[0].id;
+  if (!RPT_METRICS.some(m=>m.id===RPT.matrixMetric)) RPT.matrixMetric = RPT_METRICS[0].id;
+  if (!rptLaneById(RPT.matrixLane)) RPT.matrixLane = RPT_LANES[0].id;
+  if (!rptLaneById(RPT.recordsLane)) RPT.recordsLane = RPT_LANES[0].id;
+
+  rptRenderGlance();
+  rptRenderTrend();
+  rptRenderMatrix();
+  rptRenderRecords();
+
+  const search = $('rptRecordsSearch');
+  if (search && search.value !== RPT.recordsQuery) search.value = RPT.recordsQuery;
+  if (search && !search._rptWired){
+    search._rptWired = true;
+    search.addEventListener('input', () => { RPT.recordsQuery = search.value; rptRenderRecords(); });
+  }
+  const csv = $('rptCsvBtn');
+  if (csv && !csv._rptWired){ csv._rptWired = true; csv.addEventListener('click', rptDownloadCSV); }
+}
+function renderAccuracy(){
+  // Full filters (incl. Date Range) — feeds Failure reasons, Enterprise list, Team list.
+  const filtered = RAW.filter(passesAccFilters);
+  _accDeduped = getDedupedForTrend(filtered);
+
+  // Non-date filters only — feeds Accuracy trend + Manual correction trends,
+  // which show their own month/week windows independent of Date Range
+  // (same pattern as Operations' "Throughput trend").
+  const filteredNoDate = RAW.filter(passesAccNonDateFilters);
+  _accDedupedNoDate = getDedupedForTrend(filteredNoDate);
+  _accDedupedSorted = _accDedupedNoDate.filter(r => r._created).sort((a,b)=>a._created-b._created);
+
+  renderAccuracyTrendChart();
+  renderAccReasonCards();
+  computeTopIssues();
+  renderAccuracyMiniCharts();
+  renderAccuracyTables();
+}
+
+// Failure-reason cards for the Accuracy tab, scoped to _accDeduped (respects
+// F_ACC filters including Date Range). Same extraction logic and same
+// "% of reviewed" denominator as the Operations dashboard's reason cards.
+function renderAccReasonCards(){
+  const qcReasons = {}, valReasons = {}, techReasons = {};
+  let totalReviewed = 0;
+  for (const r of _accDeduped){
+    const fs = (r.fs||'').trim();
+    if ((r.cs||'').trim() === 'qc_done') totalReviewed++;
+
+    if (fs === 'QC Failed' && r.isv){
+      const parts = String(r.isv).split('||');
+      let foundBlocker = false;
+      for (const part of parts){
+        const t = part.trim();
+        if (/^blocker/i.test(t)){
+          foundBlocker = true;
+          const items = t.replace(/^blocker\s*-\s*/i,'').split(',');
+          for (const item of items){
+            const k = item.trim();
+            if (k) qcReasons[k] = (qcReasons[k]||0)+1;
+          }
+        }
+      }
+      if (!foundBlocker){ const k = r.rej ? (r.rej||'').trim().slice(0,60) : '(no reason recorded)'; qcReasons[k] = (qcReasons[k]||0)+1; }
+    }
+    // Note: QC Failed rows with blank isv are intentionally skipped entirely here —
+    // matches the Operations dashboard's confirmed behavior (only Blocker-severity
+    // issues count, and a row with no isv at all contributes nothing to this card).
+
+    if (fs === 'Validation Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; valReasons[k] = (valReasons[k]||0)+1; }
+    if (fs === 'Tech Failure' || fs === 'AI Failed'){ const k = r.rej ? (r.rej||'').trim().slice(0,80) : '(no reason recorded)'; techReasons[k] = (techReasons[k]||0)+1; }
+  }
+  const PAL = getPal();
+  mkReasonCard('accQcReasons',   qcReasons,   PAL.red,    '',  totalReviewed, 'accQcReasonsPct', false);
+  mkReasonCard('accValReasons',  valReasons,  PAL.orange, '',  totalReviewed, 'accValReasonsPct', false);
+  mkReasonCard('accTechReasons', techReasons, PAL.amber,  '',  totalReviewed, 'accTechReasonsPct', false);
+}
+
+// ── Shared hover-tooltip for segment-stacked bars ──
+function showAccSegTooltip(e){
+  const tip = $('accSegTooltip');
+  tip.innerHTML = e.currentTarget.dataset.tooltip;
+  tip.style.display = 'block';
+  moveAccSegTooltip(e);
+}
+function moveAccSegTooltip(e){
+  const tip = $('accSegTooltip');
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top  = (e.clientY - 10) + 'px';
+}
+function hideAccSegTooltip(){ $('accSegTooltip').style.display = 'none'; }
+
+// Per-segment accuracy-trend series (Ent/Mid/SMB/Resellers). No "All" — Bar
+// mode shows all 4 segments stacked into one bar per period (matching the
+// SLA/Delivery/Accuracy mini-trend card style); Graph mode shows 4 lines.
+function computeAccTrendSegSeries(sortedRows, periods){
+  const series = {}; SEG_STACK_ORDER.forEach(k => series[k] = []);
+  const weights = {}; SEG_STACK_ORDER.forEach(k => weights[k] = []);
+  const overall = [];
+  periods.forEach(p => {
+    const pop = sliceByDateRange(sortedRows, p.from, p.to);
+    const delivered = pop.filter(r => (r.fs||'').trim()==='Delivered');
+    const qcFailed  = pop.filter(r => (r.fs||'').trim()==='QC Failed');
+    const total = delivered.length + qcFailed.length;
+    overall.push(total ? +((delivered.filter(r=>!r.mc).length/total)*100).toFixed(1) : null);
+    SEG_STACK_ORDER.forEach(sk => {
+      const segPop = pop.filter(r => normSeg(r.seg)===sk && ((r.fs||'').trim()==='Delivered' || (r.fs||'').trim()==='QC Failed'));
+      const segDelivNoCorr = segPop.filter(r=>(r.fs||'').trim()==='Delivered' && !r.mc).length;
+      series[sk].push(segPop.length ? +((segDelivNoCorr/segPop.length)*100).toFixed(1) : null);
+      weights[sk].push(total ? (segPop.length/total)*100 : 0);
+    });
+  });
+  return { series, weights, overall };
+}
+
+let accTrendHidden = new Set(); // segment keys toggled off via legend click (Graph mode)
+
+function renderAccTrendLegend(elId, isBar){
+  const PAL = getPal();
+  const el = $(elId); if (!el) return;
+  if (isBar){
+    el.innerHTML = SEG_STACK_ORDER.map(sk => {
+      const c = SEG_COLORS.delivery[sk] || {bg:'#999'};
+      return `<span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:${c.bg}"></span>${esc(sk)}</span>`;
+    }).join('');
+  } else {
+    el.innerHTML = SEG_STACK_ORDER.map(sk => {
+      const off = accTrendHidden.has(sk);
+      return `<span class="mtrend-legend-item" style="cursor:pointer;opacity:${off?0.4:1};" onclick="toggleAccTrendSeries('${esc(sk)}')"><span class="mtrend-legend-dot" style="background:${acc5LineColor(PAL,sk)}"></span>${esc(sk)}</span>`;
+    }).join('');
+  }
+}
+function toggleAccTrendSeries(k){
+  if (accTrendHidden.has(k)) accTrendHidden.delete(k); else accTrendHidden.add(k);
+  renderAccuracyTrendChart();
+}
+function acc5LineColor(PAL, key){
+  return { Ent:PAL.accent, Mid:PAL.orange, SMB:PAL.teal, Resellers:PAL.amber }[key] || PAL.ink;
+}
+
+function renderAccuracyTrendChart(){
+  const periods = accTrendGran === 'week' ? getLastNWeeks(_accDedupedNoDate, 4) : getMonthsFromApril(_accDedupedNoDate);
+  $('accTrendSub').textContent = accTrendGran === 'week' ? 'Last 4 weeks' : 'Month-wise since April';
+  const isBar = accTrendChartType === 'bar';
+  $('accTrendCanvasWrap').style.display = isBar ? 'none' : 'block';
+  $('accTrendBody').style.display = isBar ? 'block' : 'none';
+  renderAccTrendLegend('accTrendLegend', isBar);
+  const { series, weights, overall } = computeAccTrendSegSeries(_accDedupedSorted, periods);
+
+  if (isBar){
+    const body = $('accTrendBody');
+    const items = periods.map((p,idx) => ({ label:p.label, pct:overall[idx],
+      segBreak: Object.fromEntries(SEG_STACK_ORDER.map(sk => [sk, { rate: series[sk][idx], weight: weights[sk][idx] }])) }));
+    // Segments sized by their actual share of volume that period (matches reference).
+    const CHART_H = 340;
+    const maxPct = Math.max(...items.map(it=>it.pct).filter(v=>v!=null), 1);
+    const scaleMax = maxPct * 1.25; // headroom so the tallest bar doesn't touch the top
+    body.innerHTML = `<div class="mtrend-cols" style="height:${CHART_H}px;">` + items.map((it, idx) => {
+      const present = SEG_STACK_ORDER.filter(sk => it.segBreak[sk].rate != null && it.segBreak[sk].weight > 0.4);
+      const barH = it.pct != null ? Math.max(6, Math.round((it.pct/scaleMax)*CHART_H)) : 6;
+      let segHtml = '', tooltipLines = [];
+      present.forEach(sk => {
+        const c = SEG_COLORS.delivery[sk];
+        const rate = it.segBreak[sk].rate;
+        const share = it.segBreak[sk].weight;
+        segHtml += `<div style="height:${share}%;background:${c.bg};display:flex;align-items:center;justify-content:center;min-height:0;"><span style="color:${c.text};font-size:10px;font-weight:500;">${Math.round(rate)}%</span></div>`;
+        tooltipLines.push(`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.bg};margin-right:5px;"></span>${esc(sk)}: ${Math.round(rate)}%`);
+      });
+      let arrow = '';
+      if (idx > 0 && overall[idx-1] != null && it.pct != null) arrow = it.pct >= overall[idx-1] ? ' ▲' : ' ▼';
+      const totalTxt = it.pct != null ? it.pct.toFixed(1)+'%'+arrow : '—';
+      return `<div class="mtrend-col">
+          <div class="mtrend-stack" style="height:${barH}px;display:flex;flex-direction:column;" data-tooltip="${esc(tooltipLines.join('<br>')||'No data')}" onmouseenter="showAccSegTooltip(event)" onmousemove="moveAccSegTooltip(event)" onmouseleave="hideAccSegTooltip()">${segHtml}</div>
+          <div class="mtrend-val">${totalTxt}</div>
+          <div class="mtrend-lbl">${esc(it.label)}</div>
+        </div>`;
+    }).join('') + '</div>';
+    return;
+  }
+
+  const PAL = getPal();
+  const canvas = document.getElementById('accTrendCanvas');
+  if (!canvas) return;
+  if (window._accTrendChart) window._accTrendChart.destroy();
+  const visible = k => !accTrendHidden.has(k);
+  const datasets = SEG_STACK_ORDER.filter(visible).map(k => ({
+    label:k, data: series[k], borderColor: acc5LineColor(PAL,k), backgroundColor:'transparent',
+    borderWidth:1.8, pointRadius:3, tension:0.3, fill:false,
+    datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' },
+  }));
+  window._accTrendChart = new Chart(canvas, {
+    type:'line', plugins:[ChartDataLabels],
+    data:{ labels: periods.map(p=>p.label), datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:20 } },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${c.raw==null?'—':c.raw.toFixed(1)+'%'}` } } },
+      scales:{ x:{ grid:{display:false} }, y:{ beginAtZero:true, ticks:{ callback: v=>v+'%' } } },
+    },
+  });
+}
+
+function computeTopIssues(){
+  const counts = {};
+  for (const r of _accDedupedNoDate){
+    if ((r.fs||'').trim() !== 'Delivered') continue;
+    for (const issue of extractIssues(r.mc)){
+      counts[issue] = (counts[issue]||0)+1;
+    }
+  }
+  _accTopIssues = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k])=>k);
+}
+
+function renderAccuracyMiniCharts(){
+  const grid = $('accMiniGrid');
+  if (!grid || !_accTopIssues) return;
+  const periods = accGran === 'week' ? getLastNWeeks(_accDedupedNoDate, 4) : getMonthsFromApril(_accDedupedNoDate).slice(-4);
+  const PAL = getPal();
+  const isBar = accMiniChartType === 'bar';
+  $('accMiniSub').textContent = accGran === 'week' ? 'Last 4 weeks' : 'Current month and previous 3';
+  $('accMiniLegend').innerHTML = '';
+
+  grid.innerHTML = _accTopIssues.map((issue,i) => `<div class="acc-mini-card"><h4>${esc(issue)}</h4><div style="position:relative;height:140px;"><canvas id="accMini_${i}"></canvas></div></div>`).join('');
+
+  // Slice each period once (binary search) and keep only Delivered rows —
+  // every issue below reuses these same small arrays instead of re-scanning
+  // the full dataset per issue.
+  const periodDelivered = periods.map(p => sliceByDateRange(_accDedupedSorted, p.from, p.to).filter(r => (r.fs||'').trim()==='Delivered'));
+
+  _accTopIssues.forEach((issue, i) => {
+    const values = periodDelivered.map(pop => {
+      if (!pop.length) return null;
+      const cnt = pop.reduce((sum,r) => sum + extractIssues(r.mc).filter(x=>x===issue).length, 0);
+      return +((cnt/pop.length)*100).toFixed(1);
+    });
+    const canvas = document.getElementById(`accMini_${i}`);
+    if (!canvas) return;
+    const color = accIssueColor(PAL, i);
+    const dataset = isBar
+      ? { data: values, backgroundColor: color+'DD', borderRadius:6, maxBarThickness:48, categoryPercentage:0.7, barPercentage:0.9,
+          datalabels:{ align:'end', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' } }
+      : (()=>{ const ctx=canvas.getContext('2d'); const grad=ctx.createLinearGradient(0,0,0,100); grad.addColorStop(0,color+'33'); grad.addColorStop(1,color+'00');
+          return { data: values, borderColor: color, backgroundColor: grad, borderWidth:2, tension:0.35, pointRadius:2, pointBackgroundColor:color, fill:true,
+            datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' } }; })();
+    new Chart(canvas, {
+      type: isBar ? 'bar' : 'line', plugins:[ChartDataLabels],
+      data:{ labels: periods.map(p=>p.label), datasets:[dataset] },
+      options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:26}}, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw==null?'—':c.raw.toFixed(1)+'%'}}}, scales:{ x:{ ticks:{font:{size:9}} }, y:{ beginAtZero:true, suggestedMax: Math.max(...values.filter(v=>v!=null), 1)*(isBar?1.18:1.35), ticks:{font:{size:9}, callback:v=>v+'%'} } } },
+    });
+  });
+}
+
+let _accEntGroups = {}, _accTeamGroups = {};
+let accEntSort  = { col:null, dir:null };
+let accTeamSort = { col:null, dir:null };
+
+function buildAccGroups(keyFn){
+  const groups = {};
+  for (const r of _accDeduped){
+    const key = keyFn(r);
+    if (!key) continue;
+    if (!groups[key]) groups[key] = { total:0, issues:{}, received:0, pending:0 };
+    groups[key].received++;
+    if (isPending(r)) groups[key].pending++;
+    if ((r.fs||'').trim() !== 'Delivered') continue;
+    groups[key].total++;
+    for (const issue of extractIssues(r.mc)){
+      groups[key].issues[issue] = (groups[key].issues[issue]||0)+1;
+    }
+  }
+  return groups;
+}
+
+function renderAccuracyTables(){
+  _accEntGroups  = buildAccGroups(r=>r.ent);
+  _accTeamGroups = buildAccGroups(r=>r.tm);
+  renderAccTable('accEntTable',  _accEntGroups,  'Enterprise', accEntSort);
+  renderAccTable('accTeamTable', _accTeamGroups, 'Team',       accTeamSort);
+}
+
+function renderAccTable(tableId, groups, colLabel, sortState){
+  let rows = Object.entries(groups).map(([name, g]) => {
+    const pcts = {};
+    _accTopIssues.forEach(issue => { pcts[issue] = g.total ? (g.issues[issue]||0)/g.total*100 : 0; });
+    const fulfillment = g.received ? (g.total / Math.max(g.received - g.pending, 1)) * 100 : 0;
+    return { name, total: g.total, received: g.received, pcts, fulfillment };
+  });
+  if (sortState.col === '__received__'){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.received-b.received : b.received-a.received);
+  } else if (sortState.col === '__fulfillment__'){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.fulfillment-b.fulfillment : b.fulfillment-a.fulfillment);
+  } else if (sortState.col){
+    rows.sort((a,b) => sortState.dir==='asc' ? a.pcts[sortState.col]-b.pcts[sortState.col] : b.pcts[sortState.col]-a.pcts[sortState.col]);
+  } else {
+    rows.sort((a,b)=>b.total-a.total);
+  }
+  rows = rows.slice(0,20); // top 20, rest via scroll within this set
+
+  const receivedArrow = sortState.col==='__received__' ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+  const fulfillArrow = sortState.col==='__fulfillment__' ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+  const headerHtml = `<th>${esc(colLabel)}</th>` +
+    `<th class="sortable" data-issue="__received__" data-table="${tableId}">Total Received${receivedArrow}</th>` +
+    `<th class="sortable" data-issue="__fulfillment__" data-table="${tableId}">Fulfillment %${fulfillArrow}</th>` +
+    _accTopIssues.map(issue => {
+      const arrow = sortState.col===issue ? (sortState.dir==='asc'?' ↑':' ↓') : '';
+      return `<th class="sortable" data-issue="${esc(issue)}" data-table="${tableId}">${esc(issue)}${arrow}</th>`;
+    }).join('');
+  const rowsHtml = rows.map(r => {
+    const cells = _accTopIssues.map(issue => `<td>${r.pcts[issue].toFixed(1)}%</td>`).join('');
+    return `<tr><td class="acc-name-link" data-table="${tableId}" data-name="${esc(r.name)}">${esc(r.name)}</td><td>${num(r.received)}</td><td>${r.fulfillment.toFixed(1)}%</td>${cells}</tr>`;
+  }).join('');
+  const table = document.getElementById(tableId);
+  if (table) table.innerHTML = `<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>`;
+}
+
+// Delegated click handler: sorting the Enterprise/Team accuracy tables by issue column.
+document.addEventListener('click', e=>{
+  const th = e.target.closest('.acc-table th.sortable');
+  if (th){
+    const tableId = th.dataset.table, issue = th.dataset.issue;
+    const isEnt = tableId === 'accEntTable';
+    const sortState = isEnt ? accEntSort : accTeamSort;
+    if (sortState.col === issue) sortState.dir = (sortState.dir === 'desc') ? 'asc' : 'desc';
+    else { sortState.col = issue; sortState.dir = 'desc'; }
+    renderAccTable(tableId, isEnt ? _accEntGroups : _accTeamGroups, isEnt ? 'Enterprise' : 'Team', sortState);
+    return;
+  }
+  const nameCell = e.target.closest('.acc-name-link');
+  if (nameCell){
+    openAccDetailPopup(nameCell.dataset.table, nameCell.dataset.name);
+  }
+});
+
+// ── Enterprise/Team detail popup: issue-wise trend for one specific
+// enterprise or team, with its own Month/Week toggle. Periods (which months
+// or weeks) are computed from the FULL dataset (same window as the main
+// Manual Correction Trends section) — only the counts within each period
+// are scoped to this one enterprise/team.
+let accDetailGran = 'month';
+let accDetailChartType = 'line';
+let _accDetailScope = null; // { keyFn, name }
+
+function setAccDetailGran(g){
+  accDetailGran = g;
+  document.querySelectorAll('[data-accdetailgran] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.g===g));
+  renderAccDetailCharts();
+}
+function setAccDetailChartType(t){
+  accDetailChartType = t;
+  document.querySelectorAll('[data-accdetailtype] .trend-tab').forEach(b=>b.classList.toggle('sel', b.dataset.t===t));
+  renderAccDetailCharts();
+}
+
+function openAccDetailPopup(tableId, name){
+  const isEnt = tableId === 'accEntTable';
+  _accDetailScope = { keyFn: isEnt ? (r=>r.ent) : (r=>r.tm), name };
+  accDetailGran = 'month';
+  accDetailChartType = 'line';
+
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  $('modalChips').innerHTML = '';
+  $('modalStats').innerHTML = '';
+  $('modalCount').textContent = '';
+  _modalCtx = null;
+  $('modalTitle').textContent = name;
+  $('modalSub').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;">
+      <span>Issue-wise trend</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="trend-tabs trend-tabs-mini" data-accdetailtype>
+          <button class="trend-tab sel" data-t="line" onclick="setAccDetailChartType('line')" title="Line graph">Graph</button>
+          <button class="trend-tab"     data-t="bar"  onclick="setAccDetailChartType('bar')"  title="Bar chart">Bar</button>
+        </div>
+        <div class="trend-tabs trend-tabs-mini" data-accdetailgran>
+          <button class="trend-tab sel" data-g="month" onclick="setAccDetailGran('month')" title="Month-wise, current + previous 3">M</button>
+          <button class="trend-tab"     data-g="week"  onclick="setAccDetailGran('week')"  title="Week-wise, last 4 weeks">W</button>
+        </div>
+      </div>
+    </div>`;
+  $('modalBody').innerHTML = '<div style="padding:8px 28px 28px;"><div class="acc-mini-grid" id="accDetailGrid"></div></div>';
+  $('modal').classList.add('show');
+  renderAccDetailCharts();
+}
+
+function renderAccDetailCharts(){
+  const grid = document.getElementById('accDetailGrid');
+  if (!grid || !_accDetailScope || !_accTopIssues) return;
+  const scopedRows = _accDeduped.filter(r => _accDetailScope.keyFn(r) === _accDetailScope.name);
+  const scopedSorted = scopedRows.filter(r => r._created).sort((a,b)=>a._created-b._created);
+  const periods = accDetailGran === 'week' ? getLastNWeeks(_accDeduped, 4) : getMonthsFromApril(_accDeduped).slice(-4);
+  const PAL = getPal();
+  const isBar = accDetailChartType === 'bar';
+  const legendEl = document.getElementById('accDetailLegend'); if (legendEl) legendEl.innerHTML = '';
+
+  grid.innerHTML = _accTopIssues.map((issue,i) => `<div class="acc-mini-card"><h4>${esc(issue)}</h4><div style="position:relative;height:140px;"><canvas id="accDetailMini_${i}"></canvas></div></div>`).join('');
+
+  const periodDelivered = periods.map(p => sliceByDateRange(scopedSorted, p.from, p.to).filter(r => (r.fs||'').trim()==='Delivered'));
+
+  _accTopIssues.forEach((issue, i) => {
+    const values = periodDelivered.map(pop => {
+      if (!pop.length) return null;
+      const cnt = pop.reduce((sum,r) => sum + extractIssues(r.mc).filter(x=>x===issue).length, 0);
+      return +((cnt/pop.length)*100).toFixed(1);
+    });
+    const canvas = document.getElementById(`accDetailMini_${i}`);
+    if (!canvas) return;
+    const color = accIssueColor(PAL, i);
+    const dataset = isBar
+      ? { data: values, backgroundColor: color+'DD', borderRadius:6, maxBarThickness:48, categoryPercentage:0.7, barPercentage:0.9,
+          datalabels:{ align:'end', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' } }
+      : (()=>{ const ctx=canvas.getContext('2d'); const grad=ctx.createLinearGradient(0,0,0,100); grad.addColorStop(0,color+'33'); grad.addColorStop(1,color+'00');
+          return { data: values, borderColor: color, backgroundColor: grad, borderWidth:2, tension:0.35, pointRadius:2, pointBackgroundColor:color, fill:true,
+            datalabels:{ align:'top', anchor:'end', color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'}, formatter:v=>v==null?'':v.toFixed(1)+'%' } }; })();
+    new Chart(canvas, {
+      type: isBar ? 'bar' : 'line', plugins:[ChartDataLabels],
+      data:{ labels: periods.map(p=>p.label), datasets:[dataset] },
+      options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:26}}, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw==null?'—':c.raw.toFixed(1)+'%'}}}, scales:{ x:{ ticks:{font:{size:9}} }, y:{ beginAtZero:true, suggestedMax: Math.max(...values.filter(v=>v!=null), 1)*(isBar?1.18:1.35), ticks:{font:{size:9}, callback:v=>v+'%'} } } },
+    });
+  });
+}
+
+function openTrendPopup(id){
+  const meta = TREND_POPUP_META[id];
+  if (!meta) return;
+  _trendPopupId = id;
+  _trendPopupGran = 'month';
+
+  $('modalTitle').textContent = meta.label;
+  $('modalChips').innerHTML   = '';
+  $('modalStats').innerHTML   = '';
+  $('modalCount').textContent = '';
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = 'none';
+  document.querySelector('.modal-panel')?.classList.add('centered');
+  $('modal').classList.add('show');
+  $('modalSub').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;">
+      <span>April onwards · auto-updates each month</span>
+      <div class="trend-tabs trend-tabs-mini" data-trendpopuptoggle>
+        <button class="trend-tab sel" data-g="month" onclick="setTrendPopupGran('month')" title="Month-wise, current + previous 3">M</button>
+        <button class="trend-tab"     data-g="week"  onclick="setTrendPopupGran('week')"  title="Week-wise, current + previous 4 weeks">W</button>
+      </div>
+    </div>`;
+  $('modalBody').innerHTML = '<div style="padding:8px 32px 32px;"><div style="position:relative;height:420px;"><canvas id="trendPopupCanvas" role="img" aria-label="Line chart of ' + esc(meta.label) + ' by period"></canvas></div></div>';
+
+  _modalCtx = null; // not a records/breakdown modal — disables sorting/download on this view
+  renderTrendPopupChart();
+}
+
+function renderTrendPopupChart(){
+  const id = _trendPopupId;
+  const meta = TREND_POPUP_META[id];
+  if (!meta) return;
+  const PAL = getPal();
+  const deduped = getDedupedForTrend(RAW.filter(passesNonDateFilters)); // respects Enterprise/Team/User/Status/SLA/Segment/Reason filters (date range excluded — this popup is its own month/week timeline)
+  const periods = _trendPopupGran === 'week' ? getLastNWeeks(deduped, 5) : getMonthsFromApril(deduped);
+  const values  = periods.map(p => computeMonthlyMetric(deduped, p.from, p.to, id));
+
+  requestAnimationFrame(()=>{
+    const canvas = document.getElementById('trendPopupCanvas');
+    if (!canvas) return;
+    if (window._trendPopupChart) window._trendPopupChart.destroy();
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0,0,0,420);
+    grad.addColorStop(0, PAL.accent+'40');
+    grad.addColorStop(1, PAL.accent+'00');
+    window._trendPopupChart = new Chart(canvas, {
+      type: 'line', plugins:[ChartDataLabels],
+      data: { labels: periods.map(p=>p.label), datasets: [{
+        data: values, borderColor: PAL.accent, backgroundColor: grad,
+        borderWidth: 2.5, tension: 0.4, fill: true,
+        pointRadius: 4, pointHoverRadius: 7,
+        pointBackgroundColor: PAL.accent, pointBorderColor: '#fff', pointBorderWidth: 2,
+        datalabels: {
+          align:'top', anchor:'end',
+          color: PAL.ink,
+          font:{family:"'JetBrains Mono',monospace", size:11, weight:'600'},
+          formatter: v => v==null ? '' : meta.fmt(v),
+          padding:{top:4},
+        },
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 26 } },
+        plugins: {
+          legend: { display:false },
+          tooltip: { callbacks: { label: ctx2 => meta.fmt(ctx2.raw) } },
+        },
+        scales: {
+          x: { grid: { display:false } },
+          y: { beginAtZero:true, grid:{ color:'rgba(128,128,128,0.15)' } },
+        },
+      },
+    });
+  });
+}
+
+function openDrill(kpi){
+  if (!kpi) return;
+  document.querySelector('.modal-panel')?.classList.remove('centered');
+  if ($('modalDlWrap')) $('modalDlWrap').style.display = '';
+  const filtered = RAW.filter(passesFilters);
+  const k = aggregate(filtered);
+
+  $('modalTitle').textContent = kpi.label;
+  $('modalSub').textContent   = (kpi.sub||'').toUpperCase();
+  $('modalChips').innerHTML   = activeFilterChips();
+  $('modal').classList.add('show');
+
+  if (kpi.kind === 'breakdown'){
+    _modalCtx = { type:'breakdown', dim:kpi.dim, k, sort:{col:null, dir:null} };
+    renderBreakdownView();
+    return;
+  }
+
+  // Records view
+  const rows = drillSubset(filtered, kpi.view);
+  $('modalStats').innerHTML = [
+    ['In view',     num(rows.length),                    ''],
+    ['Delivered',   num(k.totalDelivered),               'green'],
+    ['Rejected',    num(k.totalRejected),                'red'],
+    ['Within SLA',  num(k.withinSla),                    'green'],
+    ['Out of SLA',  num(k.outOfSla),                     'orange'],
+    ['SLA %',       k.slaCompliance!=null?k.slaCompliance.toFixed(1)+'%':'—', ''],
+    ['Avg TAT',     fmtTatHrs(k.avgTat),                 ''],
+  ].map(([l,v,c])=>`<div class="modal-stat"><span class="modal-stat-label">${esc(l)}</span><span class="modal-stat-value ${c}">${v}</span></div>`).join('');
+
+  _modalCtx = { type:'records', kpi, rows, sort:{col:null, dir:null} };
+  renderRecordsModal();
+}
+
+// Build a sort-aware <th> for any modal table column.
+function sortableTh(col, label, extraCls=''){
+  const s = _modalCtx?.sort || {col:null,dir:null};
+  const isSorted = s.col === col;
+  const sortedCls = isSorted ? 'sorted' : '';
+  const arrow = isSorted ? (s.dir === 'asc' ? '↑' : '↓') : '↕';
+  return `<th class="sortable ${sortedCls} ${extraCls}" data-sort="${col}">${label}<span class="sort-ind">${arrow}</span></th>`;
+}
+
+// Handle a sort click in the modal: cycle asc → desc → none, then re-render.
+function modalSortClick(col){
+  if (!_modalCtx) return;
+  const s = _modalCtx.sort;
+  if (s.col !== col){ s.col = col; s.dir = 'asc'; }
+  else if (s.dir === 'asc'){ s.dir = 'desc'; }
+  else { s.col = null; s.dir = null; }
+  if (_modalCtx.type === 'records')   renderRecordsModal();
+  else if (_modalCtx.type === 'breakdown') renderBreakdownView();
+}
+
+function renderRecordsModal(){
+  if (!_modalCtx || _modalCtx.type !== 'records') return;
+  const { kpi, rows, sort } = _modalCtx;
+  const isRejView = kpi.view === 'rejected';
+
+  // Sort the full set
+  let sorted = rows.slice();
+  if (sort.col){
+    sorted.sort((a,b)=>{
+      const av = getRowSortVal(a, sort.col);
+      const bv = getRowSortVal(b, sort.col);
+      let cmp = (typeof av === 'number' && typeof bv === 'number')
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, {numeric:true, sensitivity:'base'});
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+  }
+  // Cache full sorted set + per-row column extractor on _modalCtx so the
+  // downloader can build a full-fidelity export without scraping the truncated DOM.
+  _modalCtx.sortedRows = sorted;
+  _modalCtx.recordsView = isRejView ? 'rejected' : 'normal';
+
+  const shown = sorted.slice(0, 500);
+
+  // Build header columns
+  const reasonTh = sortableTh('rej', 'Rejection Reason');
+  const headHTML = [
+    sortableTh('vin',      'VIN'),
+    sortableTh('sku',      'SKU ID'),
+    sortableTh('spin_id',  'Spin ID'),
+    sortableTh('ent',      'Enterprise'),
+    sortableTh('team',     'Team'),
+    sortableTh('qc',       'QC User'),
+    sortableTh('_status',  'Status'),
+    sortableTh('sla',      'SLA'),
+    sortableTh('tat',      'TAT'),
+    reasonTh,
+    sortableTh('ttype',    'Input Type'),
+    sortableTh('vmode',    'Platform'),
+    sortableTh('_created', 'Created At'),
+    sortableTh('_updated', 'Final Time'),
+  ].filter(Boolean).join('');
+
+  $('modalBody').innerHTML = `
+    <table>
+      <thead><tr>${headHTML}</tr></thead>
+      <tbody>${shown.length===0?`<tr><td colspan="14" class="empty">No records match.</td></tr>`:shown.map(r=>{
+        const isD = isDelivered(r), isR = isRejected(r);
+        const statusLabel = r.fs || (isD?'Delivered':isR?'Rejected':'Pending');
+        const pill = isD?`<span class="pill delivered">${esc(statusLabel)}</span>`:isR?`<span class="pill rejected">${esc(statusLabel)}</span>`:`<span class="pill pending">${esc(statusLabel)}</span>`;
+        const slaPill = r.sla===1?'<span class="pill sla-in">In</span>':r.sla===0?'<span class="pill sla-out">Out</span>':'<span class="pill">—</span>';
+        return `<tr>
+          <td class="mono">${esc(r.vin||'—')}</td>
+          <td class="mono">${esc(r.sku||'—')}</td>
+          <td class="mono">${esc(r.sid||'—')}</td>
+          <td>${esc(r.ent||'—')}</td>
+          <td>${esc(r.tm||'—')}</td>
+          <td>${esc(r.qc||'—')}</td>
+          <td>${pill}</td>
+          <td>${slaPill}</td>
+          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
+          <td title="${esc(r.rej||'')}" style="max-width:200px;white-space:normal;">${esc(r.rej||'—')}</td>
+          <td class="mono">${esc(r.tt||'—')}</td>
+          <td class="mono">${esc(r.vm||'—')}</td>
+          <td class="mono">${esc(fmtDate(r.c))}</td>
+          <td class="mono">${esc(fmtDate(r.u))}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  $('modalCount').textContent = `Showing ${num(shown.length)} of ${num(rows.length)}` + (shown.length>=500 && rows.length>500 ? ' (preview · download for all)' : '');
+}
+
+function renderBreakdownView(){
+  if (!_modalCtx || _modalCtx.type !== 'breakdown') return;
+  const { dim, k, sort } = _modalCtx;
+  const map = dim==='ent' ? k.entBreak : k.teamBreak;
+  const pocMap = dim==='ent' ? k.entPoc : k.teamPoc;
+
+  // Resolve a sort value for each row
+  const valueOf = (name, v, col) => {
+    if (col === 'name')       return name.toLowerCase();
+    if (col === 'enterprise') return ((pocMap[name]||{}).ent || '').toLowerCase();
+    if (col === 'pocOb')      return ((pocMap[name]||{}).ob || '').toLowerCase();
+    if (col === 'pocCs')      return ((pocMap[name]||{}).cs || '').toLowerCase();
+    if (col === 'total')      return v.total;
+    if (col === 'delivered')  return v.delivered;
+    if (col === 'rejected')   return v.rejected;
+    if (col === 'pending')    return v.pending;
+    if (col === 'withinSla')  return v.withinSla;
+    if (col === 'outOfSla')   return v.outOfSla;
+    if (col === 'slaPct')     return v.delivered ? (v.withinSla/v.delivered)*100 : -1;
+    if (col === 'delivRate')  return v.total ? (v.delivered/v.total)*100 : 0;
+    return 0;
+  };
+
+  let entries = Object.entries(map);
+  if (sort.col){
+    entries.sort((a,b)=>{
+      const av = valueOf(a[0], a[1], sort.col);
+      const bv = valueOf(b[0], b[1], sort.col);
+      const cmp = (typeof av === 'number' && typeof bv === 'number')
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, {numeric:true, sensitivity:'base'});
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+  } else {
+    entries.sort((a,b)=>b[1].total - a[1].total); // default: total desc
+  }
+
+  const totalAll   = entries.reduce((s,[,v])=>s+v.total, 0);
+  const distinct   = dim==='ent' ? k.enterpriseCount : k.teamCount;
+  const totalDeliv = entries.reduce((s,[,v])=>s+v.delivered,0);
+  const totalRej   = entries.reduce((s,[,v])=>s+v.rejected,0);
+  const totalWithin= entries.reduce((s,[,v])=>s+v.withinSla,0);
+  const totalOut   = entries.reduce((s,[,v])=>s+v.outOfSla,0);
+
+  $('modalStats').innerHTML = [
+    [dim==='ent'?'Enterprises':'Teams', num(distinct), 'blue'],
+    ['Total records', num(totalAll), ''],
+    ['Delivered',  num(totalDeliv),  'green'],
+    ['Rejected',   num(totalRej),    'red'],
+    ['Within SLA', num(totalWithin), 'green'],
+    ['Out of SLA', num(totalOut),    'orange'],
+  ].map(([l,v,c])=>`<div class="modal-stat"><span class="modal-stat-label">${esc(l)}</span><span class="modal-stat-value ${c}">${v}</span></div>`).join('');
+
+  if (!entries.length){
+    $('modalBody').innerHTML = '<div class="empty">No data in current view.</div>';
+    $('modalCount').textContent = ''; return;
+  }
+
+  // Build header (Team view gets an extra Enterprise column)
+  const headParts = [
+    sortableTh('name', dim==='ent'?'Enterprise':'Team'),
+    dim==='team' ? sortableTh('enterprise', 'Enterprise') : '',
+    sortableTh('pocOb',     'POC OB'),
+    sortableTh('pocCs',     'POC CS'),
+    sortableTh('total',     'Total',       'num-cell'),
+    sortableTh('delivered', 'Delivered',   'num-cell'),
+    sortableTh('rejected',  'Rejected',    'num-cell'),
+    sortableTh('pending',   'Pending',     'num-cell'),
+    sortableTh('withinSla', 'Within SLA',  'num-cell'),
+    sortableTh('outOfSla',  'Out of SLA',  'num-cell'),
+    sortableTh('slaPct',    'SLA %',       'num-cell'),
+    sortableTh('delivRate', 'Delivery rate','num-cell'),
+  ].filter(Boolean).join('');
+
+  $('modalBody').innerHTML = `
+    <table>
+      <thead><tr>${headParts}</tr></thead>
+      <tbody>${entries.map(([name,v])=>{
+        const dRate = v.total ? (v.delivered/v.total)*100 : 0;
+        const slaPct = v.delivered ? (v.withinSla/v.delivered)*100 : null;
+        const poc = pocMap[name] || {ob:'',cs:'',ent:''};
+        const entCol = dim==='team' ? `<td>${esc(poc.ent||'—')}</td>` : '';
+        return `<tr class="breakdown-row" data-name="${esc(name)}" data-dim="${dim}" title="Click to filter">
+          <td class="breakdown-name">${esc(name)}</td>
+          ${entCol}
+          <td>${esc(poc.ob||'—')}</td>
+          <td>${esc(poc.cs||'—')}</td>
+          <td class="num-cell">${num(v.total)}</td>
+          <td class="num-cell" style="color:var(--green)">${num(v.delivered)}</td>
+          <td class="num-cell" style="color:var(--red)">${num(v.rejected)}</td>
+          <td class="num-cell" style="color:var(--amber)">${num(v.pending)}</td>
+          <td class="num-cell" style="color:var(--green)">${num(v.withinSla)}</td>
+          <td class="num-cell" style="color:var(--orange)">${num(v.outOfSla)}</td>
+          <td class="num-cell">${slaPct!=null?slaPct.toFixed(1)+'%':'—'}</td>
+          <td class="num-cell">${dRate.toFixed(1)}%<span class="pct-bar"><span class="pct-bar-fill" style="width:${dRate.toFixed(1)}%"></span></span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  $('modalCount').textContent = `${num(entries.length)} ${dim==='ent'?'enterprises':'teams'}`;
+
+  $('modalBody').querySelectorAll('.breakdown-row').forEach(tr=>{
+    tr.addEventListener('click', e=>{
+      // Don't trigger row-filter if user is clicking a header (delegated below)
+      if (e.target.closest('th.sortable')) return;
+      const name=tr.dataset.name, d=tr.dataset.dim;
+      if (d==='ent'){ F.ent = new Set([name]); F.team = null; }
+      else          { F.team = new Set([name]); }
+      refreshMsTriggers();
+      closeModal();
+      refresh();
+    });
+  });
+}
+
+// Single delegated click handler for ALL modal-body sortable headers
+$('modalBody').addEventListener('click', e=>{
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  e.stopPropagation();
+  modalSortClick(th.dataset.sort);
+});
+
+function closeModal(){ $('modal').classList.remove('show'); _modalCtx = null; }
+
+// ─────────────────────────────────────────────────────────────
+// MODAL DOWNLOAD — CSV / Excel / PDF
+// ─────────────────────────────────────────────────────────────
+// Extracts the currently-rendered modal table into rows of plain strings,
+// then exports in the requested format. Works for both records and breakdown views.
+function extractModalTable(){
+  // For records drill-downs we have the full unsliced row set on _modalCtx.
+  // Build the export directly from that so we're not bound by the on-screen 500-row cap.
+  if (_modalCtx && _modalCtx.type === 'records' && Array.isArray(_modalCtx.sortedRows)){
+    return extractRecordsForExport();
+  }
+
+  // Otherwise (breakdown table — one row per entity, no cap) scrape the DOM.
+  return extractTableFromDOM();
+}
+
+// Build headers + rows for record exports directly from the row objects.
+// Mirrors the column order used by renderRecordsModal so the export matches the table.
+function extractRecordsForExport(){
+  const headers = [
+    'VIN', 'SKU ID', 'Spin ID', 'Enterprise', 'Team', 'QC User',
+    'Status', 'SLA', 'TAT', 'Rejection Reason',
+    'Input Type', 'Platform', 'Created At', 'Final Time',
+  ];
+
+  const statusOf = r => r.fs || (isDelivered(r) ? 'Delivered' : isRejected(r) ? 'Rejected' : 'Pending');
+  const slaOf    = r => r.sla === 1 ? 'Within SLA' : r.sla === 0 ? 'Out of SLA' : '—';
+
+  const rows = _modalCtx.sortedRows.map(r => [
+    r.vin      || '',
+    r.sku      || '',
+    r.sid  || '',
+    r.ent      || '',
+    r.tm     || '',
+    r.qc       || '',
+    statusOf(r),
+    slaOf(r),
+    fmtTatHrs(r.tat),
+    r.rej      || '',
+    r.tt    || '',
+    r.vm    || '',
+    fmtDate(r.c),
+    fmtDate(r.u),
+  ]);
+
+  return { headers, rows };
+}
+
+function extractTableFromDOM(){
+  const table = $('modalBody').querySelector('table');
+  if (!table) return { headers:[], rows:[] };
+
+  // Pull header text (strip sort-indicator characters)
+  const headers = Array.from(table.querySelectorAll('thead th')).map(th=>{
+    const c = th.cloneNode(true);
+    c.querySelectorAll('.sort-ind').forEach(n => n.remove());
+    return c.textContent.trim();
+  });
+
+  // Pull body rows
+  const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr=>{
+    return Array.from(tr.children).map(td => {
+      const link = td.querySelector('a.v-link');
+      if (link) return link.getAttribute('href') || '';
+      return td.textContent.replace(/\s+/g, ' ').trim();
+    });
+  });
+
+  return { headers, rows };
+}
+
+function modalContextLabel(){
+  // Title + filter context as plain strings for export metadata
+  const title = $('modalTitle').textContent.trim() || 'Report';
+  const sub   = $('modalSub').textContent.trim();
+  const chips = Array.from($('modalChips').querySelectorAll('.chip')).map(c => c.textContent.replace(/\s+/g,' ').trim());
+  return { title, sub, chips };
+}
+
+function downloadRecentRecordsXlsx(){ const rowsToExport = RAW.filter(passesFilters); const header = ['VIN','SKU ID','Spin ID','Enterprise','Team','QC User','Status','SLA','TAT (hrs)','Rejection Reason','Input Type','Platform','Created At','Final Time']; const aoa = [header, ...rowsToExport.map(r => [ r.vin||'', r.sku||'', r.sid||'', r.ent||'', r.tm||'', r.qc||'', r.fs||'', r.sla===1?'Within':(r.sla===0?'Out':''), (typeof r.tat==='number' ? r.tat : ''), r.rej||'', r.tt||'', r.vm||'', fmtDate(r.c), fmtDate(r.u), ])]; const ws = XLSX.utils.aoa_to_sheet(aoa); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recent records'); XLSX.writeFile(wb, `recent_records_${new Date().toISOString().slice(0,10)}.xlsx`); } $('downloadRecordsBtn')?.addEventListener('click', downloadRecentRecordsXlsx); function safeFilename(s){
+  return (s || 'export').replace(/[^a-z0-9_\- ]/gi, '').replace(/\s+/g, '_').slice(0, 60) || 'export';
+}
+
+function downloadModalCSV(){
+  const { headers, rows } = extractModalTable();
+  if (!rows.length){ alert('No data to download.'); return; }
+  const ctx = modalContextLabel();
+
+  // Build CSV with a small metadata header so the file is self-describing
+  const meta = [
+    [`# ${ctx.title}`],
+    [`# Generated ${new Date().toLocaleString()}`],
+    ctx.chips.length ? [`# Filters: ${ctx.chips.join(' | ')}`] : null,
+    [],
+  ].filter(Boolean);
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    ...meta.map(r => r.map(esc).join(',')),
+    headers.map(esc).join(','),
+    ...rows.map(r => r.map(esc).join(',')),
+  ];
+  // BOM so Excel detects UTF-8 properly
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type:'text/csv;charset=utf-8;' });
+  triggerBlobDownload(blob, `${safeFilename(ctx.title)}.csv`);
+}
+
+function downloadModalXLSX(){
+  if (typeof XLSX === 'undefined'){ alert('Excel library failed to load.'); return; }
+  const { headers, rows } = extractModalTable();
+  if (!rows.length){ alert('No data to download.'); return; }
+  const ctx = modalContextLabel();
+
+  const aoa = [
+    [ctx.title],
+    [`Generated ${new Date().toLocaleString()}`],
+    ctx.chips.length ? [`Filters: ${ctx.chips.join(' | ')}`] : [],
+    [],
+    headers,
+    ...rows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Auto-size columns roughly by max content width per column
+  const colCount = headers.length;
+  const widths = new Array(colCount).fill(10);
+  rows.forEach(r => r.forEach((v, i) => {
+    const len = String(v).length;
+    if (len > widths[i]) widths[i] = Math.min(len, 60);
+  }));
+  headers.forEach((h, i) => { if (h.length > widths[i]) widths[i] = Math.min(h.length, 60); });
+  ws['!cols'] = widths.map(w => ({ wch: w + 2 }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  XLSX.writeFile(wb, `${safeFilename(ctx.title)}.xlsx`);
+}
+
+function downloadModalPDF(){
+  if (!window.jspdf){ alert('PDF library failed to load.'); return; }
+  const { headers, rows } = extractModalTable();
+  if (!rows.length){ alert('No data to download.'); return; }
+  const ctx = modalContextLabel();
+
+  // PDF can render thousands of rows but at 5,000+ it gets slow and produces
+  // a multi-MB file that's painful to share. Suggest the lighter formats for huge sets.
+  if (rows.length > 5000){
+    const ok = confirm(
+      `This report has ${rows.length.toLocaleString()} rows.\n\n` +
+      `Generating a PDF this size will be slow and the file will be large.\n` +
+      `Excel or CSV are much faster for big exports.\n\n` +
+      `Continue with PDF anyway?`
+    );
+    if (!ok) return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  // Landscape for wider tables
+  const pdf = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+  const pageW = 842;
+  const M = 32;
+
+  // Title + meta
+  pdf.setFontSize(16);
+  pdf.text(ctx.title, M, M + 14);
+  pdf.setFontSize(9);
+  pdf.setTextColor(120);
+  pdf.text(`Generated ${new Date().toLocaleString()}`, M, M + 28);
+  if (ctx.chips.length){
+    const wrapped = pdf.splitTextToSize(`Filters: ${ctx.chips.join('  •  ')}`, pageW - 2*M);
+    pdf.text(wrapped, M, M + 42);
+  }
+
+  const startY = M + 42 + (ctx.chips.length ? Math.max(0, (pdf.splitTextToSize(`Filters: ${ctx.chips.join('  •  ')}`, pageW - 2*M).length - 1) * 11) : 0) + 12;
+
+  // autoTable handles pagination, headers, and proper column sizing automatically
+  if (typeof pdf.autoTable !== 'function'){
+    // Fallback if autoTable plugin failed to load: simple manual rendering
+    pdf.setTextColor(0);
+    pdf.setFontSize(8);
+    let y = startY;
+    pdf.text(headers.join('  |  '), M, y); y += 14;
+    rows.slice(0, 60).forEach(r => { pdf.text(r.join('  |  '), M, y); y += 12; });
+    pdf.save(`${safeFilename(ctx.title)}.pdf`);
+    return;
+  }
+  pdf.autoTable({
+    head: [headers],
+    body: rows,
+    startY,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 4, overflow: 'linebreak' },
+    headStyles: { fillColor: [31, 63, 114], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 248, 245] },
+    margin: { left: M, right: M },
+  });
+
+  pdf.save(`${safeFilename(ctx.title)}.pdf`);
+}
+
+function triggerBlobDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+// Wire the modal download dropdown
+$('modalDlBtn').addEventListener('click', e=>{
+  e.stopPropagation();
+  $('modalDlWrap').classList.toggle('open');
+});
+$('modalDlMenu').addEventListener('click', e=>{
+  const btn = e.target.closest('.dl-menu-item');
+  if (!btn) return;
+  e.stopPropagation();
+  $('modalDlWrap').classList.remove('open');
+  const fmt = btn.dataset.fmt;
+  try {
+    if (fmt === 'csv')       downloadModalCSV();
+    else if (fmt === 'xlsx') downloadModalXLSX();
+    else if (fmt === 'pdf')  downloadModalPDF();
+  } catch (err){
+    console.error('[modal download]', err);
+    alert('Download failed: ' + err.message);
+  }
+});
+// Close menu on outside click
+document.addEventListener('mousedown', e=>{
+  if (!$('modalDlWrap').contains(e.target)) $('modalDlWrap').classList.remove('open');
+});
+$('modalClose').addEventListener('click', closeModal);
+$('modal').addEventListener('click', e=>{ if (e.target===$('modal')) closeModal(); });
+document.addEventListener('keydown', e=>{ if (e.key==='Escape' && $('modal').classList.contains('show')) closeModal(); });
+
+// ─────────────────────────────────────────────────────────────
+// THEME
+// ─────────────────────────────────────────────────────────────
+function applyTheme(dark){
+  isDark = dark;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+  $('themeLabel').textContent = dark?'Light':'Dark';
+  $('themeIcon').innerHTML = dark?`<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`:
+    `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
+  try { localStorage.setItem('opsDash_theme', dark?'dark':'light'); } catch(e){}
+  // Recolor charts
+  if (RAW.length) refresh();
+}
+$('themeBtn').addEventListener('click', ()=> applyTheme(!isDark));
+
+// ─────────────────────────────────────────────────────────────
+// LAYOUT / EDIT MODE
+// ─────────────────────────────────────────────────────────────
+function applyLayout(){
+  const grid = $('panelGrid');
+  // Append in saved order; set size attribute
+  for (const item of LAYOUT){
+    const el = grid.querySelector(`[data-panel="${item.id}"]`);
+    if (!el) continue;
+    el.dataset.size = item.size;
+    grid.appendChild(el);
+  }
+}
+
+function movePanel(id, dir){
+  const idx = LAYOUT.findIndex(p=>p.id===id);
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= LAYOUT.length) return;
+  [LAYOUT[idx], LAYOUT[newIdx]] = [LAYOUT[newIdx], LAYOUT[idx]];
+  saveLayout(); applyLayout(); renderEditControls();
+  // Charts need redraw after DOM move
+  refresh();
+}
+function togglePanelSize(id){
+  const item = LAYOUT.find(p=>p.id===id);
+  if (!item) return;
+  // Cycle: full → half → third → full
+  const order = ['full', 'half', 'third'];
+  const idx = order.indexOf(item.size);
+  item.size = order[(idx + 1) % order.length] || 'full';
+  saveLayout(); applyLayout(); renderEditControls();
+  // resize → chart canvas size changed
+  refresh();
+}
+
+function renderEditControls(){
+  // Short label shown on the size button to indicate current size at a glance
+  const sizeLabel = (s) => s === 'full' ? '1' : s === 'half' ? '½' : '⅓';
+  document.querySelectorAll('[data-panel-ctl]').forEach(host=>{
+    const id = host.dataset.panelCtl;
+    const idx = LAYOUT.findIndex(p=>p.id===id);
+    const cur = LAYOUT[idx];
+    if (!cur) { host.innerHTML=''; return; }
+    host.innerHTML = `
+      <button class="ec-btn" data-act="up"     title="Move up"     ${idx===0?'disabled':''}>↑</button>
+      <button class="ec-btn" data-act="down"   title="Move down"   ${idx===LAYOUT.length-1?'disabled':''}>↓</button>
+      <button class="ec-btn size-btn" data-act="size" title="Cycle size (full / half / third)">${sizeLabel(cur.size)}</button>
+    `;
+    host.querySelectorAll('button').forEach(b=>{
+      b.addEventListener('click', e=>{
+        e.stopPropagation();
+        if (b.dataset.act==='up')   movePanel(id, -1);
+        if (b.dataset.act==='down') movePanel(id,  1);
+        if (b.dataset.act==='size') togglePanelSize(id);
+      });
+    });
+  });
+}
+
+// Customize/edit-layout button removed — editBtn listener no longer attached.
+
+// ─────────────────────────────────────────────────────────────
+// SYNC — only on page load / refresh / manual Sync button click.
+// (No background auto-refresh timer.)
+// ─────────────────────────────────────────────────────────────
+$('syncBtn').addEventListener('click', async()=>{
+  await syncFromServer({force:true});
+});
+
+function setLoading(on, msg='Loading…'){
+  $('loadOverlay').classList.toggle('show', on);
+  $('loadMsg').textContent = msg;
+  if (!on){ $('loadBar').style.width='0%'; $('loadPct').textContent=''; }
+}
+function setLoadProgress(pct, msg){
+  $('loadBar').style.width = pct+'%';
+  $('loadPct').textContent = pct+'%';
+  if (msg) $('loadMsg').textContent = msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOWNLOAD REPORT (PDF)
+// ─────────────────────────────────────────────────────────────
+// Captures each panel + the KPI grid as PNG via html2canvas, then composes a
+// multi-page A4-landscape PDF using jsPDF. Both libs are loaded from cdnjs in <head>.
+async function downloadReport(){
+  if (typeof html2canvas === 'undefined' || !window.jspdf){
+    alert('PDF libraries failed to load. Please refresh and try again.');
+    return;
+  }
+  const btn = $('downloadBtn');
+  btn.disabled = true;
+  $('downloadLabel').textContent = 'Generating…';
+  setLoading(true, 'Generating report…');
+
+  // Force exit edit-mode before capture so dashed borders / edit buttons don't render
+  const wasEdit = editMode;
+  if (wasEdit){
+    editMode = false;
+    document.body.classList.remove('edit-mode');
+    $('editBtn').classList.remove('active');
+    $('editLabel').textContent = 'Customize';
+  }
+  // Give layout/animations a moment to settle
+  await new Promise(r => setTimeout(r, 350));
+
+  try {
+    const { jsPDF } = window.jspdf;
+    // A4 landscape: 842 × 595 pt (with default 'pt' unit)
+    const pdf = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+    const pageW = 842, pageH = 595;
+    const M = 32;  // page margin
+    const contentW = pageW - 2*M;
+
+    const bgColor = isDark ? '#111113' : '#f6f5f1';
+    const inkColor = isDark ? '#f0efe9' : '#0b0b0c';
+    const mutedColor = isDark ? '#76767e' : '#8a8a90';
+
+    // ── Page 1: header + filters summary + KPI grid ────────────────
+    pdf.setFillColor(bgColor);
+    pdf.rect(0, 0, pageW, pageH, 'F');
+
+    pdf.setTextColor(inkColor);
+    pdf.setFontSize(18);
+    pdf.text('360 Dashboard Report', M, M + 14);
+    pdf.setFontSize(9);
+    pdf.setTextColor(mutedColor);
+    pdf.text('Generated ' + new Date().toLocaleString(), M, M + 30);
+
+    // Active filters summary as a single line
+    const filters = [];
+    if (F.from || F.to){
+      filters.push('Date: ' + (F.preset === 'custom'
+        ? (F.from ? fmtShort(F.from) : '') + (F.from && F.to ? ' → ' : '') + (F.to ? fmtShort(F.to) : '')
+        : PLABELS[F.preset] || ''));
+    }
+    const summarizeSet = (label, sel) => {
+      if (!sel) return null;
+      if (sel.size === 0) return `${label}: none`;
+      if (sel.size === 1) return `${label}: ${[...sel][0] || '(blank)'}`;
+      return `${label}: ${sel.size} selected`;
+    };
+    [['Enterprise',F.ent],['Team',F.team],['CS',F.cs],['OB',F.ob],['Input Type',F.tt],
+     ['Verified',F.verified],['SLA',F.sla]].forEach(([l,s])=>{
+      const t = summarizeSet(l, s); if (t) filters.push(t);
+    });
+    if (F.rejReason) filters.push('Reason: filtered');
+    pdf.setFontSize(8);
+    const filtersText = filters.length ? filters.join('  •  ') : 'No filters';
+    const wrappedFilters = pdf.splitTextToSize(filtersText, contentW);
+    pdf.text(wrappedFilters, M, M + 44);
+
+    // Capture KPI grid
+    let yCursor = M + 44 + (wrappedFilters.length * 10) + 12;
+    const kpiCanvas = await html2canvas($('kpiGrid'), { backgroundColor:null, scale:2, useCORS:true, logging:false });
+    const kpiW = contentW;
+    const kpiH = (kpiCanvas.height / kpiCanvas.width) * kpiW;
+    pdf.addImage(kpiCanvas.toDataURL('image/png'), 'PNG', M, yCursor, kpiW, Math.min(kpiH, pageH - yCursor - M));
+
+    // ── Subsequent pages: each panel on its own page (or two short ones together) ──
+    const panels = Array.from(document.querySelectorAll('#panelGrid .panel'));
+    let i = 0;
+    while (i < panels.length){
+      pdf.addPage();
+      pdf.setFillColor(bgColor);
+      pdf.rect(0, 0, pageW, pageH, 'F');
+
+      // Page header
+      pdf.setTextColor(mutedColor);
+      pdf.setFontSize(9);
+      pdf.text(`360 Dashboard · page ${pdf.internal.getNumberOfPages()}`, M, M);
+
+      const panel = panels[i];
+      const canvas = await html2canvas(panel, { backgroundColor:null, scale:2, useCORS:true, logging:false });
+      const aspect = canvas.height / canvas.width;
+      const maxH = pageH - 2*M - 14;
+      let w = contentW, h = w * aspect;
+      if (h > maxH){ h = maxH; w = h / aspect; }
+      const x = M + (contentW - w) / 2;
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, M + 10, w, h);
+
+      // Try to fit a second small panel on the same page if there's room
+      const nextPanel = panels[i+1];
+      if (nextPanel){
+        const nextSize = nextPanel.dataset.size;
+        const usedY = M + 10 + h + 18;
+        const remaining = pageH - M - usedY;
+        if (nextSize === 'half' && remaining > 200){
+          const nc = await html2canvas(nextPanel, { backgroundColor:null, scale:2, useCORS:true, logging:false });
+          const a2 = nc.height / nc.width;
+          let w2 = contentW, h2 = w2 * a2;
+          if (h2 > remaining){ h2 = remaining; w2 = h2 / a2; }
+          const x2 = M + (contentW - w2) / 2;
+          pdf.addImage(nc.toDataURL('image/png'), 'PNG', x2, usedY, w2, h2);
+          i++; // consumed the next one too
+        }
+      }
+      i++;
+    }
+
+    pdf.save(`ops-dashboard-${new Date().toISOString().slice(0,10)}.pdf`);
+  } catch (err){
+    console.error('[downloadReport]', err);
+    alert('Could not generate report: ' + err.message);
+  } finally {
+    if (wasEdit){
+      editMode = true;
+      document.body.classList.add('edit-mode');
+      $('editBtn').classList.add('active');
+      $('editLabel').textContent = 'Done';
+      renderEditControls();
+    }
+    btn.disabled = false;
+    $('downloadLabel').textContent = 'Download report';
+    setLoading(false);
+  }
+}
+// Download-report button removed — downloadBtn listener no longer attached.
+
+// ─────────────────────────────────────────────────────────────
+// PERFORMANCE VIEW — user-centric analytics
+// ─────────────────────────────────────────────────────────────
+// State for the performance view. Independent from the operations F state,
+// since this view is filtered by ONE user at a time with its own granularity.
+const PV = {
+  user: null,              // email string or null
+  gran: 'months',          // '15days' | 'this_month' | '6weeks' | 'months' | 'year'
+  entSort: { col:null, dir:null },
+  reasonSort: { col:'count', dir:'desc' },
+};
+
+function switchView(view){
+  currentView = view;
+  document.body.classList.toggle('view-performance', view === 'performance');
+  document.body.classList.toggle('view-accuracy', view === 'accuracy');
+  document.body.classList.toggle('view-reports', view === 'reports');
+  document.querySelectorAll('#viewSwitch button').forEach(b=>{
+    b.classList.toggle('sel', b.dataset.view === view);
+  });
+  if (view === 'performance'){
+    populatePerfUserList();
+    renderPerformance();
+  } else if (view === 'reports'){
+    if (!RPT.loading) rptComputeAll(); else renderReports();
+  } else {
+    refresh();
+  }
+}
+document.querySelectorAll('#viewSwitch button').forEach(b=>{
+  b.addEventListener('click', ()=> switchView(b.dataset.view));
+});
+
+// Build the user list once per sync. Returns [{email, count}] sorted by job count desc.
+function buildPerfUserList(){
+  const counts = {};
+  for (const r of RAW){
+    if (!r.qc) continue;
+    counts[r.qc] = (counts[r.qc]||0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([email, count]) => ({ email, count }))
+    .sort((a,b) => b.count - a.count);
+}
+
+let _perfUserList = [];
+function populatePerfUserList(){
+  _perfUserList = buildPerfUserList();
+  renderPerfUserSuggest('');
+}
+
+function renderPerfUserSuggest(query){
+  const q = (query||'').trim().toLowerCase();
+  // Filter list. When opened without query, show ALL users so it acts like a real dropdown.
+  const matches = q
+    ? _perfUserList.filter(u => u.email.toLowerCase().includes(q))
+    : _perfUserList;
+  if (!matches.length){
+    $('upSuggest').innerHTML = `<div class="user-suggest-item" style="cursor:default;color:var(--muted)">No matching users</div>`;
+    return;
+  }
+  const headerText = q
+    ? `${matches.length} match${matches.length===1?'':'es'}`
+    : `${_perfUserList.length} QC users · sorted by job count`;
+  const header = `<div class="user-suggest-header">${esc(headerText)}</div>`;
+  $('upSuggest').innerHTML = header + matches.map((u, i)=> `
+    <div class="user-suggest-item ${i===0?'kbd':''}" data-email="${esc(u.email)}">
+      <span>${esc(u.email)}</span>
+      <span class="user-suggest-count">${num(u.count)} jobs</span>
+    </div>
+  `).join('');
+  $('upSuggest').querySelectorAll('.user-suggest-item').forEach(el=>{
+    if (!el.dataset.email) return;
+    el.addEventListener('mousedown', e=>{
+      e.preventDefault(); // keep focus state predictable
+      pickPerfUser(el.dataset.email);
+    });
+  });
+}
+
+function pickPerfUser(email){
+  PV.user = email;
+  $('upInput').value = email;
+  closeUpSuggest();
+  $('upMetaWrap').style.display = 'flex';
+  $('upClear').style.display = 'inline-flex';
+  $('upName').textContent = email;
+  renderPerformance();
+}
+
+function clearPerfUser(){
+  PV.user = null;
+  $('upInput').value = '';
+  $('upMetaWrap').style.display = 'none';
+  $('upClear').style.display = 'none';
+  renderPerformance();
+}
+
+// Wire input events — clicking or focusing the input opens the full dropdown.
+const upWrap = $('upInput').closest('.user-picker-wrap');
+function openUpSuggest(){
+  renderPerfUserSuggest($('upInput').value);
+  $('upSuggest').classList.add('show');
+  upWrap.classList.add('open');
+}
+function closeUpSuggest(){
+  $('upSuggest').classList.remove('show');
+  upWrap.classList.remove('open');
+}
+$('upInput').addEventListener('focus', openUpSuggest);
+$('upInput').addEventListener('click', openUpSuggest);
+$('upInput').addEventListener('input', ()=>{
+  renderPerfUserSuggest($('upInput').value);
+  $('upSuggest').classList.add('show');
+  upWrap.classList.add('open');
+});
+$('upInput').addEventListener('keydown', e=>{
+  const items = $('upSuggest').querySelectorAll('.user-suggest-item[data-email]');
+  if (!items.length) return;
+  const cur = $('upSuggest').querySelector('.user-suggest-item.kbd');
+  let idx = Array.from(items).indexOf(cur);
+  if (e.key === 'ArrowDown'){ e.preventDefault(); idx = Math.min(items.length-1, idx+1); }
+  else if (e.key === 'ArrowUp'){ e.preventDefault(); idx = Math.max(0, idx-1); }
+  else if (e.key === 'Enter'){
+    e.preventDefault();
+    if (cur && cur.dataset.email) pickPerfUser(cur.dataset.email);
+    return;
+  } else if (e.key === 'Escape'){
+    closeUpSuggest();
+    return;
+  } else return;
+  items.forEach(it=>it.classList.remove('kbd'));
+  if (items[idx]) items[idx].classList.add('kbd');
+});
+document.addEventListener('mousedown', e=>{
+  if (!$('upInput').contains(e.target) && !$('upSuggest').contains(e.target)){
+    closeUpSuggest();
+  }
+});
+$('upClear').addEventListener('click', clearPerfUser);
+
+document.querySelectorAll('.gran-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    PV.gran = btn.dataset.g;
+    document.querySelectorAll('.gran-tab').forEach(b=>b.classList.toggle('sel', b===btn));
+    if (PV.user) renderPerformance();
+  });
+});
+
+// Build buckets for a given granularity (anchored on "now")
+function buildPerfBuckets(gran){
+  const now = new Date();
+  const buckets = [];
+
+  if (gran === '15days'){
+    // Last 15 days, ending today
+    for (let i = 14; i >= 0; i--){
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const e = new Date(s); e.setDate(s.getDate()+1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{day:'numeric',month:'short'}) });
+    }
+  } else if (gran === 'this_month'){
+    // Day-by-day from the 1st of the current month through today
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const cursor = new Date(start);
+    while (cursor <= now){
+      const s = new Date(cursor);
+      const e = new Date(s); e.setDate(s.getDate()+1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{day:'numeric',month:'short'}) });
+      cursor.setDate(cursor.getDate()+1);
+    }
+  } else if (gran === '6weeks'){
+    // Last 6 weeks ending this week, anchored to Monday
+    const dow = now.getDay() || 7;
+    const thisMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + 1);
+    for (let i = -5; i <= 0; i++){
+      const s = new Date(thisMon); s.setDate(thisMon.getDate() + i*7); s.setHours(0,0,0,0);
+      const e = new Date(s);       e.setDate(s.getDate() + 7);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',day:'2-digit'}) });
+    }
+  } else if (gran === 'months'){
+    // Last 4 months including current
+    for (let i = -3; i <= 0; i++){
+      const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
+      const sameYear = s.getFullYear() === now.getFullYear();
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US', sameYear?{month:'short'}:{month:'short',year:'2-digit'}) });
+    }
+  } else if (gran === 'year'){
+    // Last 12 months
+    for (let i = -11; i <= 0; i++){
+      const s = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      const e = new Date(now.getFullYear(), now.getMonth()+i+1, 1);
+      buckets.push({ start:s, end:e, label: s.toLocaleDateString('en-US',{month:'short',year:'2-digit'}) });
+    }
+  }
+  return buckets;
+}
+
+// Filter rows to this user + range (the buckets span)
+// Also respects the shared date/enterprise/team filters from the operations view
+// so managers can narrow to specific accounts/teams while in QC Performance view.
+function getUserRowsInRange(buckets){
+  if (!PV.user || !buckets.length) return [];
+  const startTs = buckets[0].start.getTime();
+  const endTs   = buckets[buckets.length-1].end.getTime();
+  return RAW.filter(r => {
+    if (r.qc !== PV.user) return false;
+    if (!r._created) return false;
+    const t = r._created.getTime();
+    if (t < startTs || t >= endTs) return false;
+    // Shared filters that apply in this view
+    if (F.ent      && !F.ent.has(r.ent))           return false;
+    if (F.team     && !F.team.has(r.tm))         return false;
+    // Note: date filter from the picker (F.from/F.to) is intentionally NOT applied here —
+    // the granularity tab IS the date filter for this view, otherwise picking
+    // "1 year" while operations filter says "This month" would show nothing.
+    return true;
+  });
+}
+
+function bucketizeUserRows(rows, buckets){
+  const result = buckets.map(b => ({ ...b, received:0, delivered:0, rejected:0, withinSla:0, outOfSla:0 }));
+  for (const r of rows){
+    const t = r._created.getTime();
+    for (const b of result){
+      if (t >= b.start.getTime() && t < b.end.getTime()){
+        b.received++;
+        if (isDelivered(r)){
+          b.delivered++;
+          if (r.sla === 1) b.withinSla++;
+          else if (r.sla === 0) b.outOfSla++;
+        } else if (isRejected(r)){
+          b.rejected++;
+        }
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+function renderPerformance(){
+  // Only paint when this view is active (saves cycles when on operations)
+  if (currentView !== 'performance') return;
+
+  if (!PV.user){
+    $('perfContent').style.display = 'none';
+    $('perfEmpty').style.display   = 'block';
+    return;
+  }
+  $('perfContent').style.display = 'block';
+  $('perfEmpty').style.display   = 'none';
+
+  const buckets = buildPerfBuckets(PV.gran);
+  const rows    = getUserRowsInRange(buckets);
+  const bucketed = bucketizeUserRows(rows, buckets);
+
+  // Header range subtext
+  const rangeLabel = ({
+    '15days':    'last 15 days',
+    this_month:  'this month, day by day',
+    '6weeks':    'last 6 weeks',
+    months:      'last 4 months',
+    year:        'last 12 months',
+  })[PV.gran];
+  $('upRange').textContent = `${rangeLabel} · ${num(rows.length)} records`;
+
+  // ── KPIs ─────────────────────────────────────────────────────
+  // Aggregate this user's rows
+  const k = aggregate(rows);
+  const tatHrs = k.avgTat;
+
+  // Period-over-period delta: compare current half vs previous half of bucket range.
+  // For 'daily' (30 days), that's last 15 vs prior 15 — simple sanity signal.
+  function halfTotals(start, end){
+    let r = 0, d = 0, rj = 0, w = 0;
+    for (let i = start; i < end; i++){
+      r  += bucketed[i].received;
+      d  += bucketed[i].delivered;
+      rj += bucketed[i].rejected;
+      w  += bucketed[i].withinSla;
+    }
+    return { r, d, rj, w };
+  }
+  const half = Math.floor(buckets.length / 2);
+  const cur  = halfTotals(half, buckets.length);
+  const prev = halfTotals(0, half);
+  const deltaArrow = (curV, prevV) => {
+    if (!prevV) return ['', 'flat', ''];
+    const pct = ((curV - prevV) / prevV) * 100;
+    if (Math.abs(pct) < 1) return ['→ stable', 'flat', ''];
+    // Pick the right time unit so the "vs prior N units" copy makes sense
+    let unit = 'months';
+    if (PV.gran === '15days' || PV.gran === 'this_month') unit = 'days';
+    else if (PV.gran === '6weeks') unit = 'weeks';
+    return [(pct >= 0 ? '↑ ' : '↓ ') + Math.abs(pct).toFixed(0) + '%',
+            pct >= 0 ? 'up' : 'down',
+            ` vs prior ${half} ${unit}`];
+  };
+
+  const kpis = [
+    {
+      id:'total',
+      label:'Total handled',
+      value: num(k.totalReceived),
+      sub: `${num(k.totalDelivered)} delivered · ${num(k.totalRejected)} rejected`,
+      delta: deltaArrow(cur.r, prev.r),
+      drillTitle: `All handled · ${PV.user}`,
+      drillRows: rows,
+    },
+    {
+      id:'delivery',
+      label:'Delivery rate',
+      value: k.deliveryRate!=null ? k.deliveryRate.toFixed(1)+'%' : '—',
+      color:'green',
+      sub: `${num(k.totalDelivered)} of ${num(k.totalReceived)} delivered`,
+      delta: deltaArrow(cur.d, prev.d),
+      drillTitle: `Delivered · ${PV.user}`,
+      drillRows: rows.filter(isDelivered),
+    },
+    {
+      id:'rejection',
+      label:'Rejection rate',
+      value: k.rejectionRate!=null ? k.rejectionRate.toFixed(1)+'%' : '—',
+      color:'red',
+      sub: `${num(k.totalRejected)} of ${num(k.totalReceived)} rejected`,
+      delta: deltaArrow(cur.rj, prev.rj),
+      drillTitle: `Rejected · ${PV.user}`,
+      drillRows: rows.filter(isRejected),
+    },
+    {
+      id:'sla',
+      label:'SLA compliance',
+      value: k.slaCompliance!=null ? k.slaCompliance.toFixed(1)+'%' : '—',
+      color:'green',
+      sub: k.totalDelivered ? `${num(k.withinSla)} of ${num(k.totalDelivered)} within SLA` : 'no delivered records',
+      delta: deltaArrow(cur.w, prev.w),
+      drillTitle: `Within SLA · ${PV.user}`,
+      drillRows: rows.filter(r => isDelivered(r) && r.sla === 1),
+    },
+    {
+      id:'tat',
+      label:'Avg TAT',
+      value: fmtTatHrs(tatHrs),
+      color:'blue',
+      sub: k.tatRecordCount ? `from ${num(k.tatRecordCount)} records` : 'no TAT data',
+      drillTitle: `TAT records · ${PV.user}`,
+      drillRows: rows.filter(r => typeof r.tat === 'number').sort((a,b)=>(b.tat||0)-(a.tat||0)),
+    },
+  ];
+  $('perfKpis').innerHTML = kpis.map(kp => `
+    <div class="perf-kpi clickable" data-id="${esc(kp.id)}" role="button" tabindex="0">
+      <div class="kpi-arrow"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 11L11 5M6 5h5v5"/></svg></div>
+      <div class="perf-kpi-label">${esc(kp.label)}</div>
+      <div class="perf-kpi-value ${kp.color||''}">${kp.value}</div>
+    </div>
+  `).join('');
+  // Wire clicks
+  $('perfKpis').querySelectorAll('.perf-kpi.clickable').forEach(el=>{
+    const kp = kpis.find(x => x.id === el.dataset.id);
+    if (!kp) return;
+    const open = ()=> openCustomDrill(kp.drillTitle, kp.drillRows);
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault(); open();} });
+  });
+
+  // ── SLA panel ────────────────────────────────────────────────
+  const within = k.withinSla||0, out = k.outOfSla||0, totalDelivWithSla = within+out;
+  $('perfSlaNumIn').textContent  = num(within);
+  $('perfSlaNumOut').textContent = num(out);
+  $('perfSlaPctIn').textContent  = totalDelivWithSla ? ((within/totalDelivWithSla)*100).toFixed(1)+'%' : '—%';
+  $('perfSlaPctOut').textContent = totalDelivWithSla ? ((out/totalDelivWithSla)*100).toFixed(1)+'%'    : '—%';
+  $('perfSlaBarIn').style.width  = totalDelivWithSla ? (within/totalDelivWithSla*100)+'%' : '0%';
+  $('perfSlaBarOut').style.width = totalDelivWithSla ? (out/totalDelivWithSla*100)+'%'    : '0%';
+  $('perfDeliveryRate').textContent = k.deliveryRate!=null ? k.deliveryRate.toFixed(1)+'%' : '—';
+  $('perfSlaMeta').textContent = totalDelivWithSla ? `${num(totalDelivWithSla)} delivered records` : 'no delivered records';
+
+  // ── Delivery vs Rejection panel ──────────────────────────────
+  const delvTotal = k.totalDelivered||0, rejTotal = k.totalRejected||0;
+  const delvSum = delvTotal + rejTotal;  // pending isn't relevant here
+  $('perfDelvNumDone').textContent = num(delvTotal);
+  $('perfDelvNumRej').textContent  = num(rejTotal);
+  $('perfDelvPctDone').textContent = delvSum ? ((delvTotal/delvSum)*100).toFixed(1)+'%' : '—%';
+  $('perfDelvPctRej').textContent  = delvSum ? ((rejTotal/delvSum)*100).toFixed(1)+'%'  : '—%';
+  $('perfDelvBarDone').style.width = delvSum ? (delvTotal/delvSum*100)+'%' : '0%';
+  $('perfDelvBarRej').style.width  = delvSum ? (rejTotal/delvSum*100)+'%'  : '0%';
+  $('perfPendCount').textContent   = num(k.totalPending||0);
+  $('perfDelvMeta').textContent    = delvSum ? `${num(delvSum)} closed records` : 'no closed records';
+
+  // ── Efficiency trend chart ───────────────────────────────────
+  renderPerfTrend(bucketed);
+
+  // ── Enterprise-wise table ────────────────────────────────────
+  renderPerfEntTable(rows);
+
+  // ── Rejection summary table ──────────────────────────────────
+  renderPerfReasons(rows);
+}
+
+function renderPerfTrend(buckets){
+  killChart('perfTrend');
+  if (!buckets.length) return;
+  const PAL = getPal();
+  const canvas = $('cPerfTrend');
+  const labels = buckets.map(b => b.label);
+  const recv   = buckets.map(b => b.received);
+  const dlvd   = buckets.map(b => b.delivered);
+  const rejd   = buckets.map(b => b.rejected);
+  const within = buckets.map(b => b.withinSla);
+
+  // Same theme-aware gradient as the operations trend
+  function hexToRgba(hex, a){
+    const h = String(hex||'').trim().replace('#','');
+    if (h.length !== 6) return `rgba(31,63,114,${a})`;
+    const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height || 340);
+  grad.addColorStop(0, hexToRgba(PAL.accent, 0.22));
+  grad.addColorStop(1, hexToRgba(PAL.accent, 0));
+  const pointBorder = isDark ? PAL.ink : '#ffffff';
+
+  // For daily view (30 points), labels can be dense — auto-skip them but force
+  // visibility of first/last/middle so the user can orient themselves.
+  // For dense daily views (15-day or this-month), labels can crowd — let chart.js auto-skip
+  // and show data labels every Nth point so chart stays readable.
+  const isDense = PV.gran === '15days' || PV.gran === 'this_month';
+  const isDaily = isDense; // keep var name for the rest of the function
+
+  charts.perfTrend = new Chart(canvas, {
+    type:'line', plugins:[ChartDataLabels],
+    data:{ labels, datasets:[
+      { label:'Received', data:recv, borderColor:PAL.accent, backgroundColor:grad,
+        borderWidth:2.2, tension:0.35, pointRadius:isDaily?2:3, pointHoverRadius:6,
+        pointBackgroundColor:PAL.accent, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.accent, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:true,
+        datalabels:{
+          align:'top', anchor:'end', clamp:true,
+          color:PAL.ink, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? v.toLocaleString() : '',
+          padding:{top:2,bottom:2},
+        },
+      },
+      { label:'Delivered', data:dlvd, borderColor:PAL.green, backgroundColor:'transparent',
+        borderWidth:2, tension:0.35, pointRadius:isDaily?2:2.5, pointHoverRadius:5.5,
+        pointBackgroundColor:PAL.green, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.green, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:false,
+        // Delivered tends to track close to Received, so label below the point so
+        // they don't visually collide.
+        datalabels:{
+          align:'bottom', anchor:'end', clamp:true,
+          color:PAL.green, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? v.toLocaleString() : '',
+          padding:{top:1,bottom:1},
+        },
+      },
+      { label:'Rejected', data:rejd, borderColor:PAL.red, backgroundColor:'transparent',
+        borderWidth:2, tension:0.35, pointRadius:isDaily?2:2.5, pointHoverRadius:5.5,
+        pointBackgroundColor:PAL.red, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.red, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:false,
+        // Rejected is usually a low value near the x-axis; place above the point.
+        datalabels:{
+          align:'top', anchor:'end', clamp:true,
+          color:PAL.red, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? v.toLocaleString() : '',
+          padding:{top:1,bottom:1},
+        },
+      },
+      { label:'Within SLA', data:within, borderColor:PAL.teal, backgroundColor:'transparent',
+        borderWidth:1.8, tension:0.35, pointRadius:isDaily?2:2.5, pointHoverRadius:5.5,
+        pointBackgroundColor:PAL.teal, pointBorderColor:pointBorder, pointBorderWidth:0,
+        pointHoverBackgroundColor:PAL.teal, pointHoverBorderColor:pointBorder, pointHoverBorderWidth:2,
+        fill:false, borderDash:[4,3],
+        // Within-SLA shadows Delivered closely; label below as well, slightly offset.
+        datalabels:{
+          align:'bottom', anchor:'end', clamp:true,
+          color:PAL.teal, font:{family:"'JetBrains Mono',monospace", size:9, weight:'600'},
+          formatter:v=> v>0 ? v.toLocaleString() : '',
+          padding:{top:1,bottom:1},
+        },
+      },
+    ] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      layout:{ padding:{ top:18 } },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:PAL.ink, titleColor:isDark?'#0b0b0c':'#fff', bodyColor:isDark?'#0b0b0c':'#fff',
+          padding:10, displayColors:true, boxPadding:4, cornerRadius:6,
+          callbacks:{ label:c => `${c.dataset.label}: ${c.parsed.y.toLocaleString()}` },
+        },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ font:{size:11}, color:PAL.muted, autoSkip:true, maxRotation:0, maxTicksLimit:isDaily?10:12 } },
+        y:{ grid:{ color:PAL.line, drawBorder:false }, beginAtZero:true,
+            ticks:{ font:{size:11}, color:PAL.muted, precision:0, callback:v => v.toLocaleString() } },
+      },
+    },
+  });
+
+  const totals = {
+    Received:  recv.reduce((a,b)=>a+b,0),
+    Delivered: dlvd.reduce((a,b)=>a+b,0),
+    Rejected:  rejd.reduce((a,b)=>a+b,0),
+    'Within SLA': within.reduce((a,b)=>a+b,0),
+  };
+  const cols = { Received:PAL.accent, Delivered:PAL.green, Rejected:PAL.red, 'Within SLA':PAL.teal };
+  $('perfTrendLegend').innerHTML = Object.entries(totals).map(([k,v])=>
+    `<div class="trend-legend-item"><span class="ldot" style="background:${cols[k]}"></span><span>${k}: </span><span class="lval">${v.toLocaleString()}</span></div>`
+  ).join('');
+  $('perfTrendSub').textContent = ({
+    '15days':    'last 15 days',
+    this_month:  'this month',
+    '6weeks':    'last 6 weeks',
+    months:      'last 4 months',
+    year:        'last 12 months',
+  })[PV.gran] + ' · received · delivered · rejected · within SLA';
+}
+
+function renderPerfEntTable(rows){
+  // Aggregate per enterprise
+  const byEnt = {};
+  for (const r of rows){
+    const key = r.ent || '(unknown)';
+    if (!byEnt[key]) byEnt[key] = {
+      name:key, total:0, delivered:0, rejected:0, pending:0,
+      withinSla:0, outOfSla:0, tatSum:0, tatN:0,
+    };
+    const e = byEnt[key];
+    e.total++;
+    if (isDelivered(r)){
+      e.delivered++;
+      if (r.sla === 1) e.withinSla++;
+      else if (r.sla === 0) e.outOfSla++;
+    } else if (isRejected(r)) e.rejected++;
+    else e.pending++;
+    if (typeof r.tat === 'number' && isFinite(r.tat)){ e.tatSum += r.tat; e.tatN++; }
+  }
+  const list = Object.values(byEnt).map(e => ({
+    ...e,
+    deliveryRate:  e.total ? (e.delivered / e.total) * 100 : 0,
+    rejectionRate: e.total ? (e.rejected  / e.total) * 100 : 0,
+    slaPct:        e.delivered ? (e.withinSla / e.delivered) * 100 : null,
+    avgTat:        e.tatN ? (e.tatSum / e.tatN) : null,
+  }));
+
+  // Sort
+  const s = PV.entSort;
+  if (s.col){
+    list.sort((a,b)=>{
+      const av = a[s.col], bv = b[s.col];
+      const aN = av == null ? -Infinity : av;
+      const bN = bv == null ? -Infinity : bv;
+      const cmp = (typeof aN === 'number' && typeof bN === 'number')
+        ? aN - bN
+        : String(av).localeCompare(String(bv), undefined, {numeric:true, sensitivity:'base'});
+      return s.dir === 'asc' ? cmp : -cmp;
+    });
+  } else {
+    list.sort((a,b)=> b.total - a.total);
+  }
+
+  // Update sort indicators
+  $('perfEntHead').querySelectorAll('th.sortable').forEach(th=>{
+    const col = th.dataset.sort, ind = th.querySelector('.sort-ind');
+    if (s.col === col){ th.classList.add('sorted'); ind.textContent = s.dir === 'asc' ? '↑' : '↓'; }
+    else { th.classList.remove('sorted'); ind.textContent = '↕'; }
+  });
+
+  $('perfEntSub').textContent = `${num(list.length)} enterprises · click row to drill into records`;
+
+  if (!list.length){
+    $('perfEntBody').innerHTML = `<tr><td colspan="8" class="empty">No records for this user in the selected range.</td></tr>`;
+    return;
+  }
+
+  $('perfEntBody').innerHTML = list.map(e => {
+    const dRate  = e.deliveryRate;
+    const rRate  = e.rejectionRate;
+    return `<tr class="breakdown-row" data-ent="${esc(e.name)}" title="Click to see records">
+      <td class="breakdown-name">${esc(e.name)}</td>
+      <td class="num-cell">${num(e.total)}</td>
+      <td class="num-cell" style="color:var(--green)">${num(e.delivered)}</td>
+      <td class="num-cell" style="color:var(--red)">${num(e.rejected)}</td>
+      <td class="num-cell">${dRate.toFixed(1)}%<span class="pct-bar"><span class="pct-bar-fill" style="width:${dRate.toFixed(1)}%"></span></span></td>
+      <td class="num-cell">${rRate.toFixed(1)}%<span class="pct-bar"><span class="pct-bar-fill" style="width:${rRate.toFixed(1)}%;background:var(--red);"></span></span></td>
+      <td class="num-cell">${e.slaPct!=null ? e.slaPct.toFixed(1)+'%' : '—'}</td>
+      <td class="num-cell">${esc(fmtTatHrs(e.avgTat))}</td>
+    </tr>`;
+  }).join('');
+
+  // Row click → open drill modal with this user's records at this enterprise
+  $('perfEntBody').querySelectorAll('.breakdown-row').forEach(tr=>{
+    tr.addEventListener('click', ()=>{
+      const entName = tr.dataset.ent;
+      openUserEnterpriseDrill(entName, rows.filter(r => (r.ent||'(unknown)') === entName));
+    });
+  });
+}
+
+// Sort header clicks on enterprise table
+$('perfEntHead').addEventListener('click', e=>{
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const col = th.dataset.sort;
+  const s = PV.entSort;
+  if (s.col !== col){ s.col = col; s.dir = 'asc'; }
+  else if (s.dir === 'asc'){ s.dir = 'desc'; }
+  else { s.col = null; s.dir = null; }
+  renderPerformance();
+});
+
+function renderPerfReasons(rows){
+  // Count rejection reasons among this user's rejected rows
+  const counts = {};       // norm key → count
+  const displays = {};     // norm key → display string
+  let totalRej = 0;
+  for (const r of rows){
+    if (!isRejected(r)) continue;
+    totalRej++;
+    const key = normReason(r.rej) || '(no reason recorded)';
+    counts[key] = (counts[key]||0) + 1;
+    if (!displays[key]) displays[key] = r.rej ? r.rej.trim() : '(no reason recorded)';
+  }
+  const list = Object.entries(counts).map(([key,count]) => ({
+    key,
+    name: displays[key],
+    count,
+    pct: totalRej ? (count/totalRej)*100 : 0,
+  }));
+
+  // Sort
+  const s = PV.reasonSort;
+  list.sort((a,b)=>{
+    const av = a[s.col], bv = b[s.col];
+    const cmp = (typeof av === 'number' && typeof bv === 'number')
+      ? av - bv
+      : String(av).localeCompare(String(bv), undefined, {numeric:true, sensitivity:'base'});
+    return s.dir === 'asc' ? cmp : -cmp;
+  });
+
+  // Update sort indicators
+  $('perfReasonHead').querySelectorAll('th.sortable').forEach(th=>{
+    const col = th.dataset.sort, ind = th.querySelector('.sort-ind');
+    if (s.col === col){ th.classList.add('sorted'); ind.textContent = s.dir === 'asc' ? '↑' : '↓'; }
+    else { th.classList.remove('sorted'); ind.textContent = '↕'; }
+  });
+
+  $('perfReasonsSub').textContent = totalRej
+    ? `${num(totalRej)} rejections across ${num(list.length)} distinct reasons · click a reason to see records`
+    : 'No rejected records for this user in the selected range';
+
+  if (!list.length){
+    $('perfReasonBody').innerHTML = `<tr><td colspan="4" class="empty">No rejections in selected range. 🎉</td></tr>`;
+    return;
+  }
+
+  $('perfReasonBody').innerHTML = list.map(r => `
+    <tr class="reason-row" data-key="${esc(r.key)}" title="Click to see records">
+      <td class="reason-name">${esc(r.name)}</td>
+      <td class="num-cell" style="color:var(--red)">${num(r.count)}</td>
+      <td class="num-cell">${r.pct.toFixed(1)}%</td>
+      <td class="reason-bar-cell"><span class="reason-bar"><span class="reason-bar-fill" style="width:${r.pct.toFixed(1)}%"></span></span></td>
+    </tr>
+  `).join('');
+
+  $('perfReasonBody').querySelectorAll('.reason-row').forEach(tr=>{
+    tr.addEventListener('click', ()=>{
+      const key = tr.dataset.key;
+      openUserReasonDrill(key, rows.filter(r => isRejected(r) && (normReason(r.rej) || '(no reason recorded)') === key));
+    });
+  });
+}
+
+$('perfReasonHead').addEventListener('click', e=>{
+  const th = e.target.closest('th.sortable');
+  if (!th) return;
+  const col = th.dataset.sort;
+  const s = PV.reasonSort;
+  if (s.col !== col){ s.col = col; s.dir = (col === 'name' ? 'asc' : 'desc'); }
+  else if (s.dir === 'asc'){ s.dir = 'desc'; }
+  else if (s.dir === 'desc'){ s.dir = 'asc'; }
+  renderPerformance();
+});
+
+// SLA / Delivery cell clicks on performance view → open drill on user's records
+function bindPerfDrillCells(){
+  const userRowsAll = () => {
+    if (!PV.user) return [];
+    const buckets = buildPerfBuckets(PV.gran);
+    return getUserRowsInRange(buckets);
+  };
+  const openSlaIn  = ()=> openCustomDrill('Within SLA · ' + PV.user, userRowsAll().filter(r=>isDelivered(r) && r.sla===1));
+  const openSlaOut = ()=> openCustomDrill('Out of SLA · ' + PV.user, userRowsAll().filter(r=>isDelivered(r) && r.sla===0));
+  const openDelv   = ()=> openCustomDrill('Delivered · ' + PV.user,  userRowsAll().filter(isDelivered));
+  const openRej    = ()=> openCustomDrill('Rejected · ' + PV.user,   userRowsAll().filter(isRejected));
+
+  $('perfSlaCellIn').addEventListener('click',  openSlaIn);
+  $('perfSlaCellOut').addEventListener('click', openSlaOut);
+  $('perfDelvCellDone').addEventListener('click', openDelv);
+  $('perfDelvCellRej').addEventListener('click',  openRej);
+}
+
+// Lightweight drill that bypasses the global filter aggregation — uses passed-in rows directly.
+function openCustomDrill(title, rows){
+  $('modalTitle').textContent = title;
+  $('modalSub').textContent   = `${num(rows.length)} RECORDS`;
+  $('modalChips').innerHTML   = `<span class="chip">User <strong>${esc(PV.user)}</strong></span><span class="chip">${esc(({'15days':'Last 15 days',this_month:'This month','6weeks':'Last 6 weeks',months:'Last 4 months',year:'Last 12 months'})[PV.gran] || PV.gran)}</span>`;
+  $('modal').classList.add('show');
+
+  const delivered = rows.filter(isDelivered).length;
+  const rejected  = rows.filter(isRejected).length;
+  const within    = rows.filter(r => isDelivered(r) && r.sla === 1).length;
+  const out       = rows.filter(r => isDelivered(r) && r.sla === 0).length;
+  const tatN      = rows.filter(r => typeof r.tat === 'number');
+  const avgTat    = tatN.length ? tatN.reduce((s,r)=>s+r.tat, 0) / tatN.length : null;
+
+  $('modalStats').innerHTML = [
+    ['In view',     num(rows.length), ''],
+    ['Delivered',   num(delivered),   'green'],
+    ['Rejected',    num(rejected),    'red'],
+    ['Within SLA',  num(within),      'green'],
+    ['Out of SLA',  num(out),         'orange'],
+    ['Avg TAT',     fmtTatHrs(avgTat),''],
+  ].map(([l,v,c]) => `<div class="modal-stat"><span class="modal-stat-label">${esc(l)}</span><span class="modal-stat-value ${c}">${v}</span></div>`).join('');
+
+  // Use the same _modalCtx records pipeline so headers are sortable
+  _modalCtx = { type:'records', kpi:{view:'all', label:title, sub:''}, rows, sort:{col:null,dir:null} };
+  renderRecordsModal();
+}
+
+function openUserEnterpriseDrill(entName, rows){
+  openCustomDrill(`${PV.user} · ${entName}`, rows);
+}
+function openUserReasonDrill(reasonKey, rows){
+  const label = rows.length ? (rows[0].rej || '(no reason recorded)') : reasonKey;
+  openCustomDrill(`Rejected: "${label}"`, rows);
+}
+
+bindPerfDrillCells();
+
+// ─────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────
+let savedTheme = null; try { savedTheme = localStorage.getItem('opsDash_theme'); } catch(e){}
+if (savedTheme === 'dark') applyTheme(true);
+
+// Set default date filter to This Month
+const r0 = presetRange('this_month');
+F.from = r0.from; F.to = r0.to;
+
+renderKpiCards();
+bindSlaCells();
+syncDateUI();
+accSyncDateUI();
+applyLayout();
+syncFromServer();
+</script>
+</body>
+</html>
