@@ -170,7 +170,7 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
-const _diag = { withProcessed:0, fallback:0, procReplaced:0, techBlank:0, techExcluded:0, noFirstQc:0, sample:[] };
+const _diag = { withProcessed:0, fallback:0, techBlank:0, techExcluded:0, noFirstQc:0, sample:[] };
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
@@ -205,24 +205,16 @@ function mapRow(r) {
     if (pa) _diag.withProcessed++; else _diag.fallback++;
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
-  // Tech TAT = start (sku_created_on, or createdAt fallback) → tech end time:
-  //   processing_done blank                          → start (0h)
+  // Tech TAT = start (sku_created_on, or createdAt fallback) → processing_done:
+  //   processing_done blank                          → excluded (no end time, same as E2E)
   //   first_qc_done blank                            → processing_done as-is
   //   processing_done <= first_qc_done               → processing_done
-  //   processing_done >  first_qc_done (reprocessed) → first_spin_created_time
-  //       ↳ first_spin_created_time blank            → start (0h)
-  //       ↳ first_spin_created_time > first_qc_done  → excluded (no reliable tech end)
+  //   processing_done >  first_qc_done (reprocessed) → excluded
   const pdRaw = parseDate(r.processing_done);
   let techEnd = null;
-  if (!pdRaw) { techEnd = sc; _diag.techBlank++; }
+  if (!pdRaw) { techEnd = null; _diag.techBlank++; }
   else if (!fq || pdRaw <= fq) techEnd = pdRaw;
-  else {
-    _diag.procReplaced++;
-    const fsc = parseDate(r.first_spin_created_time);
-    if (!fsc) { techEnd = sc; _diag.techBlank++; }
-    else if (fsc > fq) { techEnd = null; _diag.techExcluded++; }
-    else techEnd = fsc;
-  }
+  else { techEnd = null; _diag.techExcluded++; }
   let techTat = null;
   if (sc && techEnd) {
     const ms = techEnd - sc;
@@ -325,7 +317,7 @@ async function main() {
   }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
     console.log(`[E2E] first_qc_done blank → excluded from TAT/E2E/SLA: ${_diag.noFirstQc}`);
-    console.log(`[Tech] processing_done after first QC → first_spin_created_time: ${_diag.procReplaced} | excluded (first_spin also after QC): ${_diag.techExcluded} | blank end → 0h: ${_diag.techBlank}`);
+    console.log(`[Tech] processing_done after first QC → excluded: ${_diag.techExcluded} | processing_done blank → excluded: ${_diag.techBlank}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
