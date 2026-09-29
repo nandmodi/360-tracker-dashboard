@@ -170,7 +170,7 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
-const _diag = { withProcessed:0, fallback:0, procReplaced:0, techBlank:0, sample:[] };
+const _diag = { withProcessed:0, fallback:0, procReplaced:0, techBlank:0, techExcluded:0, noFirstQc:0, sample:[] };
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
@@ -181,9 +181,13 @@ function mapRow(r) {
   const ft  = parseDate(r.final_time);
     let fq  = parseDate(r.first_qc_done);  // first QC done time
   const fqRaw = fq;
-  if (!fq) fq = ft; // fall back to final_time when first_qc_done is blank (e.g. Validation Failed before QC) — per business decision, these are NOT excluded from TAT/E2E/SLA/Fulfilment
+  // No fallback: when first_qc_done is blank the SKU is excluded from TAT/E2E/SLA
+  // (it still counts in Received/Delivered/Fulfilment, which don't use timestamps).
+  // (A final_time fallback used to apply here; removed — it produced negative E2E for
+  // re-created SKUs whose final_time predates sku_created_on.)
+  if (!fq) _diag.noFirstQc++;
 
-  // TAT = sku_created_on (or createdAt fallback) to first_qc_done (or final_time fallback)
+  // TAT = sku_created_on (or createdAt fallback) to first_qc_done
   let tat = null;
     if (sc && fq) {
           const ms = fq - sc;
@@ -201,20 +205,31 @@ function mapRow(r) {
     if (pa) _diag.withProcessed++; else _diag.fallback++;
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
-  // Tech TAT = sku_created_on (or createdAt fallback) to processing_done.
-  // processing_done is overwritten when an SKU is reprocessed after QC, so when it is later
-  // than first_qc_done (or final_time fallback) use first_spin_created_time instead.
-  // Any blank end time falls back to sc itself → 0h (same convention as TAT/E2E above).
-  let pd = parseDate(r.processing_done);
-  if (pd && fq && pd > fq) { pd = parseDate(r.first_spin_created_time); _diag.procReplaced++; }
-  if (!pd) { pd = sc; _diag.techBlank++; }
+  // Tech TAT = start (sku_created_on, or createdAt fallback) → tech end time:
+  //   processing_done blank                          → start (0h)
+  //   first_qc_done blank                            → processing_done as-is
+  //   processing_done <= first_qc_done               → processing_done
+  //   processing_done >  first_qc_done (reprocessed) → first_spin_created_time
+  //       ↳ first_spin_created_time blank            → start (0h)
+  //       ↳ first_spin_created_time > first_qc_done  → excluded (no reliable tech end)
+  const pdRaw = parseDate(r.processing_done);
+  let techEnd = null;
+  if (!pdRaw) { techEnd = sc; _diag.techBlank++; }
+  else if (!fq || pdRaw <= fq) techEnd = pdRaw;
+  else {
+    _diag.procReplaced++;
+    const fsc = parseDate(r.first_spin_created_time);
+    if (!fsc) { techEnd = sc; _diag.techBlank++; }
+    else if (fsc > fq) { techEnd = null; _diag.techExcluded++; }
+    else techEnd = fsc;
+  }
   let techTat = null;
-  if (sc && pd) {
-    const ms = pd - sc;
+  if (sc && techEnd) {
+    const ms = techEnd - sc;
     if (ms >= 0) techTat = Math.round(ms / 36000) / 100;
   }
 
-  // SLA = sku_created_on to first_qc_done (both with fallbacks above) <= 6h
+  // SLA = sku_created_on (or createdAt fallback) to first_qc_done <= 6h
   const finalStatus = (r.final_status || '').trim();
     let sla = null;
     if (tat !== null && finalStatus !== 'Under Review')
@@ -309,7 +324,8 @@ async function main() {
     process.exit(1);
   }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
-    console.log(`[Tech] processing_done after first QC → used first_spin_created_time: ${_diag.procReplaced} | blank end time (Tech TAT = 0h): ${_diag.techBlank}`);
+    console.log(`[E2E] first_qc_done blank → excluded from TAT/E2E/SLA: ${_diag.noFirstQc}`);
+    console.log(`[Tech] processing_done after first QC → first_spin_created_time: ${_diag.procReplaced} | excluded (first_spin also after QC): ${_diag.techExcluded} | blank end → 0h: ${_diag.techBlank}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
