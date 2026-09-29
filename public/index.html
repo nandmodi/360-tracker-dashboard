@@ -3278,7 +3278,7 @@ async function renderDayWiseChart(canvas, loader) {
     }
     canvas.style.display = 'block';
 
-    const labels=[], recv=[], qcDone=[], capLine=[];
+    const labels=[], recv=[], qcDone=[], capLine=[], pend=[];
     const DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
     matched.forEach(r => {
@@ -3287,6 +3287,9 @@ async function renderDayWiseChart(canvas, loader) {
       labels.push(`${DAY[d.getDay()]} ${d.getDate()}/${d.getMonth()+1}`);
       recv.push(  parseFloat(r.total_in  || r['Total In']  || 0));
       qcDone.push(parseFloat(r.total_out || r['Total Out'] || 0));
+      // Day-wise pendency = backlog at end of day (daily_summary.backlog_eod)
+      const bl = parseFloat(r.backlog_eod ?? r['Backlog EOD'] ?? r.backlog);
+      pend.push(isNaN(bl) ? null : bl);
 
       // Day-wise capacity = Σ users_on_shift × 8h × target (minus leaves)
       let cap = 0;
@@ -3325,6 +3328,13 @@ async function renderDayWiseChart(canvas, loader) {
           datalabels:{ anchor:'end', align:'start', color:PAL.green,
             font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
             formatter:v=>v>0?fmtCompact(v):'' }},
+        { label:'Pendency', data:pend, hidden:!_hlyVisible.backlog, type:'line',
+          borderColor:PAL.red, backgroundColor:'transparent',
+          borderWidth:2, tension:0.35, fill:false, borderDash:[5,3],
+          pointRadius:3, pointBackgroundColor:PAL.red, spanGaps:true,
+          datalabels:{ anchor:'end', align:'top', color:PAL.red,
+            font:{family:"'JetBrains Mono',monospace",size:9,weight:'600'},
+            formatter:v=>v!=null&&v>0?fmtCompact(v):'' }},
         { label:'Capacity', data:capLine, hidden:!_hlyVisible.cap, type:'line',
           borderColor:'#E8820A', backgroundColor:'transparent',
           borderWidth:2.5, borderDash:[6,4], stepped:'after',
@@ -3350,10 +3360,12 @@ async function renderDayWiseChart(canvas, loader) {
 
     const totalRecv  = recv.reduce((a,b)=>a+b,0);
     const totalQc    = qcDone.reduce((a,b)=>a+b,0);
+    const pendVals   = pend.filter(v=>v!=null);
     const leg = $('hourlyLegend');
     if (leg) leg.innerHTML = [
       {label:'Received', color:PAL.accent, val:fmtCompact(totalRecv)},
       {label:'QC Done',  color:PAL.green,  val:fmtCompact(totalQc)},
+      {label:'Pendency (end of day)', color:PAL.red, val: pendVals.length ? `peak ${fmtCompact(Math.max(...pendVals))} · last ${fmtCompact(pendVals[pendVals.length-1])}` : '—'},
       {label:'Capacity (8h/user)',color:'#E8820A', val:'from roster'},
     ].map(({label,color,val})=>
       `<div class="trend-legend-item"><span class="ldot" style="background:${color}"></span><span>${label}: </span><span class="lval">${val}</span></div>`
