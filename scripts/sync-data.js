@@ -206,13 +206,13 @@ function mapRow(r) {
     if (_diag.sample.length < 6 && fq) _diag.sample.push({ processedAt:r.processedAt, processed_at:r.processed_at, processed_on:r.processed_on, createdAt:r.createdAt, first_qc_done:r.first_qc_done, usedFinalTimeFallback: !fqRaw, e2e });
 
   // Tech TAT = start (sku_created_on, or createdAt fallback) → processing_done:
-  //   processing_done blank                          → excluded (no end time, same as E2E)
+  //   processing_done blank                          → sku_created_on, else createdAt (= start → 0h)
   //   first_qc_done blank                            → processing_done as-is
   //   processing_done <= first_qc_done               → processing_done
   //   processing_done >  first_qc_done (reprocessed) → excluded
   const pdRaw = parseDate(r.processing_done);
   let techEnd = null;
-  if (!pdRaw) { techEnd = null; _diag.techBlank++; }
+  if (!pdRaw) { techEnd = sc; _diag.techBlank++; }
   else if (!fq || pdRaw <= fq) techEnd = pdRaw;
   else { techEnd = null; _diag.techExcluded++; }
   let techTat = null;
@@ -317,7 +317,7 @@ async function main() {
   }
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
     console.log(`[E2E] first_qc_done blank → excluded from TAT/E2E/SLA: ${_diag.noFirstQc}`);
-    console.log(`[Tech] processing_done after first QC → excluded: ${_diag.techExcluded} | processing_done blank → excluded: ${_diag.techBlank}`);
+    console.log(`[Tech] processing_done after first QC → excluded: ${_diag.techExcluded} | processing_done blank → 0h (sku_created_on/createdAt): ${_diag.techBlank}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
