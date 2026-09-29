@@ -170,7 +170,7 @@ function getDateStr(s) {
     return d ? d.toISOString().slice(0, 10) : '';
 }
 
-const _diag = { withProcessed:0, fallback:0, techBlank:0, techExcluded:0, noFirstQc:0, sample:[] };
+const _diag = { withProcessed:0, fallback:0, techBlank:0, techExcluded:0, withLiveDate:0, preLive:0, noFirstQc:0, sample:[] };
 
 function mapRow(r) {
     const ca  = parseDate(r.createdAt);      // SKU created_at
@@ -235,6 +235,8 @@ function mapRow(r) {
   set('sc',  r.sku_created_on); // raw sku_created_on — used in Find VIN
   set('pd',  r.processing_done);         // raw processing_done — for Tech TAT audits/exports
   set('fsc', r.first_spin_created_time); // raw first_spin_created_time — for Tech TAT audits/exports
+  set('ld',  r.live_date);              // raw live_date — Reports excludes SKUs created before it from SLA/TAT/P95/P99
+  { const ld = parseDate(r.live_date); if (ld) { _diag.withLiveDate++; if (sc && sc < ld) _diag.preLive++; } }
   set('fq',  r.first_qc_done);  // raw first_qc_done — used in Find VIN
     set('u',   r.final_time);
     set('ent', r.enterprise_name);
@@ -318,6 +320,7 @@ async function main() {
     console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
     console.log(`[E2E] first_qc_done blank → excluded from TAT/E2E/SLA: ${_diag.noFirstQc}`);
     console.log(`[Tech] processing_done after first QC → excluded: ${_diag.techExcluded} | processing_done blank → 0h (sku_created_on/createdAt): ${_diag.techBlank}`);
+    console.log(`[Live date] rows with live_date: ${_diag.withLiveDate} | created before live_date (excluded in Reports SLA/TAT): ${_diag.preLive}`);
     console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
