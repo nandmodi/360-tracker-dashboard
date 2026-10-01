@@ -1704,6 +1704,7 @@ document.addEventListener('DOMContentLoaded', function(){
       <div class="f-group">
         <label class="f-label">Period</label>
         <div class="trend-tabs" id="rptGranTabs">
+          <button class="trend-tab" data-g="day" onclick="setRptGran('day')">Daily</button>
           <button class="trend-tab" data-g="week" onclick="setRptGran('week')">Weekly</button>
           <button class="trend-tab sel" data-g="month" onclick="setRptGran('month')">Monthly</button>
         </div>
@@ -5381,6 +5382,15 @@ function rptGetPeriods(allRows){
     const e=new Date(maxDate.getFullYear(),maxDate.getMonth()-i+1,1);
     periods.push({group:1,date:s,granularity:'month',period:i===0?'MTD':'M-'+i,from:s,to:e});
   }
+  // Day-wise: last 7 complete days before the latest SKU's day (local/IST midnight to midnight),
+  // labelled by date (e.g. "Sun 27/9"). The current, still-filling day is left out — same as weekly.
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const today = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
+  for (let i=1;i<=7;i++){
+    const s=new Date(today); s.setDate(today.getDate()-i);
+    const e=new Date(s); e.setDate(s.getDate()+1);
+    periods.push({group:2,date:s,granularity:'day',period:`${DOW[s.getDay()]} ${s.getDate()}/${s.getMonth()+1}`,from:s,to:e});
+  }
   return periods;
 }
 function rptInPeriod(r,p){ const d=rptRowPeriodDate(r); return d && d>=p.from && d<p.to; }
@@ -5532,7 +5542,12 @@ function rptFmtDelta(metric, cur, prev){
 function rptPeriodName(p){
   const map = { MTD:'Month to date', 'M-1':'Last month', 'M-2':'2 months back', 'M-3':'3 months back', 'M-4':'4 months back',
     WTD:'This week', 'W-1':'Last week', 'W-2':'2 weeks back', 'W-3':'3 weeks back', 'W-4':'4 weeks back' };
-  return map[p] || p;
+  if (map[p]) return map[p];
+  if (RPT.granularity === 'day'){
+    const ps = rptPeriodsOf();
+    if (ps.length && p === ps[ps.length-1]) return 'Yesterday ('+p+')';
+  }
+  return p;
 }
 function rptToneColor(t){ return t==='up' ? 'var(--green)' : t==='down' ? 'var(--red)' : 'var(--muted)'; }
 function rptStepTone(metric, prev, cur){
