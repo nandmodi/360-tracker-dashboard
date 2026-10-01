@@ -583,6 +583,29 @@
     main{ padding:10px 10px 60px; }
   }
 
+  /* ── Phone layout for Reports / Accuracy / Hourly (≤768px) ─────── */
+  @media(max-width:768px){
+    .m-stack{ grid-template-columns:1fr !important; gap:12px !important; }
+    .m-stack > *{ min-width:0; }   /* let stacked columns shrink to the screen instead of their widest label */
+    .m-wrap{ flex-wrap:wrap !important; width:100%; gap:6px !important; }
+    .hly-controls > div, #btnHlyForecast{ margin-left:0 !important; }
+    #hourlyTabs{ overflow-x:auto; flex-wrap:nowrap; max-width:100%; -webkit-overflow-scrolling:touch; }
+    #hourlyTabs .trend-tab{ flex-shrink:0; }
+    #hourlyToggles{ gap:6px !important; }
+    .hly-tog{ padding:3px 8px; font-size:10px; }
+    .trend-legend{ font-size:10px; gap:8px; flex-wrap:wrap; }
+    .rpt-glance-card{ padding:12px 14px !important; }
+    #rptCardToggles{ gap:4px !important; }
+    #rptCardToggles .rpt-chip{ font-size:11px; padding:3px 9px; }
+    #rptRecordsSearch{ min-width:0 !important; width:100%; }
+    .acc-mini-grid{ grid-template-columns:1fr; }
+    .acc-table-wrap{ max-height:360px; }
+    .panel-header > div{ max-width:100%; }
+  }
+  @media(max-width:480px){
+    .rpt-glance-card{ padding:10px 12px !important; }
+  }
+
   /* ── keep modal usable on small screens ─────────────────────── */
   @media(max-width:600px){
     .modal-stats{ gap:12px; padding:10px 14px; }
@@ -1033,7 +1056,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <h3>Hourly throughput</h3>
           <div class="panel-sub" id="hourlySub">summed by hour of day · received by created_on · qc_done by updated_on · pending = fresh + prior hour leftover</div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="m-wrap hly-controls" style="display:flex;align-items:center;gap:8px">
           <div class="trend-tabs" id="hourlyTabs">
             <button class="trend-tab sel" data-hr="today">Today</button>
             <button class="trend-tab" data-hr="yesterday">Yesterday</button>
@@ -1622,7 +1645,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <div class="panel-sub">as per date range filter · % of reviewed</div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+      <div class="m-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
         <div>
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
             <div>
@@ -1739,7 +1762,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <div id="rptCardToggles" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
         </div>
       </div>
-      <div id="rptGlanceGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;"></div>
+      <div id="rptGlanceGrid" class="m-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;"></div>
     </div>
 
     <div class="panel" data-size="full" id="rptTrendPanel" style="display:none;">
@@ -1774,7 +1797,7 @@ document.addEventListener('DOMContentLoaded', function(){
         </div>
         <div class="trend-tabs" id="rptMatrixMetricTabs"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      <div class="m-stack" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <h4 style="font-size:13px;font-weight:600;margin:0;">By region</h4>
@@ -2664,6 +2687,17 @@ function renderKpiCards(){
 // CHART HELPERS
 // ─────────────────────────────────────────────────────────────
 Chart.defaults.font.family="'Inter',sans-serif";
+// Phones: dense charts (e.g. 24 hourly points) get unreadable value labels. Show at most ~8 per
+// line and let the datalabels plugin drop any that still overlap ('auto'). Desktop unaffected;
+// datasets that set display:false keep it.
+if (window.matchMedia && window.matchMedia('(max-width:600px)').matches){
+  Chart.defaults.set('plugins.datalabels', { display: ctx => {
+    const n = (ctx.chart.data.labels || []).length;
+    if (n <= 8) return 'auto';
+    const step = Math.ceil(n / 8);
+    return (ctx.dataIndex % step === 0 || ctx.dataIndex === n - 1) ? 'auto' : false;
+  }});
+}
 function getPal(){
   const s=getComputedStyle(document.documentElement);
   return Object.fromEntries(['ink','muted','line','accent','green','amber','red','orange','purple','teal'].map(k=>[k,s.getPropertyValue('--'+k).trim()]));
