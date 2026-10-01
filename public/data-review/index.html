@@ -41,6 +41,7 @@
   body.slim .hero p,body.slim .hero .strip{display:none}
   .platbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 24px;margin:0 0 10px}
   .caplbl{font-size:12px;color:var(--muted);font-weight:700;margin-right:6px}
+  .capsep{display:inline-block;width:1px;height:18px;background:var(--line);margin:0 4px}
   .cap{background:var(--card);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;border-radius:999px;padding:7px 16px;cursor:pointer;white-space:nowrap;box-shadow:var(--shadow)}
   .cap.on{background:var(--pri);color:#fff;border-color:var(--pri)}
   .crumb{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
@@ -233,7 +234,8 @@ const nfmt = n => (n==null?'—':n.toLocaleString());
 let MONTHS=[];        // current + prev 3 (4 total), oldest -> newest
 let byMonth={};       // mk -> rows[]
 let ALL=[];           // all 4 months merged
-const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0, from:'', to:'', q:'', metric:'delivered', entQ:'', roofQ:'', entSel:'', roofSel:'', focus:'', platform:''};
+let MAXT=0;           // latest createdAt across ALL (rolling windows)
+const state={screen:'overview', input:null, ent:null, tid:null, tm:null, shown:0, page:0, from:'', to:'', q:'', metric:'delivered', entQ:'', roofQ:'', entSel:'', roofSel:'', focus:'', platform:'', inputf:''};
 const $=id=>document.getElementById(id);
 
 async function boot(){
@@ -246,6 +248,7 @@ async function boot(){
       fetch(`${DATA_BASE}/${mk}.json?t=${cb}`).then(r=>{ if(!r.ok) throw new Error(mk+'.json '+r.status); return r.json(); })));
     MONTHS.forEach((mk,i)=>{ byMonth[mk] = (res[i]&&res[i].rows)||[]; });
     ALL = []; MONTHS.forEach(mk=> ALL.push(...byMonth[mk]));
+    MAXT = ALL.reduce((m,r)=>{ const t=Date.parse(r.c)||0; return t>m?t:m; }, 0);
     $('sub').textContent = `${mlabel(MONTHS[0])} – ${mlabel(MONTHS[MONTHS.length-1])} · ${nfmt(ALL.length)} SKUs · synced ${idx.lastSynced?new Date(idx.lastSynced).toLocaleString():'—'}`;
     const del = ALL.filter(isDelivered).length;
     $('strip').innerHTML =
@@ -323,7 +326,7 @@ function reasonCard(title,sub,map,color,tr){
   return `<div class="card"><div class="rr-head"><div><h3>${title}</h3><div class="rr-sub">${sub}</div></div><div class="rr-pct"><div style="color:${color}">${hp.toFixed(1)}%</div><div class="rr-of">of reviewed · ${nfmt(cardTotal)}</div></div></div><div class="rr-list">${list}</div></div>`;
 }
 function overview(){
-  const A=ALL.filter(plat), BM=mk=>byMonth[mk].filter(plat);
+  const A=ALL.filter(r=>plat(r)&&tin(r)), BM=mk=>byMonth[mk].filter(r=>plat(r)&&tin(r));
   const tat = MONTHS.map(mk=>avgTat(BM(mk)));
   const ful = MONTHS.map(mk=>fulfil(BM(mk)));
   const entCount = new Set(A.filter(r=>r.ent).map(r=>r.ent)).size;
@@ -365,7 +368,8 @@ function overview(){
     const axis=`<line x1="${padX-2}" y1="${baseY}" x2="${W-padX+2}" y2="${baseY}" stroke="var(--line)"/>`;
     return `<div class="spark${wide?' w':''}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${area}${axis}${line}${dots}${vl}${ml}</svg></div>`; };
 
-  const ra = reasonAgg(BM(MONTHS[MONTHS.length-1]));
+  const _cut30 = MAXT - 30*86400000;
+  const ra = reasonAgg(ALL.filter(r=>(Date.parse(r.c)||0)>=_cut30 && plat(r) && tin(r)));
   return `
   <div class="grid kpis">
     <div class="card">
@@ -408,7 +412,7 @@ function overview(){
     </div>
   </div>
 
-  <div class="sec-title">Failure reasons · ${mlabel(MONTHS[MONTHS.length-1])}</div>
+  <div class="sec-title">Failure reasons · last 30 days</div>
   <div class="grid r3">
     ${reasonCard('QC Failed reasons','Blocker severity · scroll for more', ra.qc, 'var(--red)', ra.tr)}
     ${reasonCard('Validation Failed reasons','Failure reasons · scroll for more', ra.val, '#dd6b20', ra.tr)}
@@ -417,7 +421,7 @@ function overview(){
 }
 
 /* ---- screen 2: breakdown (collapsible) ---- */
-function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input && plat(r)); }
+function rowsForInput(){ return ALL.filter(r=>ttClass(r)===state.input && plat(r) && tin(r)); }
 function toggleEnt(ei){
   const rows=document.querySelectorAll('.e'+ei);
   if(!rows.length) return;
@@ -561,6 +565,7 @@ function cards(){
 
 function normVm(r){ return String(r.vm||'').trim().toUpperCase(); }
 function plat(r){ return !state.platform || normVm(r)===state.platform; }
+function tin(r){ return !state.inputf || ttClass(r)===state.inputf; }
 const PLABEL={FTP:'FTP',APP_IOS:'iOS App',APP_ANDROID:'Android App',CONSOLE:'Console',API:'API'};
 function renderChrome(){
   const pb=document.getElementById('platbar');
@@ -568,10 +573,15 @@ function renderChrome(){
     const order=['FTP','APP_IOS','APP_ANDROID','CONSOLE','API'];
     const vals=[...set].sort((a,b)=>((order.indexOf(a)+1||99)-(order.indexOf(b)+1||99)));
     const chip=(val,label)=>`<button class="cap ${state.platform===val?'on':''}" onclick="state.platform='${val}';render();window.scrollTo(0,0);">${label}</button>`;
-    pb.innerHTML='<span class="caplbl">Platform</span>'+chip('','All')+vals.map(v=>chip(v,PLABEL[v]||v)).join('');
+    const iset=new Set(); for(const r of ALL){ const c=ttClass(r); if(c) iset.add(c); }
+    const iorder=['image','video'], IL={image:'Images',video:'Video'};
+    const ivals=[...iset].sort((a,b)=>((iorder.indexOf(a)+1||9)-(iorder.indexOf(b)+1||9)));
+    const ichip=(val,label)=>`<button class="cap ${state.inputf===val?'on':''}" onclick="state.inputf='${val}';render();window.scrollTo(0,0);">${label}</button>`;
+    pb.innerHTML='<span class="caplbl">Platform</span>'+chip('','All')+vals.map(v=>chip(v,PLABEL[v]||v)).join('')
+      +'<span class="capsep"></span><span class="caplbl">Input type</span>'+ichip('','All')+ivals.map(v=>ichip(v,IL[v]||v)).join('');
   }
   const st=document.getElementById('strip');
-  if(st){ const A=ALL.filter(plat);
+  if(st){ const A=ALL.filter(r=>plat(r)&&tin(r));
     st.innerHTML=`<div><b>${nfmt(A.length)}</b>Total SKUs</div><div><b>${(fulfil(A)||0).toFixed(1)}%</b>Fulfilment</div><div><b>${(avgTat(A)||0).toFixed(1)} h</b>Avg TAT</div><div><b>${nfmt(A.filter(isDelivered).length)}</b>Delivered</div>`; }
 }
 function render(){
