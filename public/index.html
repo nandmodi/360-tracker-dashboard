@@ -1830,6 +1830,23 @@ document.addEventListener('DOMContentLoaded', function(){
       </div>
       <div class="acc-table-wrap"><table class="acc-table" id="rptRecordsTable"></table></div>
     </div>
+
+    <div class="panel" data-size="full" id="rptAffectedPanel" style="display:none;">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h3>SLA missed — SKUs</h3>
+          <div class="panel-sub" id="rptAffSub"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select id="rptAffPeriod" style="height:34px;border:1px solid var(--line);border-radius:6px;padding:0 8px;font-size:12px;background:var(--surface);color:var(--ink);"></select>
+          <div class="trend-tabs" id="rptAffMetricTabs"></div>
+          <input type="text" id="rptAffSearch" placeholder="Search VIN, SKU, client, team" style="height:34px;border:1px solid var(--line);border-radius:6px;padding:0 10px;font-size:12px;min-width:190px;">
+          <button class="btn-reset" id="rptAffCsvBtn">Download CSV</button>
+        </div>
+      </div>
+      <div class="acc-table-wrap"><table class="acc-table" id="rptAffTable"></table></div>
+      <div class="panel-sub" id="rptAffNote" style="margin-top:6px;"></div>
+    </div>
   </div><!-- /#viewReports -->
 
 </main>
@@ -5311,11 +5328,12 @@ const RPT_SEGMENTS = [
   { id:'smb', label:'SMB', prefix:'smb_' },
 ];
 const RPT_SERIES_COLORS = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'];
-const RPT_SLA_H = 6;
+const RPT_SLA_H = 6;        // E2E SLA (hours)
+const RPT_TECH_SLA_H = 3;   // Tech SLA (hours)
 
 const RPT = {
   granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
-  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false,
+  trendMetric:'sla_pct', trendSplit:'lane', colorMode:'auto', hiddenCards:new Set(), techMode:false, affPeriod:null, affMetric:'e2e', affQuery:'',
   matrixMetric:'sla_pct', matrixLane:'spin',
   drillRegion:null, recordsLane:'spin', recordsQuery:'', hidden:new Set(),
   sortCol:null, sortDir:-1,
@@ -5359,15 +5377,16 @@ function rptRowPeriodDate(r){
 // Extra TAT lines that can be overlaid on the E2E cards. Each one is computed exactly like
 // E2E (same eligible rows, same 6h SLA, same percentile method) but from its own row field.
 const RPT_OVERLAYS = [
-  { id:'tech', label:'Tech',       field:'techTat', color:'#eb6834', dash:'4 3',     mode:'techMode', toggle:'toggleRptTechMode' },
+  { id:'tech', label:'Tech',       field:'techTat', color:'#eb6834', dash:'4 3',     mode:'techMode', toggle:'toggleRptTechMode', slaH:RPT_TECH_SLA_H },
 ];
 const RPT_OVERLAY_BASES = ['sla_pct','p99_tat_hrs','p95_tat_hrs'];
 const RPT_OVERLAY_FIELDS = RPT_OVERLAYS.flatMap(o => RPT_OVERLAY_BASES.map(b => o.id+'_'+b));
-function rptTatStats(vals){
+function rptTatStats(vals, slaH){
+  slaH = slaH || RPT_SLA_H;
   if (!vals.length) return { sla:null, p99:null, p95:null };
   const sorted = [...vals].sort((a,b)=>a-b);
   const pct = p => +sorted[Math.min(sorted.length-1, Math.ceil(p*sorted.length)-1)].toFixed(2);
-  return { sla: +((vals.filter(v=>v<=RPT_SLA_H).length/vals.length)*100).toFixed(2), p99:pct(0.99), p95:pct(0.95) };
+  return { sla: +((vals.filter(v=>v<=slaH).length/vals.length)*100).toFixed(2), p99:pct(0.99), p95:pct(0.95) };
 }
 function rptIsPreLive(r){
   if (r._rptPreLive !== undefined) return r._rptPreLive;
@@ -5385,7 +5404,7 @@ function rptComputeMetrics(rows){
   const valsOf = f => eligible.map(r => (typeof r[f]==='number' && r[f]>=0) ? r[f] : null).filter(v=>v!=null);
   const main = rptTatStats(valsOf('e2e'));
   out.sla_pct = main.sla; out.p99_tat_hrs = main.p99; out.p95_tat_hrs = main.p95;
-  RPT_OVERLAYS.forEach(o => { const st = rptTatStats(valsOf(o.field));
+  RPT_OVERLAYS.forEach(o => { const st = rptTatStats(valsOf(o.field), o.slaH);
     out[o.id+'_sla_pct'] = st.sla; out[o.id+'_p99_tat_hrs'] = st.p99; out[o.id+'_p95_tat_hrs'] = st.p95; });
   const received = rows.length;
   const pending = rows.filter(isPending).length;
@@ -5491,6 +5510,7 @@ function rptComputeAll(){
   RPT.loading = true; RPT.error = null; renderReports();
   try{
     const allRows = RAW; // the dashboard's own already-loaded data — no fetch needed
+    RPT.periodObjs = rptGetPeriods(allRows);
     RPT.data.spin = rptBuildSpinOrRt(allRows, 'spin');
     RPT.data.rt = rptBuildSpinOrRt(allRows, 'rt');
     RPT.data.region = rptBuildRegion(allRows);
@@ -5659,14 +5679,14 @@ function rptSparkline(series, metric, labels, overlays){
   return svg+'</svg>';
 }
 // Compact legend that sits inside the card's header row (adds no height).
-function rptOverlayLegend(ovs){
+function rptOverlayLegend(ovs, metric){
   const sw = (html)=>`<svg width="16" height="8" viewBox="0 0 16 8" style="display:inline-block;vertical-align:middle;">${html}</svg>`;
   const item = (icon, label)=>`<span style="display:inline-flex;gap:4px;align-items:center;">${icon}${label}</span>`;
   const e2e = sw('<path d="M1 6 L8 2" stroke="var(--green,#1b7a46)" stroke-width="2" stroke-linecap="round"/><path d="M8 2 L15 5" stroke="var(--red,#b3261e)" stroke-width="2" stroke-linecap="round"/>');
   return `<span style="display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:10.5px;color:var(--muted);margin-left:10px;font-weight:400;">`
     + item(e2e,'E2E')
     + ovs.map(o => item(sw(`<path d="M1 4 L15 4" stroke="${o.color}" stroke-width="2" stroke-dasharray="${o.dash}" stroke-linecap="round"/>`),
-        esc(o.label) + (o.values.filter(v=>v!=null).length<2 ? ' <i>(no data)</i>' : ''))).join('')
+        esc(o.label) + (o.slaH && metric && metric.id==='sla_pct' ? ` ≤${o.slaH}h` : '') + (o.values.filter(v=>v!=null).length<2 ? ' <i>(no data)</i>' : ''))).join('')
     + `</span>`;
 }
 
@@ -5768,7 +5788,7 @@ function rptRenderGlance(){
         return oc ? Object.assign({}, o, { values: rptLaneSeries(lane.id, oc) }) : null;
       }).filter(Boolean);
       const graph = rptSparkline(series, m, periods, overlays);
-      const legend = overlays.length ? rptOverlayLegend(overlays) : '';
+      const legend = overlays.length ? rptOverlayLegend(overlays, m) : '';
       return `<div class="rpt-glance-card">
         <div style="display:flex;justify-content:space-between;align-items:baseline;">
           <span style="font-size:13px;font-weight:500;display:inline-flex;align-items:center;flex-wrap:wrap;">${esc(m.label)}${lane.id==='region'?' <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:4px;">avg</span>':''}${legend}</span>
@@ -5875,11 +5895,89 @@ function rptRenderRecords(){
   const dim = (rptLaneById(laneId)||{}).dim;
   const fields = rptRecordFields(laneId);
   const rows = rptRecordRows();
-  $('rptRecordsSub').textContent = `${rows.length} row${rows.length===1?'':'s'} from ${(rptLaneById(laneId)||{}).sheet||''} · sorted newest first unless you pick a column`;
+  $('rptRecordsSub').textContent = `${rows.length} row${rows.length===1?'':'s'} · ${(rptLaneById(laneId)||{}).label||''} · sorted newest first unless you pick a column`;
   $('rptRecordsLaneTabs').innerHTML = RPT_LANES.map(l => `<button class="trend-tab${l.id===RPT.recordsLane?' sel':''}" onclick="setRptRecordsLane('${l.id}')">${esc(l.label)}</button>`).join('');
   const head = `<tr><th>Period</th><th>Date</th>${dim?'<th>Region</th>':''}${fields.map(f=>`<th style="cursor:pointer;" onclick="setRptSort('${esc(f)}')">${esc(f)}${RPT.sortCol===f?(RPT.sortDir<0?' ↓':' ↑'):''}</th>`).join('')}</tr>`;
   const body = rows.map(r => `<tr><td style="font-weight:500;">${esc(r.period)}</td><td style="color:var(--muted);">${r.date?r.date.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'2-digit'}):'—'}</td>${dim?`<td>${esc(r.region||'')}</td>`:''}${fields.map(f=>{ const v=r.v[f]; return `<td>${v==null||isNaN(v)?'—':(Math.abs(v)>=100?Math.round(v).toLocaleString():v.toFixed(2))}</td>`; }).join('')}</tr>`).join('');
   $('rptRecordsTable').innerHTML = head + '<tbody>' + (rows.length ? body : `<tr><td colspan="${fields.length+3}" style="text-align:center;color:var(--muted);padding:28px;">Nothing matches that filter</td></tr>`) + '</tbody>';
+}
+// ── SLA missed — SKUs ─────────────────────────────────────────
+// Same population as the Spin card for the chosen period: TAT-eligible status, created in the
+// period (sku_created_on, createdAt fallback), segment filter, live_date and blank-time exclusions.
+const RPT_AFF_ELIGIBLE = new Set(['Delivered','QC Failed','Validation Failed','Tech Failure','AI Failed','Undelivered']);
+const RPT_AFF_RENDER_MAX = 300;
+function rptAffPeriodsForGran(){
+  return (RPT.periodObjs||[]).filter(p=>p.granularity===RPT.granularity)
+    .sort((a,b)=>rptComparePeriods(b,a));             // newest first
+}
+function rptAffData(){
+  const ps = rptAffPeriodsForGran();
+  let p = ps.find(x=>x.period===RPT.affPeriod);
+  if (!p){ p = ps[0]; RPT.affPeriod = p ? p.period : null; }
+  if (!p) return { p:null, over:[], total:0 };
+  const field = RPT.affMetric==='tech' ? 'techTat' : 'e2e';
+  const seg = RPT.segment;
+  const pool = RAW.filter(r => RPT_AFF_ELIGIBLE.has((r.fs||'').trim()) && rptInPeriod(r,p) && !rptIsPreLive(r)
+                              && (seg==='all' || rptSegKey(r.seg)===seg));
+  const withVal = pool.filter(r => typeof r[field]==='number' && r[field]>=0);
+  const slaH = RPT.affMetric==='tech' ? RPT_TECH_SLA_H : RPT_SLA_H;
+  const over = withVal.filter(r => r[field] > slaH).sort((a,b)=>b[field]-a[field]);
+  return { p, over, total:withVal.length, field, slaH };
+}
+function rptAffFmt(s){
+  if (!s) return '';
+  const d = new Date(s); if (isNaN(d) || d.getTime() < 86400000) return '';
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function rptAffRowVals(r){
+  return [r.vin||'', r.sku||'', r.ent||'', r.tm||'', r.region||'', (r.fs||'').trim(),
+          rptAffFmt(r.sc)||rptAffFmt(r.c), rptAffFmt(r.pd), rptAffFmt(r.fq),
+          typeof r.techTat==='number' ? r.techTat.toFixed(2) : '', typeof r.e2e==='number' ? r.e2e.toFixed(2) : ''];
+}
+const RPT_AFF_HEAD = ['VIN','spin_sku_id','Enterprise','Team','Region','Status','Created (start)','Processing done','First QC done','Tech (h)','E2E (h)'];
+function rptAffFiltered(over){
+  const q = RPT.affQuery.trim().toLowerCase();
+  return q ? over.filter(r => [r.vin,r.sku,r.ent,r.tm].some(v => (v||'').toLowerCase().includes(q))) : over;
+}
+function rptRenderAffected(){
+  const ps = rptAffPeriodsForGran();
+  const { p, over, total, slaH } = rptAffData();
+  const sel = $('rptAffPeriod');
+  sel.innerHTML = ps.map(x => `<option value="${esc(x.period)}"${p&&x.period===p.period?' selected':''}>${esc(rptPeriodName(x.period))}</option>`).join('');
+  $('rptAffMetricTabs').innerHTML = [['e2e','E2E'],['tech','Tech']].map(([id,l]) =>
+    `<button class="trend-tab${RPT.affMetric===id?' sel':''}" onclick="setRptAffMetric('${id}')">${l}</button>`).join('');
+  const segLabel = (RPT_SEGMENTS.find(s=>s.id===RPT.segment)||RPT_SEGMENTS[0]).label.toLowerCase();
+  const met = total ? (100*(total-over.length)/total).toFixed(1) : '—';
+  $('rptAffSub').textContent = p
+    ? `${over.length.toLocaleString()} of ${total.toLocaleString()} SKUs over ${slaH}h (${met}% met — same as the Spin card) · ${rptPeriodName(p.period)} · ${segLabel} · ${RPT.affMetric==='tech'?'Tech':'E2E'}`
+    : 'No period';
+  const rows = rptAffFiltered(over);
+  const head = '<tr>' + RPT_AFF_HEAD.map(h=>`<th>${esc(h)}</th>`).join('') + '</tr>';
+  const shown = rows.slice(0, RPT_AFF_RENDER_MAX);
+  const field = RPT.affMetric==='tech' ? 10-1 : 10;   // column index to emphasise
+  const body = shown.map(r => '<tr>' + rptAffRowVals(r).map((v,i)=>
+      `<td${i===field?' style="font-weight:600;color:var(--red);"':(i>=6&&i<=8?' style="color:var(--muted);white-space:nowrap;"':'')}>${esc(v)}</td>`).join('') + '</tr>').join('');
+  $('rptAffTable').innerHTML = head + '<tbody>' + (rows.length ? body :
+    `<tr><td colspan="${RPT_AFF_HEAD.length}" style="text-align:center;color:var(--muted);padding:24px;">${over.length?'No SKUs match the search.':'No SKUs over SLA in this period.'}</td></tr>`) + '</tbody>';
+  $('rptAffNote').textContent = rows.length > RPT_AFF_RENDER_MAX
+    ? `Showing the slowest ${RPT_AFF_RENDER_MAX} of ${rows.length.toLocaleString()} — Download CSV for the full list. Times are in your local time (IST).`
+    : 'Slowest first. Times are in your local time (IST).';
+  const s = $('rptAffSearch'); if (s && s.value !== RPT.affQuery) s.value = RPT.affQuery;
+  if (!sel._wired){ sel._wired = true; sel.addEventListener('change', e => { RPT.affPeriod = e.target.value; rptRenderAffected(); }); }
+  if (s && !s._wired){ s._wired = true; s.addEventListener('input', e => { RPT.affQuery = e.target.value; rptRenderAffected(); }); }
+  const b = $('rptAffCsvBtn'); if (b && !b._wired){ b._wired = true; b.addEventListener('click', rptAffDownloadCSV); }
+}
+function setRptAffMetric(id){ RPT.affMetric = id; rptRenderAffected(); }
+function rptAffDownloadCSV(){
+  const { p, over } = rptAffData();
+  const rows = rptAffFiltered(over);
+  const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+  const lines = [RPT_AFF_HEAD.map(q).join(',')].concat(rows.map(r => rptAffRowVals(r).map(q).join(',')));
+  const blob = new Blob(['\ufeff' + lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `sla_missed_${RPT.affMetric}_${(p?p.period:'').replace(/\s+/g,'')}_${RPT.segment}.csv`;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 function setRptRecordsLane(id){ RPT.recordsLane = id; RPT.sortCol = null; renderReports(); }
 function setRptSort(f){ if (RPT.sortCol===f) RPT.sortDir *= -1; else { RPT.sortCol=f; RPT.sortDir=-1; } rptRenderRecords(); }
@@ -5927,7 +6025,7 @@ function renderReports(){
     else syncTxt.textContent = '';
   }
   const status = $('rptStatus');
-  const panels = ['rptGlancePanel','rptTrendPanel','rptMatrixPanel','rptRecordsPanel'];
+  const panels = ['rptGlancePanel','rptTrendPanel','rptMatrixPanel','rptRecordsPanel','rptAffectedPanel'];
   const haveData = rptRaw('spin').length > 0;
 
   if (RPT.loading && !haveData){
@@ -5952,6 +6050,7 @@ function renderReports(){
   rptRenderTrend();
   rptRenderMatrix();
   rptRenderRecords();
+  rptRenderAffected();
 
   const search = $('rptRecordsSearch');
   if (search && search.value !== RPT.recordsQuery) search.value = RPT.recordsQuery;
