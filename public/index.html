@@ -4292,6 +4292,9 @@ async function syncFromServer({silent=false, force=false}={}){
           // trend) fill in immediately instead of staying stuck showing only
           // the initially-loaded recent months.
           refresh();
+          // Reports may already have been computed from the recent months only (older month files
+          // also hold SKUs whose sku_created_on falls in recent periods) — recompute on the full set.
+          if (typeof RPT !== 'undefined' && RPT.data && RPT.data.spin) rptComputeAll();
         })
         .catch(err => console.warn('[background] older-months load failed:', err));
     }
@@ -5329,7 +5332,7 @@ const RPT_SEGMENTS = [
 ];
 const RPT_SERIES_COLORS = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e34948'];
 const RPT_SLA_H = 6;        // E2E SLA (hours)
-const RPT_TECH_SLA_H = 3;   // Tech SLA (hours)
+const RPT_TECH_SLA_H = 1;   // Tech SLA (hours)
 
 const RPT = {
   granularity:'month', segment:'all', regions:new Set(), regionsInit:false,
