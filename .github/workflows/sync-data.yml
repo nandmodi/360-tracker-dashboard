@@ -1,21 +1,66 @@
 name: Sync Metabase data
 
+# Schedule policy
+#   • The workflow wakes every 30 minutes.
+#   • A small "gate" job reads lastSynced from public/data/index.json — that timestamp only moves
+#     forward when a sync succeeds and is committed.
+#       - last success < ~4h ago  → skip (no Metabase query, ~10 seconds of runner time)
+#       - last success ≥ ~4h ago  → sync
+#   • So after a success the next sync happens ~4h later, and after a failure lastSynced stays
+#     old, which makes every following 30-minute tick retry until one succeeds.
+#   • A manual "Run workflow" always syncs immediately (gate bypassed).
+
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '*/30 * * * *'
 
 permissions:
   contents: write
 
-# One sync at a time — a dashboard-triggered run and the 4-hourly schedule can't overlap
+# One sync at a time — a manual run and a scheduled tick can't overlap
 # (overlapping runs would race on the same data commit).
 concurrency:
   group: sync-data
   cancel-in-progress: false
 
+env:
+  SYNC_EVERY_MINUTES: 225   # 3h45m: a few minutes under 4h so the 30-min ticks don't drift to 4.5h
+
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Decide whether to sync
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "Manual run → sync now"; echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          LAST=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw" \
+                   "https://api.github.com/repos/$REPO/contents/public/data/index.json?ref=main" \
+                 | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastSynced',''))" 2>/dev/null || true)
+          if [ -z "$LAST" ]; then
+            echo "Could not read lastSynced → sync"; echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          AGE=$(python3 -c "from datetime import datetime,timezone; t=datetime.fromisoformat('$LAST'.replace('Z','+00:00')); print(int((datetime.now(timezone.utc)-t).total_seconds()//60))")
+          echo "Last successful sync: $LAST ($AGE min ago); threshold: $SYNC_EVERY_MINUTES min"
+          if [ "$AGE" -ge "$SYNC_EVERY_MINUTES" ]; then
+            echo "→ due (or previous attempt failed) — syncing"; echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "→ last sync is recent — skipping this tick"; echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   sync:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
