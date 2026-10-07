@@ -586,6 +586,14 @@
   /* ── Phone layout for Reports / Accuracy / Hourly (≤768px) ─────── */
   @media(max-width:768px){
     .m-stack{ grid-template-columns:1fr !important; gap:12px !important; }
+    /* Header (current markup: .brand + .actions[.view-switch, #syncInfo, badge]) */
+    header .actions{ width:100%; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+    .view-switch{ width:100%; margin-right:0 !important; overflow-x:auto; flex-shrink:1; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+    .view-switch::-webkit-scrollbar{ display:none; }
+    .view-switch button{ flex-shrink:0; white-space:nowrap; }
+    #syncInfo{ flex:1 1 auto; min-width:0; font-size:10px; white-space:normal; }
+    .auth-user-badge{ min-width:0; font-size:11px; }
+    #authUserEmail{ max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle; }
     .m-stack > *{ min-width:0; }   /* let stacked columns shrink to the screen instead of their widest label */
     .m-wrap{ flex-wrap:wrap !important; width:100%; gap:6px !important; }
     .hly-controls > div, #btnHlyForecast{ margin-left:0 !important; }
@@ -819,7 +827,6 @@ document.addEventListener('DOMContentLoaded', function(){
         <span id="authUserEmail"></span>
         <button class="auth-signout" id="authSignOutBtn">Sign out</button>
       </div>
-      <button class="btn-sync" id="syncBtn">Sync</button>
     </div>
   </header>
 
@@ -4246,8 +4253,8 @@ function refresh(){
 // SYNC / FETCH
 // ─────────────────────────────────────────────────────────────
 async function syncFromServer({silent=false, force=false}={}){
-  const btn = $('syncBtn');
-  if (!silent){ btn.disabled = true; btn.textContent = 'Syncing…'; setLoading(true, 'Connecting to Metabase…'); setLoadProgress(5); }
+  const btn = $('syncBtn') || {};   // Sync button removed — data comes only from the scheduled GitHub workflow
+  if (!silent){ btn.disabled = true; btn.textContent = 'Syncing…'; setLoading(true, 'Loading data…'); setLoadProgress(5); }
   $('errBox').innerHTML='';
   try {
     setLoadProgress(10, 'Fetching data…');
@@ -7121,58 +7128,8 @@ function renderEditControls(){
 // SYNC — only on page load / refresh / manual Sync button click.
 // (No background auto-refresh timer.)
 // ─────────────────────────────────────────────────────────────
-$('syncBtn').addEventListener('click', runRemoteSync);
-
-// Sync button → runs the GitHub "Sync Metabase data" workflow (via /api/trigger-sync, which holds
-// the GitHub token server-side), waits for it to finish and for Vercel to serve the new files,
-// then reloads the data. If a run is already in progress it follows that one instead.
-let _remoteSyncBusy = false;
-async function runRemoteSync(){
-  if (_remoteSyncBusy) return;
-  if (!confirm('Metabase se fresh data laane ke liye sync workflow chalayein?\n\nIsme lagbhag 3–5 minute lagte hain (data fetch + deploy). Tab tak dashboard purane data pe chalta rahega.')) return;
-  _remoteSyncBusy = true;
-  const btn = $('syncBtn'), token = localStorage.getItem('dashAuthSession') || '';
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const setBtn = (t, busy=true) => { btn.textContent = t; btn.disabled = busy; };
-  const before = lastSynced ? lastSynced.getTime() : 0;
-  const done = () => { _remoteSyncBusy = false; setBtn('Sync', false); };
-  try {
-    setBtn('Starting…');
-    const r = await fetch('/api/trigger-sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token }) })
-      .then(x => x.json()).catch(() => ({ ok:false, error:'Network error' }));
-    if (!r.ok){ alert('Sync start nahi ho paaya: ' + (r.error || 'unknown error')); return done(); }
-    // The run we should follow: the one just requested, or the one already running.
-    const since = r.started ? Date.parse(r.requestedAt) - 60000 : Date.parse(r.run.createdAt) - 1000;
-
-    let run = null; const t0 = Date.now();
-    while (Date.now() - t0 < 15 * 60000){
-      await sleep(15000);
-      const s = await fetch('/api/trigger-sync?token=' + encodeURIComponent(token) + '&t=' + Date.now(), { cache:'no-store' })
-        .then(x => x.json()).catch(() => null);
-      run = s && s.run;
-      if (!run || Date.parse(run.createdAt) < since){ setBtn('Starting…'); continue; }   // new run not listed yet
-      if (run.status !== 'completed'){ setBtn(run.status === 'queued' ? 'Queued…' : 'Syncing…'); continue; }
-      break;
-    }
-    if (!run || run.status !== 'completed'){ alert('Sync abhi bhi chal raha hai — thodi der baad page refresh karna.'); return done(); }
-    if (run.conclusion !== 'success'){
-      if (confirm('Sync workflow fail ho gaya (' + run.conclusion + '). Data purana hi rahega.\n\nGitHub pe log kholein?')) window.open(run.url, '_blank');
-      return done();
-    }
-    // Workflow committed new files; wait until Vercel serves them (index.json lastSynced moves forward).
-    setBtn('Deploying…');
-    const t1 = Date.now();
-    while (Date.now() - t1 < 6 * 60000){
-      const idx = await fetch('/data/index.json?t=' + Date.now(), { cache:'no-store' }).then(x => x.json()).catch(() => null);
-      if (idx && idx.lastSynced && Date.parse(idx.lastSynced) > before) break;
-      await sleep(15000);
-    }
-    _remoteSyncBusy = false;
-    await syncFromServer({ force:true });   // reloads data and resets the button
-  } catch (e){
-    console.error('[sync]', e); alert('Sync mein error: ' + e.message); done();
-  }
-}
+// Manual Sync button removed: data refreshes only via the scheduled GitHub workflow
+// (.github/workflows/sync-data.yml — every 4h after a success, retried every 30 min after a failure).
 
 function setLoading(on, msg='Loading…'){
   $('loadOverlay').classList.toggle('show', on);
