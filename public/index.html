@@ -1944,6 +1944,17 @@ function videoLink(url){
 // ─────────────────────────────────────────────────────────────
 const RAW = [];                 // all rows from server (parsed once)
 let lastSynced = null;
+// Time the data files were last written by the GitHub sync (index.json → lastSynced), shown in local time (IST).
+function fmtDataSync(d){
+  if (!d || isNaN(d)) return '—';
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], pad=n=>String(n).padStart(2,'0');
+  return `${d.getDate()} ${M[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function setSyncInfo(){
+  const el = $('syncInfo'); if (!el) return;
+  el.textContent = 'Data synced ' + fmtDataSync(lastSynced) + ' · ' + num(RAW.length) + ' rows';
+  el.title = 'Data last synced from Metabase: ' + (lastSynced ? lastSynced.toLocaleString() : 'unknown') + '\nPage loaded: ' + new Date().toLocaleString();
+}
 let isDark = false;
 let editMode = false;
 let trendRange = 'months';      // '15days' | 'this_month' | 'months' | 'year'
@@ -4286,7 +4297,7 @@ async function syncFromServer({silent=false, force=false}={}){
             }
           }
           console.log(`[background] loaded ${olderMonths.length} older month(s), RAW now ${RAW.length} rows`);
-          $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+          setSyncInfo();
           // Refresh the current view now that the fuller dataset has landed —
           // needed so "since April"-style charts (Throughput trend, Accuracy
           // trend) fill in immediately instead of staying stuck showing only
@@ -4325,8 +4336,8 @@ async function syncFromServer({silent=false, force=false}={}){
     console.log('[debug] Under Review in RAW='+urRaw+' | after date filter='+urFiltered);
     console.log('[debug] F.from='+F.from?.toISOString()+' F.to='+F.to?.toISOString());
     if(RAW[0]) console.log('[debug] sample c='+RAW[0].c+' _created='+RAW[0]._created?.toISOString());
-    lastSynced = data.lastSynced ? new Date(data.lastSynced) : new Date();
-    $('syncInfo').textContent = 'Synced '+ new Date().toLocaleTimeString() + ' · ' + num(RAW.length) + ' rows';
+    lastSynced = data.lastSynced ? new Date(data.lastSynced) : null;
+    setSyncInfo();
 
     // Diagnostic: log monthly counts so you can compare against the source CSV.
     // Open the browser console to see it.
@@ -5518,7 +5529,7 @@ function rptComputeAll(){
     RPT.data.rt = rptBuildSpinOrRt(allRows, 'rt');
     RPT.data.region = rptBuildRegion(allRows);
     if (!RPT.regionsInit){ rptAllRegions().forEach(r=>rptRegSet().add(r)); RPT.regionsInit = true; }
-    RPT.synced = new Date();
+    RPT.synced = lastSynced;
   }catch(err){ RPT.error = err.message || String(err); }
   RPT.loading = false; renderReports();
 }
@@ -6024,7 +6035,7 @@ function renderReports(){
   if (syncTxt){
     if (RPT.error) syncTxt.textContent = 'Sheet unreachable';
     else if (RPT.loading) syncTxt.textContent = 'Computing…';
-    else if (RPT.synced) syncTxt.textContent = 'Synced ' + RPT.synced.toLocaleTimeString();
+    else if (RPT.synced) syncTxt.textContent = 'Data synced ' + fmtDataSync(RPT.synced);
     else syncTxt.textContent = '';
   }
   const status = $('rptStatus');
@@ -7110,9 +7121,58 @@ function renderEditControls(){
 // SYNC — only on page load / refresh / manual Sync button click.
 // (No background auto-refresh timer.)
 // ─────────────────────────────────────────────────────────────
-$('syncBtn').addEventListener('click', async()=>{
-  await syncFromServer({force:true});
-});
+$('syncBtn').addEventListener('click', runRemoteSync);
+
+// Sync button → runs the GitHub "Sync Metabase data" workflow (via /api/trigger-sync, which holds
+// the GitHub token server-side), waits for it to finish and for Vercel to serve the new files,
+// then reloads the data. If a run is already in progress it follows that one instead.
+let _remoteSyncBusy = false;
+async function runRemoteSync(){
+  if (_remoteSyncBusy) return;
+  if (!confirm('Metabase se fresh data laane ke liye sync workflow chalayein?\n\nIsme lagbhag 3–5 minute lagte hain (data fetch + deploy). Tab tak dashboard purane data pe chalta rahega.')) return;
+  _remoteSyncBusy = true;
+  const btn = $('syncBtn'), token = localStorage.getItem('dashAuthSession') || '';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const setBtn = (t, busy=true) => { btn.textContent = t; btn.disabled = busy; };
+  const before = lastSynced ? lastSynced.getTime() : 0;
+  const done = () => { _remoteSyncBusy = false; setBtn('Sync', false); };
+  try {
+    setBtn('Starting…');
+    const r = await fetch('/api/trigger-sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token }) })
+      .then(x => x.json()).catch(() => ({ ok:false, error:'Network error' }));
+    if (!r.ok){ alert('Sync start nahi ho paaya: ' + (r.error || 'unknown error')); return done(); }
+    // The run we should follow: the one just requested, or the one already running.
+    const since = r.started ? Date.parse(r.requestedAt) - 60000 : Date.parse(r.run.createdAt) - 1000;
+
+    let run = null; const t0 = Date.now();
+    while (Date.now() - t0 < 15 * 60000){
+      await sleep(15000);
+      const s = await fetch('/api/trigger-sync?token=' + encodeURIComponent(token) + '&t=' + Date.now(), { cache:'no-store' })
+        .then(x => x.json()).catch(() => null);
+      run = s && s.run;
+      if (!run || Date.parse(run.createdAt) < since){ setBtn('Starting…'); continue; }   // new run not listed yet
+      if (run.status !== 'completed'){ setBtn(run.status === 'queued' ? 'Queued…' : 'Syncing…'); continue; }
+      break;
+    }
+    if (!run || run.status !== 'completed'){ alert('Sync abhi bhi chal raha hai — thodi der baad page refresh karna.'); return done(); }
+    if (run.conclusion !== 'success'){
+      if (confirm('Sync workflow fail ho gaya (' + run.conclusion + '). Data purana hi rahega.\n\nGitHub pe log kholein?')) window.open(run.url, '_blank');
+      return done();
+    }
+    // Workflow committed new files; wait until Vercel serves them (index.json lastSynced moves forward).
+    setBtn('Deploying…');
+    const t1 = Date.now();
+    while (Date.now() - t1 < 6 * 60000){
+      const idx = await fetch('/data/index.json?t=' + Date.now(), { cache:'no-store' }).then(x => x.json()).catch(() => null);
+      if (idx && idx.lastSynced && Date.parse(idx.lastSynced) > before) break;
+      await sleep(15000);
+    }
+    _remoteSyncBusy = false;
+    await syncFromServer({ force:true });   // reloads data and resets the button
+  } catch (e){
+    console.error('[sync]', e); alert('Sync mein error: ' + e.message); done();
+  }
+}
 
 function setLoading(on, msg='Loading…'){
   $('loadOverlay').classList.toggle('show', on);
