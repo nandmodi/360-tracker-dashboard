@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# One sync at a time — a dashboard-triggered run and the 4-hourly schedule can't overlap
+# (overlapping runs would race on the same data commit).
+concurrency:
+  group: sync-data
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
